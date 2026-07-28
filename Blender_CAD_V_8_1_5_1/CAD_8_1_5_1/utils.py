@@ -1009,6 +1009,161 @@ def _handle_settle(cad_cols, modal_ended, activity_ended, is_fast_mode, is_trans
             _last_change_time = 0
 
 
+def _handle_nonmodal_sync(cad_cols, is_transform_modal):
+    """非モーダル同期フェーズ: 削除されたプロキシの掃除と proxy -> prim の書き戻し。
+
+    depsgraph_update_handler から挙動を変えずに切り出したもの
+    (DEPSGRAPH_STATE_MACHINE.md のフェーズ表 #6)。変化のあった
+    コレクションの集合を返す。
+    """
+    global _is_updating_proxies
+
+    # --- 通常時(モーダル外)の同期処理 ---
+    changed_cols = set()
+    
+    # 各 CAD コレクションを順に見て、更新の有無を判定する
+    for col in cad_cols:
+        props = col.seamless_props
+        if not props:
+            continue
+            
+        # ドラッグ中フラグ。ここは is_transform_modal のみを見る(is_recent_change は
+        # 意図的に含めない)。かつて「直近も変化し続けている proxy 更新もドラッグとみなす」
+        # 案があったが、それだと L996-999 と同じ latch 問題を起こし、WGPU Overlay OFF 時に
+        # Python ワイヤーフレームが消える。広げる方向の変更は H の回帰確認が必須。
+        props.is_dragging = is_transform_modal
+
+        # A. 削除されたプロキシに対応するプリミティブを掃除する(変形中は行わない)
+        if not is_transform_modal:
+            all_proxy_uuids = {obj.get("primitive_uuid") for obj in col.objects if obj.get("is_seamless_proxy")}
+            indices_to_remove = []
+            removed_uuids = []
+            for i, prim in enumerate(props.primitives):
+                if prim.uuid and prim.uuid not in all_proxy_uuids:
+                    indices_to_remove.append(i)
+                    removed_uuids.append(prim.uuid)
+            
+            if indices_to_remove:
+                _is_updating_proxies = True
+                try:
+                    for idx in reversed(indices_to_remove):
+                        props.primitives.remove(idx)
+                    if props.active_primitive_index >= len(props.primitives):
+                        props.active_primitive_index = max(0, len(props.primitives) - 1)
+                    
+                    # 削除された UUID を描画エンジンの非表示集合へ入れ、ワイヤーを即座に消す
+                    from .drawing import get_wireframe_engine
+                    engine = get_wireframe_engine()
+                    for u in removed_uuids:
+                        engine.hidden_primitive_uuids.add(u)
+                    
+                    stack_ptr = int(getattr(col, "seamless_cad_stack_ptr", "0"))
+                    if stack_ptr != 0:
+                        selected_f_ids = set(x.strip() for x in props.selected_faces_str.split("|") if x.strip())
+                        engine.update_face_data(
+                            stack_ptr, 
+                            engine.get_stack(stack_ptr)._cache_verts,
+                            engine.get_stack(stack_ptr)._cache_tris,
+                            engine.get_stack(stack_ptr)._cache_fids,
+                            engine.get_stack(stack_ptr)._cache_counts,
+                            opacity=props.viewport_opacity,
+                            selected_f_ids=selected_f_ids
+                        )
+                        for window in bpy.context.window_manager.windows:
+                            for area in window.screen.areas:
+                                if area.type == 'VIEW_3D':
+                                    area.tag_redraw()
+
+                    changed_cols.add(col)
+                finally:
+                    _is_updating_proxies = False
+                continue
+
+        # B. 既存プロキシの全走査
+        import uuid
+        for prim in props.primitives:
+            if not prim.uuid:
+                prim.uuid = str(uuid.uuid4())[:8]
+                
+        uuid_to_prim = {prim.uuid: prim for prim in props.primitives}
+        proxy_data = []
+        
+        for obj in col.objects:
+            if obj.get("is_seamless_proxy"):
+                p_uuid = obj.get("primitive_uuid")
+                if p_uuid in uuid_to_prim:
+                    # INSTANCE 等も含め、実際の値は matrix_world から読む
+                    # (このループ内で選択状態を触ると変形が壊れるので参照のみ)
+                    proxy_data.append({
+                        "prim": uuid_to_prim[p_uuid],
+                        "world_loc": obj.matrix_world.to_translation(),
+                        "world_rot": obj.matrix_world.to_euler(),
+                        "world_scale": obj.matrix_world.to_scale(),
+                        "name": obj.name
+                    })
+
+        col_changed = False
+        _is_updating_proxies = True
+        try:
+            for data in proxy_data:
+                prim = data["prim"]
+                world_loc, world_rot, world_scale = data["world_loc"], data["world_rot"], data["world_scale"]
+                
+                EPSILON = 5e-4
+                obj = col.objects.get(data["name"])
+                is_independent = prim.use_independent_transform and obj and obj.parent
+                group_parent_prim = _get_group_parent_prim(obj, uuid_to_prim)
+                active_uuid = ""
+                if 0 <= props.active_primitive_index < len(props.primitives):
+                    active_uuid = props.primitives[props.active_primitive_index].uuid
+                is_group_follow = bool(
+                    group_parent_prim and
+                    prim.uuid != active_uuid
+                )
+                
+                if not is_independent:
+                    if prim.type in ('STEP_PART', 'SVG_PART'):
+                        uniform_scale = _extract_uniform_scale(world_scale)
+                        target_scale = mathutils.Vector((uniform_scale, uniform_scale, uniform_scale))
+                        scale_changed = (target_scale - mathutils.Vector(prim.size)).length > EPSILON
+                    else:
+                        uniform_scale = None
+                        scale_changed = (world_scale - mathutils.Vector(prim.size)).length > EPSILON
+                    if (world_loc - mathutils.Vector(prim.location)).length > EPSILON or \
+                       (mathutils.Vector(world_rot) - mathutils.Vector(prim.rotation)).length > EPSILON or \
+                       (scale_changed):
+                         
+                        # 変形量の差分行列を作り、GPU 側のワイヤー/面をその場で動かす
+                        try:
+                            old_world = _compose_prim_world_matrix(prim)
+                            delta_matrix = obj.matrix_world @ old_world.inverted()
+                            from .drawing import get_wireframe_engine
+                            stack_ptr = int(getattr(col, "seamless_cad_stack_ptr", "0"))
+                            if stack_ptr != 0:
+                                get_wireframe_engine().set_transform_delta(stack_ptr, delta_matrix)
+                        except Exception:
+                            pass
+
+                        prim.location = world_loc
+                        prim.rotation = world_rot
+                        if prim.type in ('STEP_PART', 'SVG_PART'):
+                            _set_step_part_uniform_scale(prim, uniform_scale)
+                        else:
+                            prim.size = world_scale
+                        col_changed = True
+                
+                if prim.name != data["name"]:
+                    prim.name = data["name"]
+                    col_changed = True
+        finally:
+            _is_updating_proxies = False
+            
+        if col_changed:
+            changed_cols.add(col)
+
+    return changed_cols
+
+
 def depsgraph_update_handler(scene, depsgraph):
     global _is_updating_proxies, _was_transform_modal, _was_recent_change, _proxy_initial_matrices, _pending_step_scales
     if _is_updating_proxies: 
@@ -1183,148 +1338,7 @@ def depsgraph_update_handler(scene, depsgraph):
         _was_recent_change = is_recent_change
         return
 
-    # --- 通常時(モーダル外)の同期処理 ---
-    changed_cols = set()
-    
-    # 各 CAD コレクションを順に見て、更新の有無を判定する
-    for col in cad_cols:
-        props = col.seamless_props
-        if not props:
-            continue
-            
-        # ドラッグ中フラグ。ここは is_transform_modal のみを見る(is_recent_change は
-        # 意図的に含めない)。かつて「直近も変化し続けている proxy 更新もドラッグとみなす」
-        # 案があったが、それだと L996-999 と同じ latch 問題を起こし、WGPU Overlay OFF 時に
-        # Python ワイヤーフレームが消える。広げる方向の変更は H の回帰確認が必須。
-        props.is_dragging = is_transform_modal
-
-        # A. 削除されたプロキシに対応するプリミティブを掃除する(変形中は行わない)
-        if not is_transform_modal:
-            all_proxy_uuids = {obj.get("primitive_uuid") for obj in col.objects if obj.get("is_seamless_proxy")}
-            indices_to_remove = []
-            removed_uuids = []
-            for i, prim in enumerate(props.primitives):
-                if prim.uuid and prim.uuid not in all_proxy_uuids:
-                    indices_to_remove.append(i)
-                    removed_uuids.append(prim.uuid)
-            
-            if indices_to_remove:
-                _is_updating_proxies = True
-                try:
-                    for idx in reversed(indices_to_remove):
-                        props.primitives.remove(idx)
-                    if props.active_primitive_index >= len(props.primitives):
-                        props.active_primitive_index = max(0, len(props.primitives) - 1)
-                    
-                    # 削除された UUID を描画エンジンの非表示集合へ入れ、ワイヤーを即座に消す
-                    from .drawing import get_wireframe_engine
-                    engine = get_wireframe_engine()
-                    for u in removed_uuids:
-                        engine.hidden_primitive_uuids.add(u)
-                    
-                    stack_ptr = int(getattr(col, "seamless_cad_stack_ptr", "0"))
-                    if stack_ptr != 0:
-                        selected_f_ids = set(x.strip() for x in props.selected_faces_str.split("|") if x.strip())
-                        engine.update_face_data(
-                            stack_ptr, 
-                            engine.get_stack(stack_ptr)._cache_verts,
-                            engine.get_stack(stack_ptr)._cache_tris,
-                            engine.get_stack(stack_ptr)._cache_fids,
-                            engine.get_stack(stack_ptr)._cache_counts,
-                            opacity=props.viewport_opacity,
-                            selected_f_ids=selected_f_ids
-                        )
-                        for window in bpy.context.window_manager.windows:
-                            for area in window.screen.areas:
-                                if area.type == 'VIEW_3D':
-                                    area.tag_redraw()
-
-                    changed_cols.add(col)
-                finally:
-                    _is_updating_proxies = False
-                continue
-
-        # B. 既存プロキシの全走査
-        import uuid
-        for prim in props.primitives:
-            if not prim.uuid:
-                prim.uuid = str(uuid.uuid4())[:8]
-                
-        uuid_to_prim = {prim.uuid: prim for prim in props.primitives}
-        proxy_data = []
-        
-        for obj in col.objects:
-            if obj.get("is_seamless_proxy"):
-                p_uuid = obj.get("primitive_uuid")
-                if p_uuid in uuid_to_prim:
-                    # INSTANCE 等も含め、実際の値は matrix_world から読む
-                    # (このループ内で選択状態を触ると変形が壊れるので参照のみ)
-                    proxy_data.append({
-                        "prim": uuid_to_prim[p_uuid],
-                        "world_loc": obj.matrix_world.to_translation(),
-                        "world_rot": obj.matrix_world.to_euler(),
-                        "world_scale": obj.matrix_world.to_scale(),
-                        "name": obj.name
-                    })
-
-        col_changed = False
-        _is_updating_proxies = True
-        try:
-            for data in proxy_data:
-                prim = data["prim"]
-                world_loc, world_rot, world_scale = data["world_loc"], data["world_rot"], data["world_scale"]
-                
-                EPSILON = 5e-4
-                obj = col.objects.get(data["name"])
-                is_independent = prim.use_independent_transform and obj and obj.parent
-                group_parent_prim = _get_group_parent_prim(obj, uuid_to_prim)
-                active_uuid = ""
-                if 0 <= props.active_primitive_index < len(props.primitives):
-                    active_uuid = props.primitives[props.active_primitive_index].uuid
-                is_group_follow = bool(
-                    group_parent_prim and
-                    prim.uuid != active_uuid
-                )
-                
-                if not is_independent:
-                    if prim.type in ('STEP_PART', 'SVG_PART'):
-                        uniform_scale = _extract_uniform_scale(world_scale)
-                        target_scale = mathutils.Vector((uniform_scale, uniform_scale, uniform_scale))
-                        scale_changed = (target_scale - mathutils.Vector(prim.size)).length > EPSILON
-                    else:
-                        uniform_scale = None
-                        scale_changed = (world_scale - mathutils.Vector(prim.size)).length > EPSILON
-                    if (world_loc - mathutils.Vector(prim.location)).length > EPSILON or \
-                       (mathutils.Vector(world_rot) - mathutils.Vector(prim.rotation)).length > EPSILON or \
-                       (scale_changed):
-                         
-                        # 変形量の差分行列を作り、GPU 側のワイヤー/面をその場で動かす
-                        try:
-                            old_world = _compose_prim_world_matrix(prim)
-                            delta_matrix = obj.matrix_world @ old_world.inverted()
-                            from .drawing import get_wireframe_engine
-                            stack_ptr = int(getattr(col, "seamless_cad_stack_ptr", "0"))
-                            if stack_ptr != 0:
-                                get_wireframe_engine().set_transform_delta(stack_ptr, delta_matrix)
-                        except Exception:
-                            pass
-
-                        prim.location = world_loc
-                        prim.rotation = world_rot
-                        if prim.type in ('STEP_PART', 'SVG_PART'):
-                            _set_step_part_uniform_scale(prim, uniform_scale)
-                        else:
-                            prim.size = world_scale
-                        col_changed = True
-                
-                if prim.name != data["name"]:
-                    prim.name = data["name"]
-                    col_changed = True
-        finally:
-            _is_updating_proxies = False
-            
-        if col_changed:
-            changed_cols.add(col)
+    changed_cols = _handle_nonmodal_sync(cad_cols, is_transform_modal)
             
     # --- 変形終了の検出 ---
     if not "_was_recent_change" in globals(): _was_recent_change = False
