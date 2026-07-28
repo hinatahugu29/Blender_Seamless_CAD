@@ -14,9 +14,11 @@ SVG インポートが10バージョン以上にわたり無言で壊れてい�
 """
 
 import argparse
+import ast
 import datetime
 import os
 import re
+import subprocess
 import sys
 import zipfile
 
@@ -47,6 +49,11 @@ REQUIRED_PATHS = [
     "cad_server.exe",
 ]
 
+# libs/ を sys.path に載せた状態で実際に import できることを確かめる対象。
+# REQUIRED_PATHS の「ファイルがある」より一段強い検査で、パッケージ内部の
+# サブモジュール欠落(8.1.2.5 の事故そのもの)まで捕まえる。
+IMPORTABLE_MODULES = ["svgwrite", "svgpathtools"]
+
 
 def read_bl_info_version(cad_dir):
     """bl_info の version を __init__.py から読む(import せずにテキスト解析)。"""
@@ -57,6 +64,70 @@ def read_bl_info_version(cad_dir):
     if not m:
         return None
     return ".".join(part.strip() for part in m.group(1).split(","))
+
+
+def check_syntax(cad_dir):
+    """同梱する全 .py が構文的に読めることを確かめる。
+
+    出荷物に壊れた .py が紛れても、Blender が import しない限り誰も気付かない。
+    ここで機械的に弾く。encoding は utf-8-sig(一部の同梱ライブラリは BOM 付き)。
+    """
+    problems = []
+    for dirpath, dirnames, filenames in os.walk(cad_dir):
+        dirnames[:] = [d for d in dirnames if d not in EXCLUDE_DIRS]
+        for name in filenames:
+            if not name.endswith(".py"):
+                continue
+            path = os.path.join(dirpath, name)
+            rel = os.path.relpath(path, cad_dir).replace(os.sep, "/")
+            try:
+                with open(path, encoding="utf-8-sig") as f:
+                    ast.parse(f.read(), filename=path)
+            except SyntaxError as e:
+                problems.append(f"syntax error in {rel}:{e.lineno}: {e.msg}")
+            except (OSError, UnicodeDecodeError) as e:
+                problems.append(f"unreadable python file {rel}: {e}")
+    return problems
+
+
+def check_vendored_imports(cad_dir):
+    """libs/ の同梱ライブラリが実際に import できることを別プロセスで確かめる。
+
+    vendor_libs.py と同じく sys.path の *末尾* に libs/ を足す(先頭に挿すと
+    同梱 numpy が Blender の numpy を隠すため、本番と条件が変わる)。
+    """
+    libs_dir = os.path.join(cad_dir, "libs")
+    if not os.path.isdir(libs_dir):
+        return ["libs/ directory is missing"]
+
+    code = (
+        "import sys, importlib\n"
+        "sys.path.append(sys.argv[1])\n"
+        "for name in sys.argv[2:]:\n"
+        "    try:\n"
+        "        importlib.import_module(name)\n"
+        "    except Exception as e:\n"
+        "        print(f'{name}\\t{type(e).__name__}: {e}')\n"
+    )
+    try:
+        proc = subprocess.run(
+            [sys.executable, "-c", code, libs_dir, *IMPORTABLE_MODULES],
+            capture_output=True, text=True, timeout=120,
+        )
+    except (OSError, subprocess.SubprocessError) as e:
+        return [f"could not run the vendored-import check: {e}"]
+
+    problems = []
+    for line in proc.stdout.splitlines():
+        if "\t" in line:
+            name, err = line.split("\t", 1)
+            problems.append(f"vendored module {name!r} failed to import: {err}")
+    if proc.returncode != 0 and not problems:
+        problems.append(
+            f"vendored-import check exited {proc.returncode}: "
+            f"{proc.stderr.strip()[:300]}"
+        )
+    return problems
 
 
 def preflight(cad_dir):
@@ -87,6 +158,9 @@ def preflight(cad_dir):
             if any(ch in text for ch in moji):
                 rel = os.path.relpath(path, cad_dir)
                 problems.append(f"mojibake (double-encoded) text in {rel}")
+
+    problems.extend(check_syntax(cad_dir))
+    problems.extend(check_vendored_imports(cad_dir))
 
     return problems
 
