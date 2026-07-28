@@ -1063,7 +1063,7 @@ def depsgraph_update_handler(scene, depsgraph):
                     p_uuid = obj.get("primitive_uuid")
                     p_idx = obj.get("primitive_index")
                     
-                    if p_uuid and 0 <= p_idx < len(props.primitives):
+                    if p_uuid and p_idx is not None and 0 <= p_idx < len(props.primitives):
                         prim = props.primitives[p_idx]
                         if prim.uuid == p_uuid:
                             world_loc = obj.matrix_world.to_translation()
@@ -1146,9 +1146,10 @@ def depsgraph_update_handler(scene, depsgraph):
         if not props:
             continue
             
-        # ドラッグ中フラグ。is_transform_modal は進行中のネイティブ変形を取りこぼす
-        # ため、直近も変化し続けている proxy 更新(is_recent_change かつ has_proxy_update)
-        # もドラッグとみなす。これで結果ワイヤーの描画スキップ(細い)が変形中ずっと効く。
+        # ドラッグ中フラグ。ここは is_transform_modal のみを見る(is_recent_change は
+        # 意図的に含めない)。かつて「直近も変化し続けている proxy 更新もドラッグとみなす」
+        # 案があったが、それだと L996-999 と同じ latch 問題を起こし、WGPU Overlay OFF 時に
+        # Python ワイヤーフレームが消える。広げる方向の変更は H の回帰確認が必須。
         props.is_dragging = is_transform_modal
 
         # A. 削除されたプロキシに対応するプリミティブを掃除する(変形中は行わない)

@@ -2,7 +2,10 @@
 
 > 目的: `utils.depsgraph_update_handler` を中心とする「ドラッグ/変形 → 確定」の状態遷移を
 > 外部化し、**バグを見つけやすくする**ための地図。コードは変更していない。
-> 参照はすべて `CAD_8_1_5_1/utils.py` の行番号(2026-07-19 時点)。
+> 参照はすべて `CAD_8_1_5_1/utils.py` の行番号(**2026-07-19 時点**)。
+>
+> ⚠️ 以降 §1〜§3 の行番号は現状より **5〜7 行ずれている**(handler 本体は現在 L966-1383)。
+> §4 のみ 2026-07-28 に現状の行番号へ更新済み。
 
 ---
 
@@ -105,31 +108,28 @@ stateDiagram-v2
 
 ## 4. ⚠️ 検証が必要な箇所(コメントとコードのズレ / 要注意点)
 
-### 4-1. `props.is_dragging` の代入がコメントと食い違う ★要判断
-`L1141-1147`:
-```python
-# ドラッグ中フラグ。is_transform_modal は進行中のネイティブ変形を取りこぼす
-# ため、直近も変化し続けている proxy 更新(is_recent_change かつ has_proxy_update)
-# もドラッグとみなす。これで結果ワイヤーの描画スキップ(細い)が変形中ずっと効く。
-props.is_dragging = is_transform_modal
-```
-- **コメントの意図**: 「is_recent_change かつ has_proxy_update もドラッグとみなす」
-- **実際のコード**: `props.is_dragging = is_transform_modal`(is_recent_change を見ていない)
+### 4-1. `props.is_dragging` の代入がコメントと食い違う ✅ 解決済(2026-07-28)
+**結論: コードが正・コメントが古い残骸だった。コメント側を実態に合わせた。**
 
-非モーダル経路では `is_dragging=False` に固定されるため、`L1319` の
-`(is_transform_modal or is_dragging)` が False となり **fast preview が発行されない**。
-つまり「ネイティブ変形を取りこぼした純ヒューリスティック・ドラッグ」時は、コメントが謳う
-挙動になっていない可能性がある。元の意図はおそらく:
-```python
-props.is_dragging = is_transform_modal or (is_recent_change and has_proxy_update)
-```
-だったと推測。**どちらが正か(コメントを消す/コードを直す)を実機で要確認。** これは
-「ドラッグによって重かったり軽かったり」の体感差の一因になりうる。
+当時のコメント(`L1141-1147`)は「is_recent_change かつ has_proxy_update もドラッグとみなす」と
+書いていたが、コードは `props.is_dragging = is_transform_modal` のみだった。
 
-### 4-2. `0 <= p_idx` の None ガード欠落(潜在エラー)
-`L1058`: `if p_uuid and 0 <= p_idx < len(props.primitives):` で
-`p_idx = obj.get("primitive_index")` が `None` だと `TypeError`。通常は全プロキシに index が
-付くため発生しにくいが、`p_idx is not None and 0 <= p_idx` にすると防御的。
+判断の決め手は**すぐ上 `L996-999` の英語コメント**。active_operator が Move/Resize の redo パネル
+表示中も立ちっぱなしになる問題への後付け修正で、そこにこう記録されている:
+
+> そうしないと **is_dragging が latch したままになり、WGPU Overlay OFF 時に Python
+> ワイヤーフレームが消える**。
+
+つまり「is_dragging を過剰に立てると描画が消える」実機バグを踏んで、**絞り込む方向**の修正が
+入っている。マップが推測した `is_transform_modal or (is_recent_change and has_proxy_update)` は
+まさにその過剰 latch 側に戻す変更であり、採用すべきでない。§5 の H はこの件そのもの。
+
+→ 現在のコメント(`L1149-1152`)は「is_recent_change は意図的に含めない」旨と、広げる方向の
+変更には H の回帰確認が必須である旨を明記している。
+
+### 4-2. `0 <= p_idx` の None ガード欠落(潜在エラー) ✅ 対処済(2026-07-28)
+`p_idx = obj.get("primitive_index")` が `None` だと `0 <= None` で `TypeError`。
+`L1066` を `if p_uuid and p_idx is not None and 0 <= p_idx < len(props.primitives):` に修正。
 
 ### 4-3. 早期リターンで `_was_recent_change` を更新しない
 `L997` の早期 return は `_was_transform_modal` のみ更新し `_was_recent_change` は据え置き。
@@ -170,8 +170,8 @@ props.is_dragging = is_transform_modal or (is_recent_change and has_proxy_update
 
 ## 6. 次の一歩(このマップの使い道)
 
-1. **★4-1 の判断**: 実機で「純ヒューリスティック・ドラッグ」を再現し、fast preview の有無を確認 →
-   コメント/コードのどちらかに寄せる。ここを直すと handler の見通しが一段良くなる。
+1. ~~**★4-1 の判断**~~ → **完了(2026-07-28)**。コード側が正と判断しコメントを修正。§4-1 参照。
+   併せて 4-2 の None ガードも対処済み。
 2. **②局所分解**: 上の「フェーズ表」の #5(モーダル)/#6(非モーダル同期)/#9(確定)を、
    挙動を変えずに `_handle_modal_drag()` / `_handle_nonmodal_sync()` / `_handle_settle()` へ
    関数抽出。抽出前に §5 のチェックリスト、または自動テストを通しておく。
