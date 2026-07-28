@@ -1164,6 +1164,107 @@ def _handle_nonmodal_sync(cad_cols, is_transform_modal):
     return changed_cols
 
 
+def _handle_modal_drag():
+    """モーダル変形フェーズ: 選択プロキシの変形を prim へ書き戻し、
+    ライブ CSG プレビューを回す。
+
+    depsgraph_update_handler から挙動を変えずに切り出したもの
+    (DEPSGRAPH_STATE_MACHINE.md のフェーズ表 #5)。呼び出し側は直後に
+    _was_* を更新して return する(その制御フローは handler 側に残した)。
+    """
+    import time
+    global _is_updating_proxies, _last_change_time, _pending_step_scales
+
+    selected_proxies = [obj for obj in bpy.context.selected_objects if obj.get("is_seamless_proxy")]
+    if selected_proxies:
+        changed_cols = set()
+        _is_updating_proxies = True
+        try:
+            for obj in selected_proxies:
+                # このプロキシが属する CAD コレクションを引く
+                col = None
+                for c in obj.users_collection:
+                    if hasattr(c, "seamless_props") and getattr(c, "seamless_cad_stack_ptr", "0") != "0":
+                        col = c
+                        break
+                if not col:
+                    continue
+                        
+                props = col.seamless_props
+                p_uuid = obj.get("primitive_uuid")
+                p_idx = obj.get("primitive_index")
+                    
+                if p_uuid and p_idx is not None and 0 <= p_idx < len(props.primitives):
+                    prim = props.primitives[p_idx]
+                    if prim.uuid == p_uuid:
+                        world_loc = obj.matrix_world.to_translation()
+                        world_rot = obj.matrix_world.to_euler()
+                        world_scale = obj.matrix_world.to_scale()
+                        group_parent_prim = _get_group_parent_prim(obj, {p.uuid: p for p in props.primitives})
+                        is_group_follow = bool(
+                            group_parent_prim and
+                            p_idx != props.active_primitive_index
+                        )
+                            
+                        EPSILON = 5e-4
+                        is_independent = prim.use_independent_transform and obj.parent
+                            
+                        if not is_independent:
+                            if prim.type in ('STEP_PART', 'SVG_PART'):
+                                uniform_scale = _extract_uniform_scale(world_scale)
+                                target_scale = mathutils.Vector((uniform_scale, uniform_scale, uniform_scale))
+                                scale_changed = (target_scale - mathutils.Vector(prim.size)).length > EPSILON
+                                if (world_loc - mathutils.Vector(prim.location)).length > EPSILON or \
+                                   (mathutils.Vector(world_rot) - mathutils.Vector(prim.rotation)).length > EPSILON or \
+                                   (scale_changed):
+                                    prim.location = world_loc
+                                    prim.rotation = world_rot
+                                    prim.size = target_scale
+                                    _pending_step_scales[(col.name, prim.uuid)] = uniform_scale
+                                    props.is_dragging = True
+                                    changed_cols.add(col)
+                            else:
+                                scale_changed = (world_scale - mathutils.Vector(prim.size)).length > EPSILON
+                                if (world_loc - mathutils.Vector(prim.location)).length > EPSILON or \
+                                   (mathutils.Vector(world_rot) - mathutils.Vector(prim.rotation)).length > EPSILON or \
+                                   (scale_changed):
+                                    prim.location = world_loc
+                                    prim.rotation = world_rot
+                                    prim.size = world_scale
+                                    props.is_dragging = True
+                                    changed_cols.add(col)
+                                    
+                        if prim.name != obj.name:
+                            prim.name = obj.name
+                            changed_cols.add(col)
+
+                        # Phase 4: ドラッグ開始時の行列との差分を GPU 側へ渡してプレビューを動かす
+                        if p_uuid in _proxy_initial_matrices:
+                            init_mat = _proxy_initial_matrices[p_uuid]
+                            try:
+                                delta_matrix = obj.matrix_world @ init_mat.inverted()
+                                from .drawing import get_wireframe_engine
+                                stack_ptr = int(getattr(col, "seamless_cad_stack_ptr", "0"))
+                                if stack_ptr != 0:
+                                    get_wireframe_engine().set_transform_delta(stack_ptr, delta_matrix)
+                            except Exception:
+                                pass
+        finally:
+            _is_updating_proxies = False
+                
+        # ドラッグ中は重い OCC ブーリアン再計算は行わない（fast_mode はテッセレーション
+        # 解像度にしか効かず、BRepAlgoAPI 本体 ~140ms が同期ブロックするため）。
+        # 代わりに、対象が SUB ツールなら純Rust BSP CSG でリアルタイムプレビューを表示する。
+        # 非対象/開始失敗時は従来どおり凍結（何もしない）。確定はドラッグ終了時に OCC が行う。
+        if changed_cols:
+            _last_change_time = time.time()
+            _arm_drag_settle()
+            if _csg_preview_state:
+                active_col = get_active_collection(bpy.context)
+                if active_col:
+                    _csg_preview_tick(active_col)
+
+
 def depsgraph_update_handler(scene, depsgraph):
     global _is_updating_proxies, _was_transform_modal, _was_recent_change, _proxy_initial_matrices, _pending_step_scales
     if _is_updating_proxies: 
@@ -1245,94 +1346,7 @@ def depsgraph_update_handler(scene, depsgraph):
     # 選択中のプロキシだけを見て、変形量をプリミティブのプロパティへ反映する
     # 全コレクション走査やプロキシの削除判定はここでは行わない
     if is_transform_modal:
-        selected_proxies = [obj for obj in bpy.context.selected_objects if obj.get("is_seamless_proxy")]
-        if selected_proxies:
-            changed_cols = set()
-            _is_updating_proxies = True
-            try:
-                for obj in selected_proxies:
-                    # このプロキシが属する CAD コレクションを引く
-                    col = None
-                    for c in obj.users_collection:
-                        if hasattr(c, "seamless_props") and getattr(c, "seamless_cad_stack_ptr", "0") != "0":
-                            col = c
-                            break
-                    if not col:
-                        continue
-                        
-                    props = col.seamless_props
-                    p_uuid = obj.get("primitive_uuid")
-                    p_idx = obj.get("primitive_index")
-                    
-                    if p_uuid and p_idx is not None and 0 <= p_idx < len(props.primitives):
-                        prim = props.primitives[p_idx]
-                        if prim.uuid == p_uuid:
-                            world_loc = obj.matrix_world.to_translation()
-                            world_rot = obj.matrix_world.to_euler()
-                            world_scale = obj.matrix_world.to_scale()
-                            group_parent_prim = _get_group_parent_prim(obj, {p.uuid: p for p in props.primitives})
-                            is_group_follow = bool(
-                                group_parent_prim and
-                                p_idx != props.active_primitive_index
-                            )
-                            
-                            EPSILON = 5e-4
-                            is_independent = prim.use_independent_transform and obj.parent
-                            
-                            if not is_independent:
-                                if prim.type in ('STEP_PART', 'SVG_PART'):
-                                    uniform_scale = _extract_uniform_scale(world_scale)
-                                    target_scale = mathutils.Vector((uniform_scale, uniform_scale, uniform_scale))
-                                    scale_changed = (target_scale - mathutils.Vector(prim.size)).length > EPSILON
-                                    if (world_loc - mathutils.Vector(prim.location)).length > EPSILON or \
-                                       (mathutils.Vector(world_rot) - mathutils.Vector(prim.rotation)).length > EPSILON or \
-                                       (scale_changed):
-                                        prim.location = world_loc
-                                        prim.rotation = world_rot
-                                        prim.size = target_scale
-                                        _pending_step_scales[(col.name, prim.uuid)] = uniform_scale
-                                        props.is_dragging = True
-                                        changed_cols.add(col)
-                                else:
-                                    scale_changed = (world_scale - mathutils.Vector(prim.size)).length > EPSILON
-                                    if (world_loc - mathutils.Vector(prim.location)).length > EPSILON or \
-                                       (mathutils.Vector(world_rot) - mathutils.Vector(prim.rotation)).length > EPSILON or \
-                                       (scale_changed):
-                                        prim.location = world_loc
-                                        prim.rotation = world_rot
-                                        prim.size = world_scale
-                                        props.is_dragging = True
-                                        changed_cols.add(col)
-                                    
-                            if prim.name != obj.name:
-                                prim.name = obj.name
-                                changed_cols.add(col)
-
-                            # Phase 4: ドラッグ開始時の行列との差分を GPU 側へ渡してプレビューを動かす
-                            if p_uuid in _proxy_initial_matrices:
-                                init_mat = _proxy_initial_matrices[p_uuid]
-                                try:
-                                    delta_matrix = obj.matrix_world @ init_mat.inverted()
-                                    from .drawing import get_wireframe_engine
-                                    stack_ptr = int(getattr(col, "seamless_cad_stack_ptr", "0"))
-                                    if stack_ptr != 0:
-                                        get_wireframe_engine().set_transform_delta(stack_ptr, delta_matrix)
-                                except Exception:
-                                    pass
-            finally:
-                _is_updating_proxies = False
-                
-            # ドラッグ中は重い OCC ブーリアン再計算は行わない（fast_mode はテッセレーション
-            # 解像度にしか効かず、BRepAlgoAPI 本体 ~140ms が同期ブロックするため）。
-            # 代わりに、対象が SUB ツールなら純Rust BSP CSG でリアルタイムプレビューを表示する。
-            # 非対象/開始失敗時は従来どおり凍結（何もしない）。確定はドラッグ終了時に OCC が行う。
-            if changed_cols:
-                _last_change_time = time.time()
-                _arm_drag_settle()
-                if _csg_preview_state:
-                    active_col = get_active_collection(bpy.context)
-                    if active_col:
-                        _csg_preview_tick(active_col)
+        _handle_modal_drag()
 
         _was_transform_modal = is_transform_modal
         _was_recent_change = is_recent_change
