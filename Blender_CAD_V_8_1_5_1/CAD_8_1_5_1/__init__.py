@@ -10,34 +10,41 @@ bl_info = {
 }
 
 import bpy
-import importlib
 import sys
+
+
+def _purge_submodules():
+    """このアドオンのサブモジュールを sys.modules から全部落とす。
+
+    以前はトップレベルの10モジュールだけを importlib.reload していたが、
+    それでは2つの理由で不十分だった。
+
+    1. サブパッケージの中身(operators.management, sketch.*, ui.*, core.*)は
+       一度も reload されない。そのため「新しい operators/__init__.py が、
+       古いままキャッシュされた operators.management から import する」状態が
+       起きる。実際に、新クラスを追加したビルドを既存セッションへ入れ直すと
+       `cannot import name 'SEAMLESS_OT_ForceRecompute' from
+       'CAD_8_1_5_1.operators.management'` で有効化に失敗していた。
+
+    2. `from ..core_bridge import get_core` のような from-import は関数
+       オブジェクトを束縛するので、後から core_bridge を reload しても
+       古い関数を掴んだままになる。
+
+    キャッシュを消してから素の import をやり直すのが唯一確実な方法。
+    ここが走るのはアドオン有効化時だけなので、まっさらにして問題ない。
+    """
+    prefix = (__package__ or "") + "."
+    for name in [n for n in sys.modules if n.startswith(prefix)]:
+        del sys.modules[name]
+
+
+_purge_submodules()
 
 # 同梱依存(libs/)のパス設定は他の何よりも先に行う。drawing.py などが
 # モジュールロード時に `import numpy` するため、register() まで遅延できない。
 from . import vendor_libs  # noqa: E402  (副作用として libs/ を sys.path 末尾へ追加)
 
-# モジュールリスト
-submodule_names = [
-    "vendor_libs",
-    "utils",
-    "core_bridge",
-    "properties",
-    "operators",
-    "modal_selection",
-    "sketch",
-    "drawing",
-    "gpu_manager",
-    "ui"
-]
-
-# リロード対応のインポート
-for name in submodule_names:
-    full_name = f"{__package__}.{name}"
-    if full_name in sys.modules:
-        importlib.reload(sys.modules[full_name])
-
-from . import utils, core_bridge, properties, operators, modal_selection, drawing, sketch, gpu_manager, ui
+from . import utils, core_bridge, properties, operators, modal_selection, drawing, sketch, gpu_manager, ui  # noqa: E402
 
 try:
     from bpy.app.handlers import persistent
