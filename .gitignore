@@ -1,0 +1,162 @@
+# Compiled python modules
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Blender/Addon specific
+*.blend
+*.blend1
+*.blend2
+*.crash.txt
+*.log
+
+# C/C++ / Rust built files
+*.dll
+*.pyd
+*.so
+*.dylib
+*.exe
+*.obj
+*.o
+*.a
+*.lib
+target/
+
+# Compressed
+*.zip
+*.tar.gz
+*.rar
+
+# Temp / Scratch files
+scratch_*.py
+temp_*.py
+scratch/
+temp/
+update_agent_log_*.py
+append_log_*.py
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Other
+cad_server_debug.log
+cad_server_err.log
+cad_server_out.log
+cad_debug.txt
+build_error.txt
+build_log*.txt
+cl_out.txt
+occt-combined*/
+opencascade*/
+overview-doc/
+refman-doc/
+
+# ---------------------------------------------------------------------------
+# 同梱サードパーティ依存 (アドオンの libs/)
+#
+# numpy は Blender が必ず同梱しているので追跡しない(43MB)。
+# svgpathtools / svgwrite は SVG インポートの必須依存なので **必ず追跡する**。
+# 8.1.2.5 のディレクトリコピーでこの2つが脱落し、SVG インポートが
+# 10バージョン以上にわたり無言で壊れていた。追跡外にすると同じ事故が起きる。
+# ---------------------------------------------------------------------------
+**/libs/numpy/
+**/libs/numpy.libs/
+**/libs/numpy-*.dist-info/
+**/libs/bin/
+**/libs/scipy/
+**/libs/scipy.libs/
+**/libs/scipy-*.dist-info/
+**/libs/*.whl
+
+# ---------------------------------------------------------------------------
+# 旧バージョンの手動スナップショット
+#
+# git を使う前は「ディレクトリを丸ごとコピー」でバージョン管理していた。
+# ディスク上には履歴として残すが、追跡はしない。
+# 今後の版はブランチ + タグで管理し、これらは別途アーカイブして削除する。
+# ---------------------------------------------------------------------------
+Blender_CAD_V_2*/
+Blender_CAD_V_3*/
+Blender_CAD_V_4*/
+Blender_CAD_V_5*/
+Blender_CAD_V_6*/
+Blender_CAD_V_7*/
+Blender_CAD_V_8_1_0/
+Blender_CAD_V_8_1_1/
+Blender_CAD_V_8_1_1_1/
+Blender_CAD_V_8_1_2*/
+Blender_CAD_V_8_1_3*/
+Blender_CAD_V_8_1_4/
+Blender_CAD_V_8_1_5/
+PAST_*/
+temp_extract/
+隔離/
+Seamless_CAD_DESK_V_0_0_0/
+VisualSnapAssist_v12/
+addon/
+
+# 作業用の一時成果物
+%USERPROFILE%/
+agent-work-log.json
+*.step
+*.stl
+Log_V*.txt
+
+# ---------------------------------------------------------------------------
+# リポジトリルートに溜まった使い捨てスクリプト
+#
+# 過去の一括置換・移植作業に使ったもので、多くは g:\ の固定パスを持ち
+# 現環境では動かない。消す前に中身を確認したいのでディスクには残すが、
+# 毎回 git status を埋めるので追跡はしない。整理後にこのブロックを削除する。
+# ---------------------------------------------------------------------------
+/patch*.py
+/copy_*.py
+/fix_*.py
+/inject_*.py
+/port_*.py
+/append_log*.py
+/scratch_*.py
+/compare_panels.py
+/move_operation.py
+/remove_numbers.py
+/rename_cad3_to_cad4.py
+/restore_3d_ui.py
+/write_log.py
+/update_*.py
+/verify_*.py
+/run_*.py
+/run.py
+/run2.py
+/split_*.py
+/setup_*.py
+/selective_copy.py
+/simplify_main_panel.py
+/test_*.py
+/test_*.cpp
+/test_*.json
+/*.code-workspace
+
+# ルート直下のスクラッチ資材(スクリーンショット・ロゴ素材など)
+/*.png
+/*.svg
+!/ban-svgrepo-com.svg
+!/circle-heat-svgrepo-com.svg
+
+# ルート直下の src_rust は旧作業ツリー(168MB, target/ 込み)。
+# 現行のソースは Blender_CAD_V_8_1_5_1/src_rust を追跡する。
+/src_rust/
