@@ -963,6 +963,52 @@ def _arm_drag_settle(delay=0.28):
     except Exception:
         pass
 
+def _handle_settle(cad_cols, modal_ended, activity_ended, is_fast_mode, is_transform_modal):
+    """確定フェーズ: is_dragging を下ろし、delta を外し、高品質再計算へ戻す。
+
+    depsgraph_update_handler から挙動を変えずに切り出したもの
+    (DEPSGRAPH_STATE_MACHINE.md のフェーズ表 #9)。呼び出し側の末尾で
+    _was_transform_modal / _was_recent_change を更新する前に一度だけ呼ぶ。
+    """
+    import time
+    global _last_change_time, _proxy_initial_matrices
+
+    # Phase 4: 変形/アクティビティ終了時に is_dragging を下ろし、高品質再計算へ戻す
+    if modal_ended or activity_ended:
+        for col in cad_cols:
+            props = getattr(col, "seamless_props", None)
+            if props:
+                props.is_dragging = False
+        from .drawing import get_wireframe_engine
+        for col in cad_cols:
+            try:
+                stack_ptr = int(getattr(col, "seamless_cad_stack_ptr", "0"))
+                if stack_ptr != 0:
+                    engine = get_wireframe_engine()
+                    engine.set_transform_delta(stack_ptr, None)
+                    # Force the drag-end face rebuild. A pure translation preserves
+                    # mesh topology, so update_face_data's signature cache could match
+                    # and re-render stale (pre-drag) vertices; invalidating guarantees
+                    # the faces track the wireframe on commit.
+                    engine.get_stack(stack_ptr)._face_geom_signature = None
+            except Exception:
+                pass
+        if modal_ended:
+            _proxy_initial_matrices.clear()
+
+    if modal_ended or activity_ended:
+        from .core_bridge import update_cad_preview_high_quality_for_col
+        for col in cad_cols:
+            update_cad_preview_high_quality_for_col(col, bpy.context, force=True, sync=False)
+        _last_change_time = 0
+    elif not is_fast_mode and _last_change_time > 0 and not is_transform_modal:
+        if time.time() - _last_change_time > 0.3:
+            from .core_bridge import update_cad_preview_high_quality_for_col
+            for col in cad_cols:
+                update_cad_preview_high_quality_for_col(col, bpy.context, force=True, sync=False)
+            _last_change_time = 0
+
+
 def depsgraph_update_handler(scene, depsgraph):
     global _is_updating_proxies, _was_transform_modal, _was_recent_change, _proxy_initial_matrices, _pending_step_scales
     if _is_updating_proxies: 
@@ -1340,40 +1386,7 @@ def depsgraph_update_handler(scene, depsgraph):
 
 
 
-    # Phase 4: 変形/アクティビティ終了時に is_dragging を下ろし、高品質再計算へ戻す
-    if modal_ended or activity_ended:
-        for col in cad_cols:
-            props = getattr(col, "seamless_props", None)
-            if props:
-                props.is_dragging = False
-        from .drawing import get_wireframe_engine
-        for col in cad_cols:
-            try:
-                stack_ptr = int(getattr(col, "seamless_cad_stack_ptr", "0"))
-                if stack_ptr != 0:
-                    engine = get_wireframe_engine()
-                    engine.set_transform_delta(stack_ptr, None)
-                    # Force the drag-end face rebuild. A pure translation preserves
-                    # mesh topology, so update_face_data's signature cache could match
-                    # and re-render stale (pre-drag) vertices; invalidating guarantees
-                    # the faces track the wireframe on commit.
-                    engine.get_stack(stack_ptr)._face_geom_signature = None
-            except Exception:
-                pass
-        if modal_ended:
-            _proxy_initial_matrices.clear()
-
-    if modal_ended or activity_ended:
-        from .core_bridge import update_cad_preview_high_quality_for_col
-        for col in cad_cols:
-            update_cad_preview_high_quality_for_col(col, bpy.context, force=True, sync=False)
-        _last_change_time = 0
-    elif not is_fast_mode and _last_change_time > 0 and not is_transform_modal:
-        if time.time() - _last_change_time > 0.3:
-            from .core_bridge import update_cad_preview_high_quality_for_col
-            for col in cad_cols:
-                update_cad_preview_high_quality_for_col(col, bpy.context, force=True, sync=False)
-            _last_change_time = 0
+    _handle_settle(cad_cols, modal_ended, activity_ended, is_fast_mode, is_transform_modal)
 
     _was_transform_modal = is_transform_modal
     _was_recent_change = is_recent_change
