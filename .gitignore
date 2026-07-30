@@ -160,3 +160,6 @@ Log_V*.txt
 # ルート直下の src_rust は旧作業ツリー(168MB, target/ 込み)。
 # 現行のソースは Blender_CAD_V_8_1_5_1/src_rust を追跡する。
 /src_rust/
+
+# 内部メモ（手元には残すが公開しない）
+LISTING_PREP.md
