@@ -242,6 +242,41 @@ def t_g_fillet_highlight_data():
         f"selecting a FILLET row should switch selection_type to EDGE, got {props.selection_type}"
 
 
+def t_save_reload_keeps_cad_live():
+    """保存した .blend を開き直しても CAD が生きている(§4-5)。
+
+    2026-07-30 まで壊れていた: depsgraph_update_handler に @persistent が無く
+    ロードで捨てられ、さらに stack_ptr が 0 に潰されてコレクションが
+    「生きた CAD」と見なされなくなるため、開き直すとドラッグが無反応だった。
+    片方だけ直しても駄目なので、両方が効いていることをここで固定する。
+    """
+    import tempfile
+    from CAD_8_1_5_1 import utils
+
+    col, props = _fresh_part()
+    bpy.ops.seamless.add_primitive(type='BOX')
+    blend = os.path.join(tempfile.gettempdir(), "seamless_cad_regression.blend")
+    bpy.ops.wm.save_as_mainfile(filepath=blend)
+    bpy.ops.wm.open_mainfile(filepath=blend)
+
+    assert utils.depsgraph_update_handler in bpy.app.handlers.depsgraph_update_post, \
+        "depsgraph_update_handler must survive a file load (needs @persistent)"
+
+    col2 = utils.get_active_collection(bpy.context)
+    props2 = utils.get_active_props(bpy.context)
+    assert props2 and len(props2.primitives) == 1, "the saved feature tree did not come back"
+    assert getattr(col2, "seamless_cad_stack_ptr", "0") != "0", \
+        "the CAD stack was not recreated on load -- the collection is not live"
+
+    # 開いた直後にプロキシを動かして、prim へ反映されるか(=利用者が最初にやること)
+    proxy = _proxy_for(col2, props2.primitives[0])
+    proxy.location = (5.0, 0.0, 0.0)
+    bpy.context.view_layer.update()
+    assert abs(props2.primitives[0].location[0] - 5.0) < 1e-3, \
+        ("dragging a proxy right after opening a saved file must sync to the primitive; "
+         f"got {list(props2.primitives[0].location)}")
+
+
 def main():
     check("register / enable", t_register)
     check("add primitives -> proxies", t_add_primitives)
@@ -252,6 +287,8 @@ def main():
     check("settle drops the drag flags", t_settle_contract)
     check("settle is a no-op mid-drag", t_settle_is_a_noop_when_nothing_ended)
     check("G: fillet highlight data", t_g_fillet_highlight_data)
+    # シーンを丸ごと開き直すので、他のテストを汚さないよう最後に回す
+    check("save + reload keeps CAD live", t_save_reload_keeps_cad_live)
 
     print("\n" + "=" * 60)
     failed = 0

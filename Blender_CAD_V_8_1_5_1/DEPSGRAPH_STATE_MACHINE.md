@@ -152,21 +152,32 @@ stateDiagram-v2
 明示的な1回だけが走る。ハイライトは `selected_edges_str` 確定後に計算されるので
 むしろ正確になる(§5 G と関連)。
 
-### 4-5. `depsgraph_update_handler` に `@persistent` が無い ★要判断(2026-07-30 発見)
-`__init__.py L240` で `bpy.app.handlers.depsgraph_update_post` に登録しているが、
-`utils.depsgraph_update_handler` には `@persistent` が付いていない。Blender は
-**ファイル読み込み時に非 persistent なハンドラを破棄する**ため、`.blend` を開くと
-CAD の同期ハンドラが外れたままになる。同じ `__init__.py` の `load_post_handler` /
-`unload_post_handler` / `undo_redo_post_handler` には付いているので、付け忘れの可能性が高い。
+### 4-5. 保存した .blend を開き直すと CAD が死ぬ ✅ 修正済(2026-07-30)
+**症状(実測)**: 保存したファイルを開くと、Feature Tree・プロキシ・UI 状態は復元されるが、
+**モデルが描画されず、プロキシをドラッグしても何も起きない**。パネルを一度触ると形状は
+戻るが、ドラッグは Blender を再起動するまで死んだまま。
 
-症状が表に出にくいのは、`load_post_handler` がロード時に全 CAD スタックを
-`safe_delete_stack` で破棄するため。スタックが無ければ `_is_live_cad_collection` が
-False になり、ハンドラがあっても早期 return する。つまり**保存・読み込みの設計全体
-(stack_ptr が C++ ポインタでシリアライズできない件)と絡む**ので、単に `@persistent` を
-足せば済む話ではない。要検討。
+**原因は独立した2つ**で、片方だけ直しても回復しないことを実験で確認した:
 
-回帰テストを書いていて見つかった。`bpy.ops.wm.read_factory_settings()` を挟むと
-以降の同期が全く走らなくなり、これが原因だった(§7 の掃除が手作業なのはそのため)。
+1. `utils.depsgraph_update_handler` に `@persistent` が無く、Blender が
+   **ファイル読み込み時に非 persistent なハンドラを破棄する**ため外れる。
+   `load_post_handler` など他の3つには付いていたので付け忘れ。
+2. `load_post_handler` が `safe_delete_stack` で stack_ptr を 0 に潰すが、誰も作り直さない。
+   `_is_live_cad_collection` が False になるので、ハンドラが戻っていても
+   そのコレクションは対象外として無視される。
+
+**修正**: (1) `utils.py` の handler に `@persistent`。(2) `load_post_handler` が
+「潰す前に stack_ptr != 0 だったコレクション名」を控え、`_schedule_cad_resume()` で
+スタック再生成 → `_register_cad_collection` → 高品質プレビュー1回、を行う。
+プレビューは毎回フル履歴(`binary_payload`)を送る作りなので、スタックさえ作り直せば
+保存された Feature Tree から完全に復元できる。差分復元は不要だった。
+
+再計算は 0.1s のタイマーへ逃がしてある。ファイルを開く処理の中で全パートを OCC
+再計算すると重いモデルで open が固まるため。「ファイルは軽く開き、ワンテンポ後に
+モデルが現れる」形。背景実行ではタイマーが回らないので即座に走らせる。
+
+回帰テスト `save + reload keeps CAD live` で固定済み。2つの原因それぞれを個別に
+潰す破壊テストを行い、対応する断言だけが落ちることを確認した。
 
 ---
 
@@ -225,15 +236,17 @@ False になり、ハンドラがあっても早期 return する。つまり**�
 **カバーしている**: register/enable、プリミティブ追加とプロキシの対応、
 A(アクティブ同期)、B(Feature Tree→ビューポート／※弱い、下記)、E(単発編集)、
 F(削除同期)、G のデータ層、`_handle_settle()` の契約(フラグを確実に下ろす／
-ドラッグ中は誤爆しない)。settle を直接叩けるのは 2026-07-28 のフェーズ抽出の成果。
+ドラッグ中は誤爆しない)、保存→再読み込みで CAD が生きたままか(§4-5)。
+settle を直接叩けるのは 2026-07-28 のフェーズ抽出の成果。
 
 **カバーしていない**: C・D・H・I。ネイティブの変形モーダルと GPU 描画が要るため
 原理的に再現できない。**ドラッグ周りを触ったら実機確認は依然として必須。**
 
 ### 背景実行の落とし穴(ハマったので記録)
 
-- `bpy.ops.wm.read_factory_settings()` を掃除に使ってはいけない。
-  `depsgraph_update_handler` が飛ぶ(§4-5)。オブジェクトとコレクションを手で消すこと。
+- `bpy.ops.wm.read_factory_settings()` を掃除に使ってはいけない。オブジェクトと
+  コレクションを手で消すこと。(§4-5 修正前は handler ごと飛んでいた。今は @persistent
+  なので飛ばないが、シーン全体が入れ替わるのでテストの分離手段には向かない。)
 - `active_primitive_index` は1操作ぶん遅れて観測される。`set_active_primitive(0)` の
   直後に読むと前回の値が返る。`view_layer.update()` を挟んでも解消しない。
   そのため B は「どのプロキシがアクティブか」しか見ていない(index の正しさは A が担保)。

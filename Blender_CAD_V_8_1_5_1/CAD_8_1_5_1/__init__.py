@@ -86,13 +86,73 @@ def _clear_all_gpu_draw():
     except Exception as e:
         utils.debug_print(f"Seamless CAD: GPU draw clear error: {e}")
 
+def _resume_cad_collections(col_names):
+    """ファイルを開いた直後に CAD コレクションを使える状態へ戻す。
+
+    stack_ptr は C++ 側のポインタなので保存された値は無効で、load 時に 0 へ
+    潰される。すると `_is_live_cad_collection` が False になり、depsgraph
+    ハンドラがそのコレクションを対象外として無視する = ドラッグしても
+    何も起きない。ここでスタックを作り直して登録し、形状を1回描き直す。
+
+    プレビューの通信は毎回フル履歴(binary_payload)を送るので、スタックさえ
+    作り直せば保存された Feature Tree から完全に復元できる。差分復元は不要。
+    """
+    for name in col_names:
+        col = bpy.data.collections.get(name)
+        if not col or not hasattr(col, "seamless_props"):
+            continue
+        try:
+            core_bridge.get_or_create_stack_ptr(col)
+            utils._register_cad_collection(col)
+        except Exception as e:
+            utils.error_print(f"Seamless CAD: failed to resume stack for '{name}': {e}")
+
+    for name in col_names:
+        col = bpy.data.collections.get(name)
+        if not col or getattr(col, "seamless_cad_stack_ptr", "0") == "0":
+            continue
+        try:
+            core_bridge.update_cad_preview_high_quality_for_col(
+                col, bpy.context, force=True, sync=False)
+        except Exception as e:
+            utils.error_print(f"Seamless CAD: failed to redraw '{name}' after load: {e}")
+
+
+def _schedule_cad_resume(col_names):
+    """復帰をタイマーへ逃がす。
+
+    ファイルを開く処理の中で全パートを OCC 再計算すると、重いモデルほど
+    open が固まる。ワンテンポ遅らせて「ファイルは軽く開き、直後にモデルが
+    現れる」形にする。背景実行ではタイマーが回らないので即座に走らせる。
+    """
+    if not col_names:
+        return
+    if bpy.app.background:
+        _resume_cad_collections(col_names)
+        return
+
+    def _cb():
+        _resume_cad_collections(col_names)
+        return None
+
+    try:
+        bpy.app.timers.register(_cb, first_interval=0.1)
+    except Exception:
+        _resume_cad_collections(col_names)
+
+
 @persistent
 def load_post_handler(dummy):
     """Blenderファイルロード時や新規ファイル作成時に呼び出されます"""
+    # stack_ptr が 0 でないことは「保存した時点で CAD として生きていた」印。
+    # safe_delete_stack が潰してしまうので、先に控えておく。
+    resumable = [col.name for col in bpy.data.collections
+                 if getattr(col, "seamless_cad_stack_ptr", "0") != "0"]
     for col in bpy.data.collections:
         safe_delete_stack(col)
     _clear_all_gpu_draw()
     utils.subscribe_active_object_msgbus()
+    _schedule_cad_resume(resumable)
 
 @persistent
 def unload_post_handler(dummy):

@@ -2,6 +2,17 @@ import bpy
 import math
 import mathutils
 
+# ファイルを開くと Blender は非 persistent なハンドラを全部捨てる。
+# depsgraph_update_handler が捨てられると、保存した .blend を開き直したあと
+# プロキシをドラッグしても何も起きなくなる(2026-07-30 に実測で確認)。
+# __init__.py と同じ防御的インポート。
+try:
+    from bpy.app.handlers import persistent
+    if persistent is None:
+        persistent = lambda func: func
+except ImportError:
+    persistent = lambda func: func
+
 # これらは register 時に ui_preferences._apply_log_preferences() が
 # アドオン設定の値で上書きする。ここの既定値は「設定が取れなかったときに
 # 効いてしまう値」なので、Preferences 側の既定と必ず一致させること。
@@ -1265,6 +1276,7 @@ def _handle_modal_drag():
                     _csg_preview_tick(active_col)
 
 
+@persistent
 def depsgraph_update_handler(scene, depsgraph):
     global _is_updating_proxies, _was_transform_modal, _was_recent_change, _proxy_initial_matrices, _pending_step_scales
     if _is_updating_proxies: 
