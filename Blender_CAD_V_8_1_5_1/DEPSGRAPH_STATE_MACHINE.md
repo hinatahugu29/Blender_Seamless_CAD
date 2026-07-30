@@ -152,12 +152,31 @@ stateDiagram-v2
 明示的な1回だけが走る。ハイライトは `selected_edges_str` 確定後に計算されるので
 むしろ正確になる(§5 G と関連)。
 
+### 4-5. `depsgraph_update_handler` に `@persistent` が無い ★要判断(2026-07-30 発見)
+`__init__.py L240` で `bpy.app.handlers.depsgraph_update_post` に登録しているが、
+`utils.depsgraph_update_handler` には `@persistent` が付いていない。Blender は
+**ファイル読み込み時に非 persistent なハンドラを破棄する**ため、`.blend` を開くと
+CAD の同期ハンドラが外れたままになる。同じ `__init__.py` の `load_post_handler` /
+`unload_post_handler` / `undo_redo_post_handler` には付いているので、付け忘れの可能性が高い。
+
+症状が表に出にくいのは、`load_post_handler` がロード時に全 CAD スタックを
+`safe_delete_stack` で破棄するため。スタックが無ければ `_is_live_cad_collection` が
+False になり、ハンドラがあっても早期 return する。つまり**保存・読み込みの設計全体
+(stack_ptr が C++ ポインタでシリアライズできない件)と絡む**ので、単に `@persistent` を
+足せば済む話ではない。要検討。
+
+回帰テストを書いていて見つかった。`bpy.ops.wm.read_factory_settings()` を挟むと
+以降の同期が全く走らなくなり、これが原因だった(§7 の掃除が手作業なのはそのため)。
+
 ---
 
 ## 5. 回帰チェックリスト(手動セーフティネット)
 
-> 自動テスト整備前の当面の安全網。改修のたびにこの数分の手順を通す。
 > 各項目の「期待」が崩れたら、その改修が原因。
+>
+> **A/B/E/F/G と確定フェーズの契約は `regression_test.py` で自動化済み(§7)。**
+> 変形まわり(C/D/H)と I は GPU とネイティブ・モーダルが要るため手動のまま。
+> ドラッグに触る改修をしたら、C・D・H は必ず実機で通すこと。
 
 - [ ] **A. アクティブ同期(今回の変更)**: ビューポート/アウトライナーでプロキシをクリック
   → Feature Tree の Selection の ● (RADIOBUT_ON) が即座に該当行へ移動する。
@@ -191,3 +210,33 @@ stateDiagram-v2
    純粋な移動であることを機械的に検証している。**§5 の C/D/H は実機未確認**。
 3. **①自動化**: `blender --background --python` で駆動できる回帰テストに §5 を落とし込む
    (Blender 実行環境が必要なため、ここでは雛形のみ別途相談)。
+
+---
+
+## 7. 自動回帰テスト `regression_test.py`
+
+```
+"C:\Program Files\Blender Foundation\Blender 5.1\blender.exe" ^
+    --background --factory-startup --python regression_test.py
+```
+
+終了コード 0 = 全パス、1 = 失敗あり。`CAD_8_1_5_1/` の外に置いてあるので配布物には入らない。
+
+**カバーしている**: register/enable、プリミティブ追加とプロキシの対応、
+A(アクティブ同期)、B(Feature Tree→ビューポート／※弱い、下記)、E(単発編集)、
+F(削除同期)、G のデータ層、`_handle_settle()` の契約(フラグを確実に下ろす／
+ドラッグ中は誤爆しない)。settle を直接叩けるのは 2026-07-28 のフェーズ抽出の成果。
+
+**カバーしていない**: C・D・H・I。ネイティブの変形モーダルと GPU 描画が要るため
+原理的に再現できない。**ドラッグ周りを触ったら実機確認は依然として必須。**
+
+### 背景実行の落とし穴(ハマったので記録)
+
+- `bpy.ops.wm.read_factory_settings()` を掃除に使ってはいけない。
+  `depsgraph_update_handler` が飛ぶ(§4-5)。オブジェクトとコレクションを手で消すこと。
+- `active_primitive_index` は1操作ぶん遅れて観測される。`set_active_primitive(0)` の
+  直後に読むと前回の値が返る。`view_layer.update()` を挟んでも解消しない。
+  そのため B は「どのプロキシがアクティブか」しか見ていない(index の正しさは A が担保)。
+- テストどうしが同じ Part_1 を共有して汚染し合うので、毎回シーンを掃除する。
+- 破壊テストで「本当に落ちること」を確認済み(A の代入を潰すと A だけが FAIL する)。
+  検査を追加したら同じやり方で一度は落としてみること。
