@@ -150,9 +150,19 @@ Blender_CAD_V_8_1_5_1/
 
 ## ライセンス
 
-未定です。現時点でこのリポジトリにライセンスは付与されていません。
-明示されるまで、著作権法上の既定（作者が全権利を保持）が適用されます。
+**GPL-2.0-or-later**（`LICENSE` に全文）。Blender 本体と同じ条件です。
 
-同梱・依存する第三者ソフトウェアには、それぞれのライセンスが適用されます
-（OpenCASCADE は LGPL に例外条項が付く形態、`libs/` 以下の Python
-ライブラリはそれぞれの配布条件に従います）。
+Blender アドオンは `bpy` を import する時点で Blender の派生物とみなされ、
+GPL 互換ライセンスで配布する必要がある、というのが Blender Foundation の
+立場です。バージョンを 2.0-or-later に揃えてあるのは、Blender 本体および
+エコシステムとの互換性が最も高いためです。
+
+同梱・依存する第三者ソフトウェアには、それぞれのライセンスが適用されます。
+いずれも GPL と両立します。
+
+| | ライセンス |
+|---|---|
+| OpenCASCADE 8.0.0 | LGPL-2.1（例外条項付き） |
+| ezpz (KittyCAD) | MIT |
+| numpy | BSD-3-Clause ほか |
+| svgwrite / svgpathtools | MIT |
