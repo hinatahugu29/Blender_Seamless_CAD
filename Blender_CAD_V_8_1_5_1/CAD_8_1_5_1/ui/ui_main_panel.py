@@ -70,6 +70,12 @@ class SEAMLESS_PT_DisplayPanel(bpy.types.Panel):
         box_v.prop(props, "viewport_opacity", text="Opacity", slider=True)
         box_v.prop(props, "use_wgpu_overlay", text="Use WGPU Overlay")
 
+        # 面が深度を書くのは「WGPU OFF かつ不透明」のときだけなので、それ以外では
+        # 切り替えても効かない。押せてしまうと不具合に見えるのでグレーアウトする。
+        row_occ = box_v.row()
+        row_occ.enabled = (not props.use_wgpu_overlay) and props.viewport_opacity > 0.99
+        row_occ.prop(props, "hide_occluded_edges", text="Hide Occluded Edges")
+
 
 class SEAMLESS_PT_QualityBakePanel(bpy.types.Panel):
     bl_label = "Quality & Export"

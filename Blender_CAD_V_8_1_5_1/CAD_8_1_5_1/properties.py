@@ -571,6 +571,16 @@ class SeamlessProperties(bpy.types.PropertyGroup):
     is_alt_pressed: bpy.props.BoolProperty(name="Alt Pressed", default=False)
     viewport_opacity: bpy.props.FloatProperty(name="Viewport Opacity", default=0.4, min=0.0, max=1.0)
     use_wgpu_overlay: bpy.props.BoolProperty(name="Use WGPU Overlay", default=False)
+    hide_occluded_edges: bpy.props.BoolProperty(
+        name="Hide Occluded Edges",
+        description=(
+            "Hide result edges that sit behind the surface, instead of letting them "
+            "show through. Only applies when WGPU Overlay is off and Opacity is 1.0, "
+            "because the faces only write depth when they are fully opaque. "
+            "Selection, hover and modifier highlights always stay visible"
+        ),
+        default=True,
+    )
     enable_perf_logging: bpy.props.BoolProperty(
         name="Perf Logging",
         description="Write timing logs to cad_profile.log for CAD preview pipeline",

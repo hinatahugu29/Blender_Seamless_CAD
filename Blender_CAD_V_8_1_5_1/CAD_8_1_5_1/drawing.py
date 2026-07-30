@@ -1274,13 +1274,20 @@ def draw_cad_3d(self, context, props):
     else:
         # WGPU オーバーレイOFF時は、Rust側で焼き込まれたシースルーのエッジが無いため
         # Python描画のエッジが実メッシュ/不透明面に深度遮蔽されて消える。
-        # 深度テストを無効化し、ONと同じ「透けて見えるワイヤー」で辺を描画する。
+        # そのため既定は深度テスト無効('ALWAYS')で、ONと同じ「透けて見えるワイヤー」。
+        #
+        # ただし不透明(opacity 1.0)のときだけは draw_faces() が depth_mask を有効にして
+        # 面が深度を書き込む(is_opaque 分岐)。この条件では 'LESS_EQUAL' にすると
+        # 面の奥の辺が正しく隠れる。半透明では面が深度を書かないので、切り替えると
+        # 辺が丸ごと消える(§5 の H そのもの)。だから不透明であることが必須条件。
+        opaque = props.viewport_opacity > 0.99
+        hide_occluded = getattr(props, "hide_occluded_edges", False) and opaque
         wireframe.draw(
             context,
             selected_ids=safe_selected_ids,
             preselected_id=safe_preselected_id,
             modifier_ids=safe_modifier_ids,
-            edge_depth_test='ALWAYS'
+            edge_depth_test='LESS_EQUAL' if hide_occluded else 'ALWAYS'
         )
 
     if props.is_selection_mode and (props.preselected_edge_id or props.preselected_face_id):
