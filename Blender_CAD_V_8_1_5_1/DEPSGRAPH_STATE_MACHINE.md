@@ -139,9 +139,18 @@ stateDiagram-v2
 `_arm_drag_settle` タイマーが保険で拾う設計のため実害は小さいが、activity_ended の判定が
 1フレームずれる可能性がある。
 
-### 4-4. `set_active_primitive` の二重 preview
-`operators/management.py L259` の index 代入が `update_gizmo_callback→update_cad_preview` を
-誘発し、`L272` で再度 `update_cad_preview`。Feature Tree クリックのたびに再計算が2回。
+### 4-4. `set_active_primitive` の多重 preview ✅ 対処済(2026-07-30)
+実際は**2回ではなく3回**だった。`operators/management.py` の index 代入が
+`update_gizmo_callback` を誘発し、その中の `selected_edges_str` / `selected_faces_str` への
+代入が**それぞれ** `update_cad_preview` を発火(`properties.py L557,558`)、さらに末尾で
+明示的に1回。Feature Tree のクリック1回につき再計算3回。
+
+**修正**: ビューポート側の経路(`utils.sync_active_primitive_from_active_object` の
+`L1444-1446`)は既に `_is_updating_proxies` で同じ抑止をしていたので、Feature Tree 側を
+それに揃えた(index 代入を try/finally でガード)。`core_bridge` の
+`if is_syncing and not force: return`(`L1433`)が余計な2回を弾き、確定した状態で
+明示的な1回だけが走る。ハイライトは `selected_edges_str` 確定後に計算されるので
+むしろ正確になる(§5 G と関連)。
 
 ---
 

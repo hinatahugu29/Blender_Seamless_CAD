@@ -256,8 +256,18 @@ class SEAMLESS_OT_SetActivePrimitive(bpy.types.Operator):
         props = utils.get_active_props(context)
         if not props:
             return {'CANCELLED'}
-        props.active_primitive_index = self.index
-        
+        # active_primitive_index への代入は update_gizmo_callback を誘発し、その中の
+        # selected_edges_str / selected_faces_str への代入がそれぞれ update_cad_preview を
+        # 発火させる。末尾で明示的に1回呼ぶので、そのままだとクリック1回で再計算が3回走る。
+        # ビューポート側の経路(utils.sync_active_primitive_from_active_object)は既に
+        # 同じガードで抑止しているので、こちらも揃える。
+        utils._is_updating_proxies = True
+        try:
+            props.active_primitive_index = self.index
+        finally:
+            utils._is_updating_proxies = False
+
+
         # プロキシオブジェクトを自動選択
         if 0 <= self.index < len(props.primitives):
             prim = props.primitives[self.index]
