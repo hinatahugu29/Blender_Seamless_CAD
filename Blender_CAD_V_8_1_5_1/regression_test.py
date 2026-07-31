@@ -8,8 +8,10 @@ DEPSGRAPH_STATE_MACHINE.md §5 の手動チェックリストのうち、GUI が
 
   自動化した : A(アクティブ同期) B(Feature Tree→ビューポート) E(単発編集)
                F(削除同期) G相当(ハイライト文字列) + 確定フェーズの契約
+               + 出品前チェック(パネル登録/ベイク/STEP書き出し/保存再読込)
   手動のまま : C(ドラッグ追従) D(確定後に固まらない) H(WGPU Overlay OFF)
-               I(Undo/Redo)
+               I(Undo/Redo … 自動化を試みたが背景実行だと Blender ごと落ちる。
+                 理由は下の該当箇所のコメントと §4-6 を参照)
 
 C/D/H はネイティブの変形モーダルと GPU 描画が要るため、ここでは原理的に
 再現できない。**変形まわりを触ったら実機確認は依然として必要。**
@@ -277,6 +279,86 @@ def t_save_reload_keeps_cad_live():
          f"got {list(props2.primitives[0].location)}")
 
 
+# --------------------------------------------------------------------------
+# 出品前チェック(LISTING_PREP.md の「最低限の検証チェックリスト」由来)
+# --------------------------------------------------------------------------
+
+def t_panels_registered():
+    """基本パネルが登録されている。
+
+    描画そのものは GUI が要るので、クラスが登録され poll が呼べることまでを見る。
+    パネルが丸ごと消える種類の壊れ方(register 漏れ、poll の例外)はこれで捕まる。
+    """
+    wanted = [
+        "SEAMLESS_PT_WorkspacePanel",
+        "SEAMLESS_PT_DisplayPanel",
+        "SEAMLESS_PT_QualityBakePanel",
+    ]
+    for name in wanted:
+        cls = getattr(bpy.types, name, None)
+        assert cls is not None, f"panel {name} is not registered"
+        # poll が例外を投げないこと(投げるとパネルが出ない)
+        cls.poll(bpy.context)
+
+
+def t_bake_to_mesh():
+    """ベイクできる。
+
+    CAD の結果を実 Blender メッシュに焼く導線。ジオメトリカーネルから
+    実際に頂点が返ってきているかまで見るので、コアとの往復が壊れたら落ちる。
+    """
+    col, props = _fresh_part()
+    bpy.ops.seamless.add_primitive(type='BOX')
+
+    before = set(bpy.data.objects.keys())
+    res = bpy.ops.seamless.bake_mesh()
+    assert res == {'FINISHED'}, f"bake_mesh returned {res}"
+
+    new_objs = [bpy.data.objects[n] for n in set(bpy.data.objects.keys()) - before]
+    baked = [o for o in new_objs if o.type == 'MESH' and o.data and len(o.data.vertices) > 0]
+    assert baked, f"bake produced no mesh with vertices (new objects: {[o.name for o in new_objs]})"
+    # BOX なので最低でも8頂点は出るはず。0 や極端に少ない値はコア側の異常。
+    v = len(baked[0].data.vertices)
+    assert v >= 8, f"baked mesh has only {v} vertices; the kernel likely returned garbage"
+
+
+def t_step_export():
+    """STEP を書き出せる。
+
+    出品ページで CAD を名乗る以上ここは通っている必要がある。
+    ファイルが出来ただけでなく、STEP らしい中身かどうかまで確かめる。
+    """
+    import tempfile
+    col, props = _fresh_part()
+    bpy.ops.seamless.add_primitive(type='BOX')
+
+    out = os.path.join(tempfile.gettempdir(), "seamless_cad_regression.stp")
+    if os.path.exists(out):
+        os.remove(out)
+
+    res = bpy.ops.seamless.export_step(filepath=out)
+    assert res == {'FINISHED'}, f"export_step returned {res}"
+    assert os.path.exists(out), "export_step reported success but wrote no file"
+    assert os.path.getsize(out) > 0, "exported STEP file is empty"
+
+    with open(out, encoding="utf-8", errors="replace") as f:
+        head = f.read(200)
+    assert "ISO-10303" in head, f"file does not look like STEP; starts with: {head[:60]!r}"
+
+
+# Undo / Redo は意図的に自動化していない。
+#
+# 背景実行で ed.undo() を呼ぶと、アドオンを register した状態では Blender ごと
+# EXCEPTION_ACCESS_VIOLATION で落ちることがある(2026-07-30、5回中5回再現した
+# スクリプト形状がある一方、ほぼ同じ手順でも落ちないものがあり、条件は未特定)。
+# undo_post ハンドラを外すと落ちず、Undo 自体は正しく 2 -> 1 に戻る。
+# 4秒待ってから undo しても落ちるので、単純な非同期処理のレースではない。
+#
+# 落ちるテストは「失敗を報告する」のではなく「残り全部を道連れにして終了コード11で
+# 死ぬ」ため、安全網としては有害。原因が分かるまでスイートには入れない。
+# 詳細は DEPSGRAPH_STATE_MACHINE.md §4-6。**Ctrl+Z は実機で確認すること。**
+
+
 def main():
     check("register / enable", t_register)
     check("add primitives -> proxies", t_add_primitives)
@@ -287,6 +369,9 @@ def main():
     check("settle drops the drag flags", t_settle_contract)
     check("settle is a no-op mid-drag", t_settle_is_a_noop_when_nothing_ended)
     check("G: fillet highlight data", t_g_fillet_highlight_data)
+    check("panels registered", t_panels_registered)
+    check("bake to mesh", t_bake_to_mesh)
+    check("STEP export", t_step_export)
     # シーンを丸ごと開き直すので、他のテストを汚さないよう最後に回す
     check("save + reload keeps CAD live", t_save_reload_keeps_cad_live)
 
