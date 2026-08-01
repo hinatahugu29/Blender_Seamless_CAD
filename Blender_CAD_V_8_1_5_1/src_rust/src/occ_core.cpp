@@ -750,7 +750,26 @@ static std::mutex g_occ_mutex;
                                 else if (p_type == "FACE_INSET") mod_c = apply_face_inset(mod_c, sub_target_lineage, radii[i], extrude_heights[i], &current_face_map);
                                 else if (p_type == "DRAFT") mod_c = apply_draft(mod_c, reference_lineages[i], sub_target_lineage, radii[i], &current_face_map, global_comp);
                                 else if (p_type == "SHELL") mod_c = apply_shell(mod_c, sub_target_lineage, radii[i], &current_face_map);
-                                else if (p_type == "CLEANUP") { ShapeUpgrade_UnifySameDomain unif_mod(mod_c, true, true, true); unif_mod.Build(); mod_c = unif_mod.Shape(); update_face_id_map_from_history(current_face_map, unif_mod.History()); }
+                                else if (p_type == "CLEANUP") {
+                                    ShapeUpgrade_UnifySameDomain unif_mod(mod_c, true, true, true);
+                                    // OCCT の既定角度許容誤差は Precision::Angular() = 1e-12 rad
+                                    // (約 6e-11 度)。ヘッダにある通り「この値より大きい角度で
+                                    // 接続された形状は統合されない」ので、ブーリアン/オフセット/
+                                    // フィレットを重ねた形状では、見た目に完全な一直線でも
+                                    // 浮動小数点の誤差だけで統合が拒否される。実際に
+                                    // 「面は結合されたのに、一直線に並ぶ2本の辺が1本にならない」
+                                    // という報告があった (2026-08-01)。
+                                    //
+                                    // 1e-6 rad (約 0.00006 度) まで緩める。意図的な折れは
+                                    // 最小でもドラフト角の 0.1 度 = 1.7e-3 rad なので3桁の開きがあり、
+                                    // 消してはいけない角を巻き込む危険はない。
+                                    // 線形側も同様に 1e-6 (1 マイクロメートル相当) へ。
+                                    unif_mod.SetAngularTolerance(1e-6);
+                                    unif_mod.SetLinearTolerance(1e-6);
+                                    unif_mod.Build();
+                                    mod_c = unif_mod.Shape();
+                                    update_face_id_map_from_history(current_face_map, unif_mod.History());
+                                }
                                 auto t_mod_apply_end = std::chrono::high_resolution_clock::now();
                                 sum_perf_modifier_apply += std::chrono::duration<double, std::milli>(t_mod_apply_end - t_mod_apply_start).count();
                             }
