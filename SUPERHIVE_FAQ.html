@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Blender CAD - Superhive FAQ List</title>
+    <title>Seamless CAD - Superhive FAQ List</title>
 </head>
 <body>
     <h1>Frequently Asked Questions (FAQ)</h1>
@@ -11,37 +11,49 @@
     <!-- FAQ 1 -->
     <div style="margin-bottom: 24px;">
         <h3>Q1: Which operating systems are supported?</h3>
-        <p><strong>A:</strong> Currently, Blender CAD supports <strong>Windows 10 and 11 (64-bit)</strong>. Support for macOS and Linux is in active development and planned for future updates.</p>
+        <p><strong>A:</strong> <strong>Windows 10 and 11 (64-bit) only.</strong> There is no macOS or Linux build, and none is currently scheduled. The geometry kernel is compiled for Windows, so porting is a real piece of work rather than a flag flip. Please check this before buying.</p>
     </div>
 
     <!-- FAQ 2 -->
     <div style="margin-bottom: 24px;">
         <h3>Q2: Which Blender versions are compatible?</h3>
-        <p><strong>A:</strong> Blender CAD is compatible with <strong>Blender 4.2 LTS to Blender 5.1+</strong>.</p>
+        <p><strong>A:</strong> <strong>Blender 4.2 LTS through 5.1.</strong> Tested on 4.2, 4.3, 4.4 and 5.1.</p>
     </div>
 
     <!-- FAQ 3 -->
     <div style="margin-bottom: 24px;">
-        <h3>Q3: Can I export models to CAD software like SolidWorks or Fusion 360?</h3>
-        <p><strong>A:</strong> Yes! You can export true solid geometry directly as <strong>STEP and IGES</strong> files, making them ready for SolidWorks, Fusion 360, Rhino, FreeCAD, or manufacturing/3D printing workflows.</p>
+        <h3>Q3: Which file formats can it read and write?</h3>
+        <p><strong>A:</strong> <strong>STEP import and export</strong>, and <strong>SVG import</strong> for 2D profiles. STEP is the format that matters for moving real solids to and from SolidWorks, Fusion 360, Rhino or FreeCAD, and on to CNC or 3D printing. <strong>IGES is not supported.</strong> You can also bake any result to a normal Blender mesh and use Blender's own exporters from there.</p>
     </div>
 
     <!-- FAQ 4 -->
     <div style="margin-bottom: 24px;">
         <h3>Q4: Do I need separate CAD software or licenses installed?</h3>
-        <p><strong>A:</strong> No. Blender CAD incorporates an integrated CAD kernel (OpenCASCADE) directly into Blender. You do not need any third-party CAD licenses.</p>
+        <p><strong>A:</strong> No. The CAD kernel (OpenCASCADE) and everything it needs are bundled with the add-on. No third-party CAD licenses, and no separate runtime to install.</p>
     </div>
 
     <!-- FAQ 5 -->
     <div style="margin-bottom: 24px;">
-        <h3>Q5: Are future updates included with my purchase?</h3>
-        <p><strong>A:</strong> Yes! All updates for the 8.x series are included free of charge.</p>
+        <h3>Q5: What does "Beta" actually mean here?</h3>
+        <p><strong>A:</strong> It works, and it is being used for real modeling — but it is still under active development. Expect rough edges, expect behaviour to change between updates, and please save your work. Bug reports genuinely shape what gets fixed next. The launch price reflects this stage.</p>
     </div>
 
     <!-- FAQ 6 -->
     <div style="margin-bottom: 24px;">
-        <h3>Q6: How do I report a bug or request a feature?</h3>
-        <p><strong>A:</strong> You can contact us via our support email or Superhive messaging. We regularly publish updates based on user feedback!</p>
+        <h3>Q6: Are future updates included with my purchase?</h3>
+        <p><strong>A:</strong> Yes. All updates in the 8.x series are included free of charge.</p>
+    </div>
+
+    <!-- FAQ 7 -->
+    <div style="margin-bottom: 24px;">
+        <h3>Q7: Is the source code available?</h3>
+        <p><strong>A:</strong> Yes. Blender add-ons are GPL, and this one is no exception — it ships under the GNU GPL v2 or later, and the source, including the Rust and C++ geometry kernel, is published openly. You are free to read it, learn from it and modify it.</p>
+    </div>
+
+    <!-- FAQ 8 -->
+    <div style="margin-bottom: 24px;">
+        <h3>Q8: How do I report a bug or request a feature?</h3>
+        <p><strong>A:</strong> Message me through Superhive, or open an issue on the project's GitHub tracker. Reports go straight to the developer — there is no support queue in between.</p>
     </div>
 </body>
 </html>

@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Blender CAD - Superhive Product Description</title>
+    <title>Seamless CAD - Superhive Product Description</title>
 </head>
 <body>
 
@@ -11,51 +11,69 @@
     <div style="background: linear-gradient(135deg, #ff6b6b 0%, #ff8e53 100%); color: #ffffff; padding: 18px 24px; border-radius: 12px; margin-bottom: 24px; text-align: center; box-shadow: 0 4px 15px rgba(255, 107, 107, 0.3);">
         <h2 style="margin: 0 0 8px 0; color: #ffffff; border: none; font-size: 1.5em;">🎉 Early Bird Special Offer!</h2>
         <p style="margin: 0; font-size: 1.2em; font-weight: bold;">
-            The first <strong>50 copies</strong> are available for only <span style="font-size: 1.4em; text-decoration: underline; color: #ffeb3b;">$9.90</span>! 
+            The first <strong>50 copies</strong> are available for only <span style="font-size: 1.4em; text-decoration: underline; color: #ffeb3b;">$9.90</span>!
         </p>
         <p style="margin: 6px 0 0 0; font-size: 0.95em; opacity: 0.95;">
             Get your copy now before the launch discount ends!
         </p>
     </div>
 
+    <!-- BETA NOTICE -->
+    <div style="background-color: #fff3cd; border-left: 6px solid #ffc107; padding: 14px 18px; margin-bottom: 24px; border-radius: 4px; color: #664d03;">
+        <strong>⚠️ Please read before buying — this is a Beta release, Windows only.</strong><br>
+        Seamless CAD is under active development and is offered at a launch price that reflects that.
+        It runs on <strong>Windows 10 / 11 (64-bit) only</strong> — there is no macOS or Linux build.
+        Expect rough edges, and expect things to change between updates.
+        If you need a finished, cross-platform product today, this is not it yet.
+    </div>
+
     <!-- HERO SECTION -->
-    <h1>Blender CAD: Industrial-Grade Solid Modeling Inside Blender</h1>
-    <p><strong>Transform Blender into a true CAD workstation.</strong> Powered by the OpenCASCADE technology, <strong>Blender CAD</strong> brings precision solid geometry, non-destructive CAD Booleans, smooth fillets, and native STEP/IGES file exchange directly into your Blender 3D viewport.</p>
+    <h1>Seamless CAD: Parametric Solid Modeling Inside Blender</h1>
+    <p><strong>Your shapes stay editable.</strong> Seamless CAD keeps every operation as a feature tree, so you can go back to any step — a box, a boolean, a fillet — and simply retype a number. Nothing is baked into a mesh the moment you make it.</p>
+    <p>Geometry is computed by <strong>OpenCASCADE</strong>, the same industrial B-Rep kernel used by FreeCAD, running out of process so Blender stays responsive while a live preview follows your drag.</p>
 
     <hr>
 
     <!-- KEY FEATURES SECTION -->
     <h2>✨ Key Features</h2>
 
-    <h3>1. Industrial CAD Kernel Engine</h3>
+    <h3>1. A Feature Tree You Can Go Back To</h3>
     <ul>
-        <li><strong>OpenCASCADE Integration:</strong> Construct true solid geometry without topology artifacts, polygon stretching, or shading glitches.</li>
-        <li><strong>High Precision:</strong> Experience mathematical accuracy for mechanical engineering, product design, and 3D printing.</li>
+        <li><strong>Non-Destructive by Design:</strong> Every primitive, boolean and modifier stays in an editable history. Change the first step and everything after it rebuilds.</li>
+        <li><strong>Direct Manipulation:</strong> Drag a proxy in the viewport with Blender's normal G / R / S and the solid follows in real time.</li>
     </ul>
 
-    <h3>2. Advanced CAD Booleans & Fillets</h3>
+    <h3>2. Industrial CAD Kernel</h3>
     <ul>
-        <li><strong>Flawless Booleans:</strong> Union, Difference, and Intersection operations that work seamlessly on complex shapes where traditional mesh Booleans fail.</li>
-        <li><strong>Variable & Edge Fillets:</strong> Create perfect, smooth CAD fillets and chamfers effortlessly.</li>
+        <li><strong>Real B-Rep Solids:</strong> True solid geometry from OpenCASCADE — not mesh approximations. No topology artifacts, no polygon stretching, no shading glitches.</li>
+        <li><strong>Precision:</strong> Mathematical accuracy suitable for mechanical parts, product design and 3D printing.</li>
     </ul>
 
-    <h3>3. Seamless Industry Interoperability (STEP / IGES)</h3>
+    <h3>3. CAD Booleans, Fillets &amp; Chamfers</h3>
     <ul>
-        <li><strong>Direct STEP & IGES Import/Export:</strong> Bridge the gap between Blender and professional CAD software like SolidWorks, Fusion 360, Rhino, and FreeCAD.</li>
-        <li><strong>Manufacturing Ready:</strong> Export production-grade CAD files ready for CNC machining, mold design, or additive manufacturing.</li>
+        <li><strong>Solid Booleans:</strong> Union, Difference and Intersection that hold up on shapes where mesh booleans fall apart.</li>
+        <li><strong>Edge Fillets &amp; Chamfers:</strong> Pick edges and round or bevel them. Fillet radius can be overridden per edge for variable fillets.</li>
+        <li><strong>More Modifiers:</strong> Shell, draft, face offset and inset, plus mirror and linear / circular arrays.</li>
     </ul>
 
-    <h3>4. Native Blender Integration</h3>
+    <h3>4. STEP &amp; SVG Interchange</h3>
     <ul>
-        <li><strong>Intuitive UI:</strong> Built to feel like a native part of Blender. No steep learning curve.</li>
-        <li><strong>Non-Blocking Performance:</strong> Fast, multithreaded calculation powered by C++/Rust core backend.</li>
+        <li><strong>STEP Import and Export:</strong> Bring parts in from SolidWorks, Fusion 360, Rhino or FreeCAD, and send real solids back out for CNC, mold design or additive manufacturing.</li>
+        <li><strong>SVG Import:</strong> Pull 2D profiles and logos straight in as CAD geometry to extrude and cut with.</li>
+    </ul>
+
+    <h3>5. Native Blender Integration</h3>
+    <ul>
+        <li><strong>Fits Blender's Habits:</strong> Lives in the sidebar, uses the transform tools you already know.</li>
+        <li><strong>Non-Blocking:</strong> The kernel runs as a separate process with multithreaded evaluation, so heavy recomputation does not freeze the interface.</li>
+        <li><strong>Bake When You Want:</strong> Convert the CAD result to a normal Blender mesh at a quality you choose.</li>
     </ul>
 
     <hr>
 
     <!-- DEMO / VIDEO PLACEHOLDER SECTION -->
     <h2>🎥 Video Demonstration</h2>
-    <p><em>Watch Blender CAD in action:</em></p>
+    <p><em>Watch Seamless CAD in action:</em></p>
     <!-- Superhive Video Placeholder -->
     <p>[Insert your product video link / mp4 embed here - Videos provide a much better experience than GIFs!]</p>
 
@@ -64,37 +82,40 @@
     <!-- WHO IS THIS FOR SECTION -->
     <h2>🎯 Who Is This For?</h2>
     <ul>
-        <li><strong>Industrial & Product Designers:</strong> Rapidly prototype concept models with CAD precision in Blender's artist-friendly environment.</li>
-        <li><strong>Hard-Surface 3D Artists:</strong> Create complex mechanical components without worrying about topology clean-up.</li>
-        <li><strong>3D Printing Enthusiasts:</strong> Generate watertight, error-free solid models ready for slicing.</li>
-        <li><strong>Engineers & Makers:</strong> Easily convert mesh concepts to STEP models for CAD workflows.</li>
+        <li><strong>Industrial &amp; Product Designers:</strong> Iterate on concept models with CAD precision without leaving Blender.</li>
+        <li><strong>Hard-Surface 3D Artists:</strong> Build mechanical parts without fighting topology cleanup.</li>
+        <li><strong>3D Printing Enthusiasts:</strong> Work in solids rather than meshes, then bake or export for slicing.</li>
+        <li><strong>Engineers &amp; Makers:</strong> Move parts between Blender and CAD software as STEP.</li>
     </ul>
 
     <hr>
 
     <!-- WHAT'S INCLUDED -->
-    <h2>📦 What’s Included?</h2>
+    <h2>📦 What's Included?</h2>
     <ul>
-        <li>Blender CAD Addon (ZIP installation file)</li>
-        <li>Full documentation & workflow guides</li>
-        <li>Free lifetime updates for version 8.x</li>
-        <li>Dedicated support & community access</li>
+        <li>Seamless CAD add-on (single ZIP, installs through Blender's add-on installer)</li>
+        <li>Everything needed to run it — the geometry kernel and its libraries are bundled, no separate CAD install or license required</li>
+        <li>Free updates throughout the 8.x series</li>
+        <li>Direct support from the developer</li>
+        <li>Full source code under the GNU GPL, including the Rust and C++ geometry kernel</li>
     </ul>
 
     <hr>
 
     <!-- SYSTEM REQUIREMENTS -->
-    <h2>💻 Compatibility & System Requirements</h2>
+    <h2>💻 Compatibility &amp; System Requirements</h2>
 
     <div style="background-color: #fff3cd; border-left: 6px solid #ffc107; padding: 14px 18px; margin-bottom: 20px; border-radius: 4px; color: #664d03;">
         <strong>⚠️ Important Notice regarding OS Support:</strong><br>
-        Currently, Blender CAD is compiled and supported <strong>ONLY for Windows 10/11 (64-bit)</strong>. <br>
-        <em>macOS and Linux builds are NOT supported at this moment (Support is planned for future updates). Please make sure you are running Windows before purchasing.</em>
+        Seamless CAD is built and supported <strong>ONLY for Windows 10/11 (64-bit)</strong>.<br>
+        <em>There is no macOS or Linux build, and none is currently scheduled. Please make sure you are running Windows before purchasing.</em>
     </div>
 
     <ul>
-        <li><strong>Blender Version:</strong> Blender 4.2 LTS to 5.1+</li>
+        <li><strong>Blender Version:</strong> 4.2 LTS through 5.1 (tested on 4.2, 4.3, 4.4 and 5.1)</li>
         <li><strong>Supported OS:</strong> Windows 10 / 11 (64-bit only)</li>
+        <li><strong>Status:</strong> Beta</li>
+        <li><strong>License:</strong> GNU GPL v2 or later, as required for Blender add-ons</li>
     </ul>
 
 </body>
