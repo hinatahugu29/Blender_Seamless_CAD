@@ -1172,7 +1172,18 @@ static std::mutex g_occ_mutex;
                     double h = extrude_heights[i];
                     log_debug("[EXTRUDE] i=" + std::to_string(i) + " h=" + std::to_string(h));
                     if (std::abs(h) < 1e-5 && (p_type == "POLYGON" || p_type == "SLOT" || p_type == "SURFACE")) h = 1e-4;
-                    if (!prim.IsNull() && std::abs(h) > 1e-6) {
+                    // この汎用押し出しは「平面プロファイルを立体にする」ためのもの。
+                    // 既に立体を返す型に適用してはいけない。VARIABLE_BOX は高さ h の
+                    // ロフト済みソリッド、HELIX は make_helix が高さを織り込んだ螺旋
+                    // (use_pipe ならパイプ化済み)で、そこへ MakePrism をかけると
+                    // 形状生成が失敗する。失敗すると stack_results が空になり、
+                    // generate_mesh が古いメッシュキャッシュを返すため、利用者からは
+                    // 「高さを変えても何も起きない」ように見える(2026-08-01 に実測)。
+                    const bool already_solid =
+                        (p_type == "BOX" || p_type == "CYLINDER" || p_type == "SPHERE" ||
+                         p_type == "CONE" || p_type == "TORUS" || p_type == "VARIABLE_BOX" ||
+                         p_type == "HELIX" || p_type == "STEP_PART" || p_type == "INSTANCE");
+                    if (!prim.IsNull() && std::abs(h) > 1e-6 && !already_solid) {
                         TopoDS_Face first_face;
                         TopExp_Explorer f_exp(prim, TopAbs_FACE);
                         if (f_exp.More()) first_face = TopoDS::Face(f_exp.Current());
