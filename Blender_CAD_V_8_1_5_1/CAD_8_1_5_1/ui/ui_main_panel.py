@@ -588,8 +588,16 @@ class SEAMLESS_PT_PropertyEditorPanel(bpy.types.Panel):
 
         elif active_prim.type not in {'FILLET', 'CHAMFER', 'FACE_OFFSET', 'FACE_INSET', 'DRAFT', 'SHELL', 'FACE_LOFT', 'FACE_REVOLVE', 'SLOT', 'CONE', 'TORUS', 'POLYGON', 'GEAR', 'VARIABLE_BOX', 'SWEEP', 'LOFT', 'HELIX', 'POLYLINE', 'GROUP_START', 'GROUP_END'}:
             col.prop(active_prim, "size")
-            col.prop(active_prim, "radius")
-            
+            # radius を出すのは、カーネルが実際に読む型だけにする。
+            # この分岐に入る型のうち radii[i] を使うのは ARC だけ
+            # (occ_core.cpp: make_arc(radii[i], ...))。CYLINDER と SPHERE は
+            # make_cylinder(sx,sy,sz) / make_sphere(sx,sy,sz) で size からしか
+            # 作られないため、Radius を出すと「触っても何も起きない欄」になる。
+            # 大きさは size で変える。CONE/TORUS/SLOT/POLYGON/HELIX 等は
+            # 上の除外リストに入っていて、それぞれ専用の UI を持つ。
+            if active_prim.type == 'ARC':
+                col.prop(active_prim, "radius")
+
             if active_prim.type in {'CURVE', 'SURFACE', 'ARC'}:
                 row = col.row(align=True)
                 row.prop(active_prim, "fill_closed")
