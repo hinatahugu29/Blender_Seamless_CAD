@@ -246,6 +246,37 @@ radius が消え、ARC と CONE には残ることを確認済み。
 radius が効かないことに気づかず既定サイズのシリンダーがボックスを飲み込んでいたため。
 **SUB/ADD/INT はいずれも正常**(貫通穴 188 頂点 / 部分欠け 138 / 非接触 8)。
 
+### 4-8. UI に出ているのに形状へ効かないパラメータ(2026-08-01 監査)
+`audit_ui_params.py` で全プリミティブについて「UI に出ている項目」と
+「実際に形状を変える項目」を突き合わせた。判定は値を変えて **force=True で**
+再計算し、頂点数と bounding box が動くかどうか(force を付けないと
+core_bridge の「前回と同内容ならスキップ」に阻まれて全部『効かない』に見える)。
+
+**UI 側を直したもの** — 効かない成分を出さないようにした:
+
+| 型 | 直した内容 | 根拠 |
+|---|---|---|
+| CYLINDER / SPHERE | `radius` を出さない | `make_cylinder(sx,sy,sz)` / `make_sphere(sx,sy,sz)` |
+| SLOT | `size` を X 成分のみ | `make_slot(radii[i], sx)` |
+| CONE | `size` を Z 成分のみ | `make_cone(radii[i], radii2[i], sz)` |
+
+**UI では直していない残り** — カーネルは値を受け取って使っているのに効かないので、
+UI から隠すのではなく配線を疑うべきもの:
+
+| 型 | 効かない項目 | なぜ UI のせいではないか |
+|---|---|---|
+| HELIX | `extrude_height` | `make_helix(radius, height, turns)` が `z = t * height` で使っている |
+| VARIABLE_BOX | `extrude_height`, `size.z` | `make_variable_box(...,h,...)` がプロファイルを `±height/2` に置いている |
+| ARC | `angle_start`, `size.*` | `make_arc(radii[i], a_starts[i], a_ends[i])` に渡ってはいる |
+
+HELIX は呼び出しが `make_helix(radii[i], extrude_heights[i], distances[i])` で、
+**第3引数が `turns` ではなく `distances[i]`**。UI の "Turns" は `turns` を触るので、
+名前と実際に届く値がずれている疑いがある。ここは要調査。
+
+**監査ツールの限界**: bounding box と頂点数でしか見ていないので、
+「形は変わるが外形寸法は同じ」変化は取りこぼす。ARC の `angle_start` は
+それに当たる可能性があるので、実機での確認が要る。
+
 ---
 
 ## 5. 回帰チェックリスト(手動セーフティネット)

@@ -644,13 +644,17 @@ class SEAMLESS_PT_PropertyEditorPanel(bpy.types.Panel):
 
         elif active_prim.type == 'SLOT':
             col.prop(active_prim, "radius", text="End Radius")
-            col.prop(active_prim, "size", text="Center-to-Center")
+            # size は3成分あるが make_slot(radii[i], sx) が使うのは X だけ。
+            # 3つ並べると Y/Z が「触っても何も起きない欄」になるので X のみ出す。
+            col.prop(active_prim, "size", index=0, text="Center-to-Center")
             col.prop(active_prim, "extrude_height", text="Thickness")
-        
+
         elif active_prim.type == 'CONE':
             col.prop(active_prim, "radius", text="Base Radius")
             col.prop(active_prim, "radius2", text="Top Radius")
-            col.prop(active_prim, "size", text="Height (Z)")
+            # make_cone(radii[i], radii2[i], sz) が使うのは Z だけ。
+            # ラベルが "Height (Z)" なのに X/Y も並んでいて紛らわしかった。
+            col.prop(active_prim, "size", index=2, text="Height (Z)")
         
         elif active_prim.type == 'TORUS':
             col.prop(active_prim, "radius", text="Major Radius")
