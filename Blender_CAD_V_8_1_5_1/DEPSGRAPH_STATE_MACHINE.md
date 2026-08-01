@@ -260,22 +260,20 @@ core_bridge の「前回と同内容ならスキップ」に阻まれて全部�
 | SLOT | `size` を X 成分のみ | `make_slot(radii[i], sx)` |
 | CONE | `size` を Z 成分のみ | `make_cone(radii[i], radii2[i], sz)` |
 
-**UI では直していない残り** — カーネルは値を受け取って使っているのに効かないので、
-UI から隠すのではなく配線を疑うべきもの:
+**根本原因(2026-08-01 に解明)**: 残っていた HELIX / VARIABLE_BOX は UI の問題ではなく、
+**汎用押し出しが型で絞られていなかった**ことが原因だった。§4-10 を参照。
 
-| 型 | 効かない項目 | なぜ UI のせいではないか |
-|---|---|---|
-| HELIX | `extrude_height` | `make_helix(radius, height, turns)` が `z = t * height` で使っている |
-| VARIABLE_BOX | `extrude_height`, `size.z` | `make_variable_box(...,h,...)` がプロファイルを `±height/2` に置いている |
-| ARC | `angle_start`, `size.*` | `make_arc(radii[i], a_starts[i], a_ends[i])` に渡ってはいる |
+ARC の `angle_start` は**監査ツールの誤検知**だった。既定 0 に対し「2倍+0.3」で
+0.3度しか振っておらず、形は変わっても bounding box が同じで「効かない」と出ていた。
+角度は +60 度振るよう修正済み。実測では 45度で X 最大が 1.10→0.78、90度で 0.00 と
+正しく効いている。ARC の `size` は本当に死んでいた(`make_arc` は radius しか読まない)
+ので UI から外した。
 
-HELIX は呼び出しが `make_helix(radii[i], extrude_heights[i], distances[i])` で、
-**第3引数が `turns` ではなく `distances[i]`**。UI の "Turns" は `turns` を触るので、
-名前と実際に届く値がずれている疑いがある。ここは要調査。
+**現在は全 11 型で不一致ゼロ**(`audit_ui_params.py` の終了コード 0)。
 
 **監査ツールの限界**: bounding box と頂点数でしか見ていないので、
-「形は変わるが外形寸法は同じ」変化は取りこぼす。ARC の `angle_start` は
-それに当たる可能性があるので、実機での確認が要る。
+「形は変わるが外形寸法は同じ」変化は原理的に取りこぼす。振り幅が小さいと
+上記 ARC のような誤検知が出る。**「効かない」と出たら、まず振り幅を疑うこと。**
 
 ### 4-9. 配布物の減量(2026-08-01)
 ZIP が 140.8MB あり、中身の大半が OCCT の bin フォルダ丸ごとコピーだった。
@@ -300,6 +298,42 @@ numpy は `vendor_libs.py` のコメント自体が「Blender は自前の numpy
 **結果: ZIP 140.8MB → 94.0MB (-33%)、ファイル数 1597 → 469。**
 外した物は `_removed_from_addon/` に置いてある(git 管理外・配布対象外)。
 DLL は `.gitignore` の `*.dll` で追跡されていないため、**git では戻せない**。消さないこと。
+
+### 4-10. 汎用押し出しが型で絞られていない ✅ 修正済(2026-08-01)
+**症状**: VARIABLE_BOX と HELIX の高さが効かない。HELIX に至っては既定で高さ 0 のまま、
+**螺旋ではなく平らな輪**しか作れていなかった。
+
+**原因**: `occ_core.cpp` の押し出しブロックは「平面プロファイルを立体にする」ためのもの
+(SLOT/POLYGON/GEAR/ARC/CURVE/SURFACE/POLYLINE/SVG_PART)なのに、条件が
+`extrude_height != 0` だけで**型を見ていなかった**。そのため既に立体の形状にも
+`BRepPrimAPI_MakePrism` がかかり、形状生成が失敗 → `stack_results` が空 →
+`generate_mesh` が**古いメッシュキャッシュを返す**。利用者からは「値を変えても
+何も起きない」に見える。カーネルのデバッグログ(既定で有効、
+`%TEMP%\seamless_cad_server_debug.log`)で確定した:
+
+```
+[PRIM_CREATE] type=VARIABLE_BOX sz=5.000000     ← 値は正しく届いている
+[EXTRUDE] i=0 h=5.000000                        ← そこへ再度押し出し
+[CACHE_ANALYSIS][mesh] hit total_hash=8599...   ← 形状ハッシュは変わるのにメッシュは据え置き
+```
+
+**修正(2段)**:
+1. Python: VARIABLE_BOX は高さを `size.z` で送り、`extrude_height` は 0 にして
+   押し出しを黙らせる(リビルド不要)。
+2. カーネル: 押し出しを型で絞る。BOX/CYLINDER/SPHERE/CONE/TORUS/VARIABLE_BOX/
+   HELIX/STEP_PART/INSTANCE はスキップ。HELIX はこちらでしか直せない
+   (`make_helix` が同じ `extrude_heights[i]` を高さとして読むため)。
+
+**結果**: HELIX の Z が高さ 2.0/5.0 に対し 2.199/5.193 と追従。全 11 型で監査が通る。
+
+**リビルド手順**(このとき実際に通したもの):
+```
+cd Blender_CAD_V_8_1_5_1/src_rust && cargo build --release   # 約44秒
+cd .. && py deploy.py                                        # CAD_* へバイナリを配置
+```
+cargo 1.92 / MSVC 14.44.35207 / OCCT 8.0.0。**ビルド前に既存バイナリを退避すること**
+(`.gitignore` の `*.dll` `*.exe` 対象で git から戻せない)。
+今回の控えは `_removed_from_addon/binary_backup_20260801/`。
 
 ---
 

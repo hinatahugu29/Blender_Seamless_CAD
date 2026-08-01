@@ -587,7 +587,10 @@ class SEAMLESS_PT_PropertyEditorPanel(bpy.types.Panel):
             box_pat.prop(active_prim, "distance", text="Total Angle")
 
         elif active_prim.type not in {'FILLET', 'CHAMFER', 'FACE_OFFSET', 'FACE_INSET', 'DRAFT', 'SHELL', 'FACE_LOFT', 'FACE_REVOLVE', 'SLOT', 'CONE', 'TORUS', 'POLYGON', 'GEAR', 'VARIABLE_BOX', 'SWEEP', 'LOFT', 'HELIX', 'POLYLINE', 'GROUP_START', 'GROUP_END'}:
-            col.prop(active_prim, "size")
+            # ARC は make_arc(radius, a_start, a_end) だけで作られ size を読まない。
+            # 大きさは Radius で決まるので、size を出すと死んだ欄になる。
+            if active_prim.type != 'ARC':
+                col.prop(active_prim, "size")
             # radius を出すのは、カーネルが実際に読む型だけにする。
             # この分岐に入る型のうち radii[i] を使うのは ARC だけ
             # (occ_core.cpp: make_arc(radii[i], ...))。CYLINDER と SPHERE は

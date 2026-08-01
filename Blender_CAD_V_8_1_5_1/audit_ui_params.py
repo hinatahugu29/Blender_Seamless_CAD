@@ -129,8 +129,12 @@ def effective_params(prim_type):
         if not hasattr(prim, name):
             continue
         old = getattr(prim, name)
+        # 角度は「2倍+0.3」だと既定 0 のとき 0.3度しか動かず、形は変わっても
+        # bounding box が同じままで「効かない」と誤判定する(ARC の angle_start で
+        # 実際に踏んだ)。角度だけは十分大きく振る。
+        bumped = (old + 60.0) if name.startswith("angle") else (old * 2.0 + 0.3)
         try:
-            setattr(prim, name, old * 2.0 + 0.3)
+            setattr(prim, name, bumped)
         except Exception:
             continue
         if _signature(ptr, core) != base:
