@@ -626,7 +626,11 @@ class SEAMLESS_PT_PropertyEditorPanel(bpy.types.Panel):
             box_top.label(text="Top Profile:")
             box_top.row().prop(active_prim, "top_shape", expand=True)
             if active_prim.top_shape == 'BOX':
-                box_top.prop(active_prim, "size", text="")
+                # size.z は出さない。ペイロード側で高さ(extrude_height)に
+                # 上書きされるので、ここに出すと「触っても何も起きない欄」になる。
+                # 高さはこのブロック末尾の "Height" が担当する。
+                box_top.prop(active_prim, "size", index=0, text="Width")
+                box_top.prop(active_prim, "size", index=1, text="Depth")
             else:
                 box_top.prop(active_prim, "size", text="Radius", index=0)
             

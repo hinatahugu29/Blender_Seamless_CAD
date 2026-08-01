@@ -1592,7 +1592,17 @@ def _update_cad_preview_internal_for_col(col, context, fast_preview=False, overr
             "edge_radii": [(er.token, er.radius) for er in getattr(prim, "edge_radii", []) if er.radius >= 0.0],
         }
         if prim.type == 'VARIABLE_BOX':
+            # 高さは size.z としてカーネルへ渡す(make_variable_box の第3引数 h)。
             p_data["size"][2] = prim.extrude_height
+            # ただし extrude_height をそのまま送ってはいけない。カーネルの
+            # 汎用押し出し(occ_core.cpp の [EXTRUDE] ブロック)は型で絞られておらず、
+            # extrude_height が非0なら **どんな形状でも** BRepPrimAPI_MakePrism に
+            # かける。VARIABLE_BOX は既に高さ h のロフト済みソリッドなので、
+            # そこへさらに押し出しが走って形状生成が失敗し、結果が空になる
+            # → generate_mesh が古いキャッシュを返し、「高さを変えても何も起きない」
+            # ように見えていた(2026-08-01、カーネルログで確認)。
+            # 高さは size.z 側で効いているので、押し出しには 0 を渡して黙らせる。
+            p_data["extrude_height"] = 0.0
         if prim.type in {'CURVE', 'SURFACE', 'POLYLINE'}:
             p_data["points"] = [[pt.co[0], pt.co[1], pt.co[2], 1.0 if getattr(pt, "use_fillet", True) else 0.0] for pt in prim.points]
             if hasattr(prim, "segments_json") and prim.segments_json:
