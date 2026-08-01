@@ -9,9 +9,9 @@ DEPSGRAPH_STATE_MACHINE.md §5 の手動チェックリストのうち、GUI が
   自動化した : A(アクティブ同期) B(Feature Tree→ビューポート) E(単発編集)
                F(削除同期) G相当(ハイライト文字列) + 確定フェーズの契約
                + 出品前チェック(パネル登録/ベイク/STEP書き出し/保存再読込)
+               + I の一部(Undo 1回で1つ戻ること)
   手動のまま : C(ドラッグ追従) D(確定後に固まらない) H(WGPU Overlay OFF)
-               I(Undo/Redo … 自動化を試みたが背景実行だと Blender ごと落ちる。
-                 理由は下の該当箇所のコメントと §4-6 を参照)
+               Redo、および Ctrl+Z 後にビューポートが更新されるか(§4-6)
 
 C/D/H はネイティブの変形モーダルと GPU 描画が要るため、ここでは原理的に
 再現できない。**変形まわりを触ったら実機確認は依然として必要。**
@@ -35,10 +35,21 @@ import mathutils  # noqa: E402
 _results = []
 
 
+class Skip(Exception):
+    """この環境では安全に実行できない検査。失敗ではなく SKIP として記録する。"""
+
+
 def check(name, fn):
-    """fn() を走らせ、送出された AssertionError を失敗として記録する。"""
+    """fn() を走らせ、送出された AssertionError を失敗として記録する。
+
+    開始時に名前を flush 付きで出すのは、テストが Blender ごと落とした場合に
+    「どれが落としたか」を特定できるようにするため(§4-6 の Undo 調査で必要になった)。
+    """
+    print(f"[run] {name}", flush=True)
     try:
         fn()
+    except Skip as e:
+        _results.append((name, None, str(e)))
     except Exception as e:
         _results.append((name, False, f"{type(e).__name__}: {e}"))
         traceback.print_exc()
@@ -346,7 +357,51 @@ def t_step_export():
     assert "ISO-10303" in head, f"file does not look like STEP; starts with: {head[:60]!r}"
 
 
-# Undo / Redo は意図的に自動化していない。
+def t_one_undo_is_one_step():
+    """Ctrl+Z 1回で1つ戻る(2回押さないと戻らない、が起きない)。
+
+    2026-07-30 まで壊れていた: undo_redo_post_handler が undo_post の中で
+    sync_proxies と再計算を行いデータを書き換えていたため、その書き換え自体が
+    新しい undo ステップになり、1回目の Ctrl+Z が実質無効化されていた
+    (実測: ハンドラを外すと1回で正しく戻る)。再同期はタイマーへ逃がして解決。
+
+    背景実行ではタイマーが回らないので、ここで確認できるのは
+    「undo_post がもうデータを書かない」ことまで。**GUI で Ctrl+Z 後に
+    ビューポートがちゃんと更新されるかは実機確認が必要。**
+    """
+    from CAD_8_1_5_1 import utils
+
+    # Blender 4.x の背景実行で ed.undo() を呼ぶと Blender ごと落ちる(4.2.7 で確認)。
+    # 5.x では起きない。アドオン側の問題ではなく背景モードの undo まわりの差と見て
+    # いるが、落ちると残りの検査を道連れにするので安全な環境でだけ走らせる。
+    # **4.2 の GUI で Ctrl+Z が安全かは、この検査では分からない。実機で確認すること。**
+    if bpy.app.version < (5, 0, 0):
+        raise Skip(f"background undo crashes Blender {bpy.app.version_string}; check Ctrl+Z by hand")
+
+    col, props = _fresh_part()
+    bpy.ops.seamless.add_primitive(type='BOX')
+    for i in range(3):
+        # 背景実行の undo スタックは眠っている。数回 push しないと poll が通らない。
+        bpy.ops.ed.undo_push(message=f"regression baseline {i}")
+    bpy.ops.seamless.add_primitive(type='CYLINDER')
+
+    props = utils.get_active_props(bpy.context)
+    assert len(props.primitives) == 2, f"setup failed: {[p.type for p in props.primitives]}"
+
+    # poll が False のまま ed.undo() を呼ぶと Blender ごと落ちる(§4-6)。必ず確認する。
+    if not bpy.ops.ed.undo.poll():
+        raise AssertionError("undo is not available; refusing to call it (would crash Blender)")
+
+    bpy.ops.ed.undo()
+    props = utils.get_active_props(bpy.context)
+    assert props is not None, "the CAD collection vanished after undo"
+    types = [p.type for p in props.primitives]
+    assert types == ['BOX'], \
+        f"one undo must roll back exactly one step; expected ['BOX'], got {types}"
+
+
+# Redo は自動化していない。
+
 #
 # 背景実行で ed.undo() を呼ぶと、アドオンを register した状態では Blender ごと
 # EXCEPTION_ACCESS_VIOLATION で落ちることがある(2026-07-30、5回中5回再現した
@@ -374,16 +429,23 @@ def main():
     check("STEP export", t_step_export)
     # シーンを丸ごと開き直すので、他のテストを汚さないよう最後に回す
     check("save + reload keeps CAD live", t_save_reload_keeps_cad_live)
+    # 落ちる可能性がある検査は最後に。落ちても他の結果は出力済みになる。
+    check("one undo = one step", t_one_undo_is_one_step)
 
     print("\n" + "=" * 60)
-    failed = 0
+    failed = skipped = 0
     for name, ok, detail in _results:
-        print(f"  {'PASS' if ok else 'FAIL'}  {name}")
-        if not ok:
+        label = "PASS" if ok else ("SKIP" if ok is None else "FAIL")
+        print(f"  {label}  {name}")
+        if ok is None:
+            print(f"        {detail}")
+            skipped += 1
+        elif not ok:
             print(f"        {detail}")
             failed += 1
     print("=" * 60)
-    print(f"{len(_results) - failed} passed, {failed} failed")
+    passed = len(_results) - failed - skipped
+    print(f"{passed} passed, {failed} failed, {skipped} skipped")
     print("\nNOT covered here -- still needs real Blender:")
     print("  C  drag follows in real time")
     print("  D  no freeze after releasing a drag")

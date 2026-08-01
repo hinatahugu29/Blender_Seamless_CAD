@@ -181,25 +181,57 @@ def unload_post_handler(dummy):
         safe_delete_stack(col)
     _clear_all_gpu_draw()
 
-@persistent
-def undo_redo_post_handler(dummy):
-    """アンドゥ・リドゥ完了時に、Blender内のプロパティ状態とC++コアおよび描画レイヤーを完全再同期します"""
-    import bpy
-    from .drawing import get_wireframe_engine
+def _resync_after_undo(col_names):
+    """Undo/Redo 後のプロパティ・C++コア・描画の再同期(本体)。"""
     from .core_bridge import update_cad_preview_high_quality_for_col
     from .utils import sync_proxies
-    
+
+    for name in col_names:
+        col = bpy.data.collections.get(name)
+        if not col or not hasattr(col, "seamless_props"):
+            continue
+        if getattr(col, "seamless_cad_stack_ptr", "0") == "0":
+            continue
+        try:
+            sync_proxies(bpy.context, props=col.seamless_props)
+            update_cad_preview_high_quality_for_col(col, bpy.context)
+        except Exception as e:
+            utils.error_print(f"Seamless CAD: Undo/Redo sync error: {e}")
+
+
+@persistent
+def undo_redo_post_handler(dummy):
+    """アンドゥ・リドゥ完了時に、プロパティ・C++コア・描画レイヤーを再同期します。
+
+    再同期は **undo_post の中で直接やってはいけない**。ここでデータを書き換えると
+    その書き換え自体が新しい undo ステップになり、次の Ctrl+Z がそこへ戻るため、
+    利用者から見ると「1回目の Ctrl+Z が効かず、2回押して初めて1つ戻る」挙動になる。
+    2026-07-30 に実測で確認(ハンドラを外すと1回で正しく戻った)。
+
+    そこで書き換えを伴う処理はタイマーへ逃がし、Blender が undo を完全に終えてから
+    走らせる。ここで直接触るのは undo スタックに載らない描画エンジン側の状態だけ。
+    """
+    from .drawing import get_wireframe_engine
+
     engine = get_wireframe_engine()
     if engine:
         engine.hidden_primitive_uuids.clear()
-        
-    for col in bpy.data.collections:
-        if hasattr(col, "seamless_props") and getattr(col, "seamless_cad_stack_ptr", "0") != "0":
-            try:
-                sync_proxies(bpy.context, props=col.seamless_props)
-                update_cad_preview_high_quality_for_col(col, bpy.context)
-            except Exception as e:
-                utils.error_print(f"Seamless CAD: Undo/Redo sync error: {e}")
+
+    col_names = [col.name for col in bpy.data.collections
+                 if hasattr(col, "seamless_props")
+                 and getattr(col, "seamless_cad_stack_ptr", "0") != "0"]
+    if not col_names:
+        return
+
+    def _cb():
+        _resync_after_undo(col_names)
+        return None
+
+    # 背景実行ではスクリプト実行中にタイマーが回らないので、この再同期は走らない。
+    # そのぶん undo が Blender 本来の挙動になるため、回帰テストは
+    # 「1回の undo で1つ戻る」ことを確認できる(= undo_post がデータを
+    # 書かなくなったことの検証)。GUI で再同期が実際に走るかは実機確認が必要。
+    bpy.app.timers.register(_cb, first_interval=0.0)
 
 def poll_active_cad_collection(self, col):
     # Seamless_CAD 配下の子コレクションのみを許可
