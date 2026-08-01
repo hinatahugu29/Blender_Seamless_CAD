@@ -163,3 +163,6 @@ Log_V*.txt
 
 # 内部メモ（手元には残すが公開しない）
 LISTING_PREP.md
+
+# アドオンから外した同梱物の退避先（配布対象外・手元にだけ残す）
+_removed_from_addon/
