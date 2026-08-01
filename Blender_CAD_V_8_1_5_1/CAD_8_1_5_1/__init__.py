@@ -15,6 +15,59 @@
 #
 # You should have received a copy of the GNU General Public License along
 # with this program; if not, see <https://www.gnu.org/licenses/>.
+#
+# =============================================================================
+# DEVELOPMENT NOTES
+# =============================================================================
+#
+# [English]
+# This add-on, Seamless CAD, was developed with transparency through a
+# collaboration between myself (hinata_hugu), a human developer, and an AI:
+#
+# - DESIGN INTENT: All design principles, policies, and instructions were
+#   entirely driven by me. This add-on exists so that a shape stays editable
+#   after you have made it. Every operation is kept as a feature tree you can
+#   return to and retype a number in, rather than being baked into a mesh the
+#   moment it is created. The geometry is computed by a real B-Rep kernel
+#   (OpenCASCADE), driven from Rust in a separate process, so that Blender's
+#   interface stays responsive while a lightweight preview follows your drag
+#   in real time. The aim is to keep the whole CAD loop inside Blender, with
+#   no round trip through external CAD software.
+#   Currently in Beta, striving for further evolution.
+#
+# - ITERATIVE DEVELOPMENT: This is unmistakably an add-on created by me,
+#   refined through hundreds of cycles of coding, testing, debugging,
+#   and improvement.
+#
+# - RESPONSIBILITY: All design decisions, release decisions, debugging,
+#   user feedback, and support are handled exclusively by the human developer.
+#
+# - CODE FORMATTING: AI assisted with final code organization and review to
+#   improve readability. This benefits GPL users who wish to learn from this
+#   codebase. The Rust and C++ sources of the geometry kernel are published
+#   alongside the Python add-on at
+#   https://github.com/hinatahugu29/Blender_Seamless_CAD
+#   honouring the spirit of free software.
+#
+# [日本語]
+# Seamless CAD は hinata_hugu が開発しています。AI にはコードの整理とレビューを
+# 手伝わせていますが、設計方針・リリース判断・サポート・そして責任は、すべて
+# 開発者本人にあります。目指しているのは、外部の CAD ソフトを往復することなく、
+# Blender の中だけで CAD のモデリング — 履歴を残し、後からいつでも数値を
+# 編集し直せるやり方 — を完結させることです。幾何演算は実際の B-Rep カーネル
+# (OpenCASCADE) が担当し、Blender の操作感を損なわないよう別プロセスで動きます。
+# 現在ベータ版です。
+#
+# -----------------------------------------------------------------------------
+#
+# Creator's Oath
+#
+# In the spirit of free software and the GNU GPL:
+# May Blender forever remain free under the GPL!
+# This addon guarantees all users the freedom to learn from,
+# modify, and share this source code forever.
+# Keep Blender and Seamless CAD open, inspectable, and modifiable under the GPL.
+# =============================================================================
 
 bl_info = {
     "name": "Seamless CAD",
