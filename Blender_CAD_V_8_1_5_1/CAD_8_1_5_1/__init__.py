@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 #
-# Project Seamless CAD -- non-destructive CAD modelling inside Blender.
+# Seamless CAD -- non-destructive CAD modelling inside Blender.
 # Copyright (C) 2026 hinata_hugu
 #
 # This program is free software; you can redistribute it and/or modify it
@@ -17,12 +17,12 @@
 # with this program; if not, see <https://www.gnu.org/licenses/>.
 
 bl_info = {
-    "name": "Project Seamless CAD",
+    "name": "Seamless CAD",
     "author": "hinata_hugu",
     "version": (8, 1, 5, 1),
     "blender": (4, 2, 0),
     "location": "View3D > Sidebar > Seamless",
-    "description": "Native CAD for Blender (DAG V8.1.5.1 GPU preview)",
+    "description": "Non-destructive parametric CAD modelling with a real B-Rep kernel. Edit the feature tree at any time, export STEP",
     "warning": "Beta",
     "category": "Mesh",
     "doc_url": "https://github.com/hinatahugu29/Blender_Seamless_CAD",

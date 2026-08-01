@@ -1,4 +1,4 @@
-# Project Seamless CAD
+# Seamless CAD
 
 Blender の中でノンデストラクティブな CAD モデリングを行うアドオンです。
 形状の計算は Blender のメッシュではなく **OpenCASCADE (OCCT)** が行い、
