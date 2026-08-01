@@ -9,6 +9,7 @@ DEPSGRAPH_STATE_MACHINE.md §5 の手動チェックリストのうち、GUI が
   自動化した : A(アクティブ同期) B(Feature Tree→ビューポート) E(単発編集)
                F(削除同期) G相当(ハイライト文字列) + 確定フェーズの契約
                + 出品前チェック(パネル登録/ベイク/STEP書き出し/保存再読込)
+               + FILLET / CHAMFER が実際に形状を変えること
                + I の一部(Undo 1回で1つ戻ること)
   手動のまま : C(ドラッグ追従) D(確定後に固まらない) H(WGPU Overlay OFF)
                Redo、および Ctrl+Z 後にビューポートが更新されるか(§4-6)
@@ -294,6 +295,92 @@ def t_save_reload_keeps_cad_live():
 # 出品前チェック(LISTING_PREP.md の「最低限の検証チェックリスト」由来)
 # --------------------------------------------------------------------------
 
+def _capture_edge_lineages(col):
+    """今の結果形状のエッジ識別子(lineage)を集める。
+
+    通常は利用者がビューポートでエッジをクリックして選ぶ値。GUI が無いので、
+    カーネルが描画エンジンへ渡す lineage を横取りして同じものを手に入れる。
+    これが無いと FILLET/CHAMFER は「対象が空だから何もしない」状態しか試せない。
+    """
+    from CAD_8_1_5_1 import core_bridge, drawing
+    captured = []
+    engine = drawing.get_wireframe_engine()
+    original = engine.update_data
+
+    def spy(stack_ptr, points, counts, lineages):
+        if lineages:
+            captured[:] = list(lineages)
+        return original(stack_ptr, points, counts, lineages)
+
+    engine.update_data = spy
+    try:
+        core_bridge.update_cad_preview_forced(bpy.context)
+    finally:
+        engine.update_data = original
+    return captured
+
+
+def _result_vertex_count(col):
+    import math
+    from CAD_8_1_5_1 import core_bridge
+    core_bridge.update_cad_preview_forced(bpy.context)
+    core = core_bridge.get_core()
+    res = core.generate_mesh(int(col.seamless_cad_stack_ptr), 0.03, math.radians(6.0))
+    if not res or len(res[0]) == 0:
+        return 0
+    return len(res[0]) // 3
+
+
+def t_fillet_rounds_edges():
+    """FILLET が実際に角を丸める。
+
+    CAD アドオンの看板機能。対象エッジを与えないと何もしないのが正しい挙動なので、
+    エッジ識別子を取ってから適用する(_capture_edge_lineages 参照)。
+    """
+    col, props = _fresh_part()
+    bpy.ops.seamless.add_primitive(type='BOX')
+    base = _result_vertex_count(col)
+    assert base == 8, f"a plain box should have 8 vertices, got {base}"
+
+    lineages = _capture_edge_lineages(col)
+    assert len(lineages) >= 4, f"expected the box to report its edges, got {lineages}"
+
+    bpy.ops.seamless.add_primitive(type='FILLET')
+    props = utils_props()
+    fillet = props.primitives[-1]
+    fillet.target_lineages = "|".join(lineages[:4])
+    fillet.radius = 0.1
+
+    after = _result_vertex_count(col)
+    assert after > base, \
+        f"filleting 4 edges must add geometry; stayed at {after} vertices"
+
+
+def t_chamfer_cuts_edges():
+    """CHAMFER が実際に角を落とす。"""
+    col, props = _fresh_part()
+    bpy.ops.seamless.add_primitive(type='BOX')
+    base = _result_vertex_count(col)
+
+    lineages = _capture_edge_lineages(col)
+    assert len(lineages) >= 4, f"expected the box to report its edges, got {lineages}"
+
+    bpy.ops.seamless.add_primitive(type='CHAMFER')
+    props = utils_props()
+    chamfer = props.primitives[-1]
+    chamfer.target_lineages = "|".join(lineages[:4])
+    chamfer.radius = 0.1
+
+    after = _result_vertex_count(col)
+    assert after > base, \
+        f"chamfering 4 edges must add geometry; stayed at {after} vertices"
+
+
+def utils_props():
+    from CAD_8_1_5_1 import utils
+    return utils.get_active_props(bpy.context)
+
+
 def t_panels_registered():
     """基本パネルが登録されている。
 
@@ -417,6 +504,10 @@ def t_one_undo_is_one_step():
 def main():
     check("register / enable", t_register)
     check("add primitives -> proxies", t_add_primitives)
+    # 背景実行の undo は不安定(§4-6)。**実行位置に敏感**で、他の検査を
+    # ひととおり済ませた後(スイート末尾)に置くと Blender ごと落ちた。
+    # 操作をあまり積んでいない早い段階なら安定して通る。動かすときは注意。
+    check("one undo = one step", t_one_undo_is_one_step)
     check("B: feature tree -> viewport", t_b_feature_tree_to_viewport)
     check("A: viewport -> feature tree", t_a_viewport_to_feature_tree)
     check("F: delete sync", t_f_delete_sync)
@@ -424,13 +515,14 @@ def main():
     check("settle drops the drag flags", t_settle_contract)
     check("settle is a no-op mid-drag", t_settle_is_a_noop_when_nothing_ended)
     check("G: fillet highlight data", t_g_fillet_highlight_data)
+    check("FILLET rounds edges", t_fillet_rounds_edges)
+    check("CHAMFER cuts edges", t_chamfer_cuts_edges)
     check("panels registered", t_panels_registered)
     check("bake to mesh", t_bake_to_mesh)
     check("STEP export", t_step_export)
     # シーンを丸ごと開き直すので、他のテストを汚さないよう最後に回す
     check("save + reload keeps CAD live", t_save_reload_keeps_cad_live)
-    # 落ちる可能性がある検査は最後に。落ちても他の結果は出力済みになる。
-    check("one undo = one step", t_one_undo_is_one_step)
+
 
     print("\n" + "=" * 60)
     failed = skipped = 0
