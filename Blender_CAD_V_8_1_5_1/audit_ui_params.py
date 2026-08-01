@@ -35,10 +35,16 @@ SCALARS = ['radius', 'radius2', 'minor_radius', 'extrude_height', 'distance',
            'turns', 'pipe_radius', 'module', 'pressure_angle',
            'angle_start', 'angle_end']
 
-# 形状に効かなくても UI にあってよいもの(配置・履歴・表示上の設定)
+# 形状に効かなくても UI にあってよいもの(配置・履歴・表示上の設定)。
+#
+# ⚠️ ここに入れてよいのは「形状を変えないのが当たり前」の項目だけ。
+# 以前 unify_faces / unify_edges を入れていたが、あれは形状を変えるための
+# オプションであって除外対象ではなかった。結果、この2つが実際には
+# カーネルに読まれていない(= 死んだ欄)ことをこのツールが見逃していた。
+# 「効かないから除外」ではなく「効かなくて当然だから除外」で判断すること。
 IGNORE = {'location', 'local_location', 'rotation', 'operation', 'name', 'uuid',
           'use_pipe', 'fill_closed', 'top_shape', 'bot_shape',
-          'unify_faces', 'unify_edges', 'use_independent_transform', 'sides'}
+          'use_independent_transform', 'sides'}
 
 
 class FakeLayout:

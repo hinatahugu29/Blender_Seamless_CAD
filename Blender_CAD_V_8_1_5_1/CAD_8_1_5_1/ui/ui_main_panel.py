@@ -586,7 +586,10 @@ class SEAMLESS_PT_PropertyEditorPanel(bpy.types.Panel):
             box_pat.prop(active_prim, "pattern_axis", text="Rotation Axis")
             box_pat.prop(active_prim, "distance", text="Total Angle")
 
-        elif active_prim.type not in {'FILLET', 'CHAMFER', 'FACE_OFFSET', 'FACE_INSET', 'DRAFT', 'SHELL', 'FACE_LOFT', 'FACE_REVOLVE', 'SLOT', 'CONE', 'TORUS', 'POLYGON', 'GEAR', 'VARIABLE_BOX', 'SWEEP', 'LOFT', 'HELIX', 'POLYLINE', 'GROUP_START', 'GROUP_END'}:
+        # ここは「専用の UI を持たない型」の受け皿。専用ブロックを持つ型は必ず
+        # この集合に入れること。入れ忘れるとここで吸い込まれ、下の専用ブロックが
+        # 永久に実行されない。CLEANUP が実際そうなっていて、無関係な size が出ていた。
+        elif active_prim.type not in {'FILLET', 'CHAMFER', 'FACE_OFFSET', 'FACE_INSET', 'DRAFT', 'SHELL', 'FACE_LOFT', 'FACE_REVOLVE', 'SLOT', 'CONE', 'TORUS', 'POLYGON', 'GEAR', 'VARIABLE_BOX', 'SWEEP', 'LOFT', 'HELIX', 'POLYLINE', 'CLEANUP', 'GROUP_START', 'GROUP_END'}:
             # ARC は make_arc(radius, a_start, a_end) だけで作られ size を読まない。
             # 大きさは Radius で決まるので、size を出すと死んだ欄になる。
             if active_prim.type != 'ARC':
@@ -689,5 +692,14 @@ class SEAMLESS_PT_PropertyEditorPanel(bpy.types.Panel):
                 col.prop(active_prim, "pipe_radius")
                 
         elif active_prim.type == 'CLEANUP':
-            col.prop(active_prim, "unify_faces", text="Unify Coplanar Faces")
-            col.prop(active_prim, "unify_edges", text="Unify Collinear Edges")
+            # unify_faces / unify_edges のチェックボックスは出さない。
+            # カーネルの呼び出しが ShapeUpgrade_UnifySameDomain(mod_c, true, true, true) の
+            # べた書きで、送られてきた値を読んでいない(cargo build も
+            # "fields `unify_faces` and `unify_edges` are never read" と警告する)。
+            # つまり触っても何も起きない欄だった。常に両方効くので、その旨を書く。
+            #
+            # プロパティ自体は properties.py に残してある。片方だけ効かせたい要求が
+            # 実際に出たら、C++ 側の FFI シグネチャに2つ足して配線すれば UI を戻すだけで済む。
+            # ただし引数の並びがずれると全プリミティブが壊れるので、やるなら慎重に。
+            col.label(text="Merges coplanar faces and", icon='INFO')
+            col.label(text="collinear edges. Always both.")
