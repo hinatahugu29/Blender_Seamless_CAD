@@ -10,6 +10,7 @@ DEPSGRAPH_STATE_MACHINE.md §5 の手動チェックリストのうち、GUI が
                F(削除同期) G相当(ハイライト文字列) + 確定フェーズの契約
                + 出品前チェック(パネル登録/ベイク/STEP書き出し/保存再読込)
                + FILLET / CHAMFER が実際に形状を変えること
+               + 2D スケッチ(拘束ソルバと確定)
                + I の一部(Undo 1回で1つ戻ること)
   手動のまま : C(ドラッグ追従) D(確定後に固まらない) H(WGPU Overlay OFF)
                Redo、および Ctrl+Z 後にビューポートが更新されるか(§4-6)
@@ -22,6 +23,7 @@ C/D/H はネイティブの変形モーダルと GPU 描画が要るため、こ
 終了コード 0 = 全パス、1 = 失敗あり。
 """
 
+import math
 import os
 import sys
 import traceback
@@ -381,6 +383,112 @@ def utils_props():
     return utils.get_active_props(bpy.context)
 
 
+def _sketch_reset(props):
+    for coll in (props.sketch_points, props.sketch_lines, props.sketch_constraints):
+        while len(coll):
+            coll.remove(0)
+
+
+def _sk_point(props, pid, x, y):
+    p = props.sketch_points.add()
+    p.id = pid
+    p.co = (x, y)
+
+
+def _sk_line(props, lid, a, b):
+    l = props.sketch_lines.add()
+    l.id = lid
+    l.start_point_id = a
+    l.end_point_id = b
+
+
+def _sk_constraint(props, cid, ctype, point_ids, value=0.0):
+    """拘束を1つ足す。
+
+    対象は **点の id** をカンマ区切りで `target_ids_str` に入れる(線 id ではない)。
+    引数の順序は種類ごとに決まっていて、MIDPOINT は (端点1, 端点2, 中点)。
+    ここを取り違えると解は出るが答えが合わないので注意。
+    """
+    c = props.sketch_constraints.add()
+    c.id = cid
+    c.type = ctype
+    c.target_ids_str = ",".join(str(x) for x in point_ids)
+    c.value = value
+
+
+def _sk_co(props, pid):
+    for p in props.sketch_points:
+        if p.id == pid:
+            return (round(p.co[0], 4), round(p.co[1], 4))
+    raise AssertionError(f"sketch point {pid} not found")
+
+
+def t_sketch_solver_constraints():
+    """2D スケッチの拘束ソルバ(GCS)が実際に解いている。
+
+    拘束を足した時点で自動的に解かれるので、明示的に solve を呼ぶ必要はない。
+    ソルバ本体は Rust 側の ezpz。ここが壊れるとスケッチ機能全体が無言で
+    「拘束を付けても形が変わらない」状態になる。
+    """
+    col, props = _fresh_part()
+
+    # HORIZONTAL: 2点の Y が揃う
+    _sketch_reset(props)
+    _sk_point(props, 1, 0.0, 0.0)
+    _sk_point(props, 2, 2.0, 0.37)
+    _sk_line(props, 1, 1, 2)
+    _sk_constraint(props, 1, 'FIXED', [1])
+    _sk_constraint(props, 2, 'HORIZONTAL', [1, 2])
+    assert _sk_co(props, 2) == (2.0, 0.0), \
+        f"HORIZONTAL should level the two points, got {_sk_co(props, 2)}"
+
+    # DISTANCE: 指定した距離ちょうどになる
+    _sketch_reset(props)
+    _sk_point(props, 1, 0.0, 0.0)
+    _sk_point(props, 2, 2.0, 0.0)
+    _sk_line(props, 1, 1, 2)
+    _sk_constraint(props, 1, 'FIXED', [1])
+    _sk_constraint(props, 2, 'DISTANCE', [1, 2], 5.0)
+    x, y = _sk_co(props, 2)
+    dist = math.hypot(x - 0.0, y - 0.0)
+    assert abs(dist - 5.0) < 1e-3, f"DISTANCE 5.0 was not honoured; got {dist}"
+
+    # MIDPOINT: (端点1, 端点2, 中点) の順
+    _sketch_reset(props)
+    _sk_point(props, 1, 0.0, 0.0)
+    _sk_point(props, 2, 4.0, 0.0)
+    _sk_point(props, 3, 3.0, 0.8)
+    _sk_line(props, 1, 1, 2)
+    _sk_constraint(props, 1, 'FIXED', [1])
+    _sk_constraint(props, 2, 'FIXED', [2])
+    _sk_constraint(props, 3, 'MIDPOINT', [1, 2, 3])
+    assert _sk_co(props, 3) == (2.0, 0.0), \
+        f"MIDPOINT should land halfway, got {_sk_co(props, 3)}"
+
+
+def t_sketch_finalize_makes_geometry():
+    """スケッチを確定すると CAD のプリミティブになる。
+
+    ここが通らないと、描いた線が形状にならない = スケッチ機能が成立しない。
+    """
+    col, props = _fresh_part()
+    _sketch_reset(props)
+    for pid, (x, y) in enumerate([(0, 0), (2, 0), (2, 2), (0, 2)], start=1):
+        _sk_point(props, pid, float(x), float(y))
+    for lid, (a, b) in enumerate([(1, 2), (2, 3), (3, 4), (4, 1)], start=1):
+        _sk_line(props, lid, a, b)
+
+    before = len(props.primitives)
+    from CAD_8_1_5_1.sketch.sketch_finalize import finalize_sketch
+    finalize_sketch(bpy.context, props)
+
+    props = utils_props()
+    assert len(props.primitives) > before, \
+        "finalizing a closed 4-line sketch must produce a primitive"
+    types = [p.type for p in props.primitives]
+    assert 'SURFACE' in types, f"expected a SURFACE from the closed loop, got {types}"
+
+
 def t_panels_registered():
     """基本パネルが登録されている。
 
@@ -517,6 +625,8 @@ def main():
     check("G: fillet highlight data", t_g_fillet_highlight_data)
     check("FILLET rounds edges", t_fillet_rounds_edges)
     check("CHAMFER cuts edges", t_chamfer_cuts_edges)
+    check("sketch solver constraints", t_sketch_solver_constraints)
+    check("sketch finalize makes geometry", t_sketch_finalize_makes_geometry)
     check("panels registered", t_panels_registered)
     check("bake to mesh", t_bake_to_mesh)
     check("STEP export", t_step_export)

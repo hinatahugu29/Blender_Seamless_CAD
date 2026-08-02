@@ -216,11 +216,17 @@ def _solve_gcs_external_impl(props, context, drag_pt_id, mouse_pos, core):
         constraints_list.append(('FIXED', [drag_pt_id], 0.0))
 
     try:
-        utils.error_print(f"DEBUG SOLVE: points_list={points_list}")
-        utils.error_print(f"DEBUG SOLVE: constraints_list={constraints_list}")
+        # デバッグ出力は debug_print で。error_print は ERROR_LOGS(既定 True)で
+        # 常に出るため、ここに置くとスケッチのドラッグ中に毎フレーム
+        # 全点・全拘束を文字列化してコンソールへ書き込むことになる。
+        # 「デバッグログを沈黙させてメインスレッドの引っ掛かりを消す」という
+        # V1.3.5 の作業を、この経路だけ打ち消していた。
+        utils.debug_print(f"DEBUG SOLVE: points_list={points_list}")
+        utils.debug_print(f"DEBUG SOLVE: constraints_list={constraints_list}")
         resolved = core.solve_sketch(points_list, constraints_list)
         if not resolved or len(resolved) == 0:
-            utils.error_print(f"DEBUG SOLVE: core.solve_sketch returned {resolved}")
+            # ここは本物の失敗なので error_print のままでよい
+            utils.error_print(f"GCS solve returned nothing: {resolved}")
             raise ValueError("GCS solver returned empty result (failed to converge)")
             
         resolved_dict = {p_id: (x, y) for p_id, x, y in resolved}
