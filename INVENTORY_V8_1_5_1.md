@@ -1,7 +1,11 @@
-# Blender CAD アドオン 棚卸し (V8.1.5時点)
+# Seamless CAD アドオン 棚卸し
 
-対象: `Blender_CAD_V_8_1_5/CAD_8_1_5` (bl_info version 8.1.5, target Blender 4.2.0)
-作成日: 2026-07-15
+対象: `Blender_CAD_V_8_1_5_1/CAD_8_1_5_1` (bl_info version 8.1.5.1, target Blender 4.2.0 以上)
+作成日: 2026-07-15 / **全面検証・更新: 2026-08-02**
+
+> 数(プリミティブ型・オペレータ・パネル等)は enum とソースを機械的に数え直した実測値。
+> 同梱物は `CAD_8_1_5_1/` の実ファイルを集計した値。前版の数値には誤りがあった
+> (「全22種」「約45コマンド」など)ので、記載の数字は本版を信用すること。
 
 ---
 
@@ -12,13 +16,34 @@
 - `core_bridge.py` が Python ↔ Rust/C++ の橋渡しを担当し、127.0.0.1 のローカルソケットで `cad_server.exe` と通信。
 - 描画は二系統: `graphics/wgpu_manager.py` (WGPUベースのオーバーレイ) と `gpu_manager.py` (Blender標準の `gpu` モジュール)。`drawing.py` がどちらを使うか選択する。
 
-### 外部依存・同梱バイナリ
-- **OpenCASCADE (OCCT) 7.x**: `TK*.dll` 一式 (ジオメトリ/トポロジーカーネル、STEP/IGES/STL/glTF/VRMLの入出力、可視化、インスペクタツールまでフル装備)
-- **VTK 9.4**: `vtk*-9.4.dll` 一式 (OCCTのインスペクタ/可視化ツール経由の間接依存とみられる)
-- **Qt5 / Qt3D**: `Qt5*.dll` (デバッグ版含む) — OCCT of インスペクタ用途で、アドオン自体のUIはBlender純正UIのみ
-- **FFmpeg**: `avcodec/avformat/avutil` 等 — VTK/Qt経由の間接依存とみられる
-- **MSVCランタイム、Intel TBB、jemalloc** などの標準的な実行時ライブラリ
-- **NumPy 2.4.6 / SciPy 1.17.1** (`libs/` 配下にwheelとして同梱、Blender付属Pythonにpipインストール不要な自己完結構成)
+### 外部依存・同梱バイナリ (2026-08-02 実測)
+
+同梱 DLL は **129個 / 約101MB**。配布 ZIP は **45.9MB / 248ファイル**。
+
+| 種別 | 個数 | サイズ | 必要性 |
+|---|---|---|---|
+| **OCCT (`TK*.dll`)** | 84 | 62.3 MB | 必須。幾何カーネル本体 |
+| **FFmpeg (`av*`/`sw*`)** | 6 | 22.0 MB | **必須**。見た目は無関係だが `cad_server.exe` のロード時依存で、外すとカーネルが一切応答しない(実測) |
+| FreeImage | 2 | 6.8 MB | OCCT の画像 I/O |
+| Intel TBB | 6 | 2.0 MB | OCCT の並列処理 |
+| `seamless_core.dll` | 1 | 2.0 MB | 自作 Rust エンジン |
+| MSVC ランタイム | 9 | 1.4 MB | 同梱済みなので利用者の別途インストールは不要 |
+| その他 (freetype/jemalloc 等) | 21 | 4.5 MB | OCCT の依存 |
+
+- **OpenCASCADE は 8.0.0** (vc14/win64)。前版の「7.x」は誤り。
+- **`libs/` の同梱 Python は `svgwrite` と `svgpathtools` のみ**(各 1MB 未満)。
+  NumPy / SciPy は同梱していない — Blender が自前の NumPy を必ず持っており、
+  `vendor_libs.py` は `libs/` を sys.path の**末尾**に足すだけなので同梱版は使われない設計。
+- **Qt5 / VTK / Tcl-Tk / SQLite は同梱していない。** OCCT 配布物に含まれるインスペクタ・
+  可視化ツール用の依存で、このアドオンは使わない。2026-08-01/02 に段階的に除去
+  (Qt5 66個/111MB、NumPy 45MB、VTK+Qtプラグイン等 222個/143MB)。
+  **いずれも「退避して回帰テストが通ること」を確認してから削除**しており、推測では消していない。
+  除去物は `_removed_from_addon/` に保管(git 管理外)。
+
+### Rust 側の依存 (`src_rust/Cargo.toml`)
+
+`cpp` (C++ 埋め込み) / `ezpz` (KittyCAD 製 2D 拘束ソルバ、GCS の実体) / `rayon` (並列化) /
+`wgpu` + `bytemuck` + `pollster` (GPU オーバーレイ) / `memmap2` / `serde`
 
 ### モジュールマップ (主要ファイル)
 | ファイル/ディレクトリ | 役割 |
@@ -41,7 +66,9 @@
 
 ---
 
-## 2. 対応プリミティブ形状 (全22種)
+## 2. フィーチャー型 (enum 実測 全34種)
+
+> `properties.py` の `SeamlessPrimitive.type` enum を数えた値。「形状」だけでなくモディファイア・パターン・構造化も同じ enum に入っているので、**Feature Tree に並びうる要素の全種類**という意味の34種。
 
 **基本形状**: Box / Cylinder / Sphere / Cone / Torus / Polygon / Gear (インボリュートギア、歯数・モジュール・圧力角指定) / Helix (螺旋、巻き数・パイプ半径) / Slot (スタジアム形状)
 
@@ -69,7 +96,13 @@
 
 ---
 
-## 4. 2Dスケッチ機能 (V8.1.5で大幅に強化)
+## 4. 2Dスケッチ機能
+
+> 描画ツールは `sketch/states/` に **11種** (select / point / line / arc / circle /
+> rectangle / semicircle / slot / fillet / trim_extend / base)。拘束は enum 実測で **9種**。
+> 拘束ソルバ(GCS)の実体は Rust 依存の `ezpz` (KittyCAD 製)。
+> **2026-08-02 に HORIZONTAL / VERTICAL / DISTANCE / PARALLEL / PERPENDICULAR /
+> MIDPOINT / FIXED の解が正しいことを実測で確認済み**(回帰テストに固定)。
 
 **描画ツール (ペンモード)**: 
 - `Select` / `Point` / `Line` / `Arc` / `Circle` / `Rectangle` (角基準) / `CenterRect` (中心基準) / `Semicircle`
@@ -119,35 +152,83 @@
 
 ---
 
-## 7. UIパネル構成
+## 7. UIパネル構成 (実測 全10パネル)
 
-**メインパネル (`ui_main_panel.py`、3Dビューポートのサイドバー)**
-- Active CAD Workspace / Viewport Display / Quality & Export / Selection Mode / Placement & Snap
-- Create (プリミティブ追加、STEP・SVGインポート等)
-- Modify & Pattern / Feature Tree / Active Property Editor
+すべて 3D ビューポートのサイドバー `Seamless` タブ配下。
 
-**スケッチパネル (`ui_sketch_panel.py`)**: 
-- ペンモードツール (スロットボタンの追加、`Align X / Align Y` への表記統一など)
-- 拘束 / コーナー処理 / スケッチアクション / グリッド・スナップ切替
+| パネル | 内容 |
+|---|---|
+| `WorkspacePanel` | Part(独立スタック)の選択・追加・削除、CAD 開始 |
+| `DisplayPanel` | 不透明度 / WGPU Overlay / **Hide Occluded Edges** (2026-07-30 追加。Overlay OFF かつ不透明のときだけ有効で、それ以外はグレーアウト) |
+| `QualityBakePanel` | テッセレーション品質(プレビュー用/ベイク用で別)、高速モディファイアドラッグ、ライブブーリアン、Bake、STEP/SVG 入出力 |
+| `SelectionPanel` | 辺/面の選択モード切替 |
+| `PlacementSnapPanel` | サーフェススナップ / 対話配置 / ビジュアルスナップ移動 |
+| `CreatePanel` | プリミティブ追加、スケッチ開始 |
+| `ModifyPatternPanel` | モディファイア・トポロジー整理・ミラー/配列 |
+| `FeatureTreePanel` | 履歴一覧、ロールバック、グループ選択 |
+| `PropertyEditorPanel` | 選択中フィーチャーのパラメータ編集 |
+| `SketchPanel` | スケッチモード中のツール・拘束・アクション |
 
-**アドオン設定 (`ui_preferences.py`)**: サーバーパス等のグローバル設定
+**表示されるパラメータは「実際に形状へ効くもの」だけに揃えてある。**
+`audit_ui_params.py` が UI の描画内容と実際の効果を突き合わせ、不一致があれば終了コード 1 を返す。
+2026-08-01 の監査で見つかった死んだ欄(CYLINDER/SPHERE の Radius、SLOT/CONE/ARC/VARIABLE_BOX の
+余剰 size 成分、CLEANUP のチェックボックス2つ)は除去済み。現在は不一致ゼロ。
 
 ---
 
-## 8. 全オペレータ一覧 (約45コマンド)
+## 8. 全オペレータ一覧 (実測 35クラス)
 
-`seamless.*` 名前空間で20個の独立オペレータクラス + `seamless.sketch_action` が約25種のアクション文字列を振り分ける構成。
+`seamless.*` 名前空間に **35個**の独立オペレータクラス。加えて `seamless.sketch_action` が
+**29種**のアクション文字列を振り分けるので、利用者から見える操作数はさらに多い。
 
-**Part管理**: start_cad / add_part / remove_part / get_version
+| 分類 | オペレータ |
+|---|---|
+| Part 管理 | `start_cad` / `add_part` / `remove_part` / `get_version` |
+| プリミティブ | `add_primitive` / `add_dynamic_loft_hole` / `variable_box_hole` / `add_curve_point` / `add_curve_point_at` / `remove_curve_point_at` |
+| 選択 | `selection_modal` (辺/面のモーダル選択の本体) |
+| 移動・配置 | `interactive_placement` / `interactive_transform` / `visual_snap` / `interactive_offset_pick` |
+| 管理 | `remove_primitive` / `set_active_primitive` / `duplicate_primitive` / `pick_active_as_target` / `pick_target_modal` / `set_rollback_index` / `group_selection` / `force_recompute` / `toggle_fillet_edge_default` |
+| 入出力 | `import_step` / `import_svg` / `export_step` / `separate_by_base` |
+| ベイク | `bake_mesh` |
+| スケッチ | `start_sketch` / `sketch_draw_tool` / `sketch_action` / `select_reference_plane` / `edit_sketch` / `edit_dimension_value` |
 
-**プリミティブ**: add_primitive / add_dynamic_loft_hole / add_curve_point / add_curve_point_at / remove_curve_point_at
+> 前版は「20クラス / 約45コマンド」としていたが、いずれも実測と合わず、
+> `selection_modal` `variable_box_hole` `force_recompute` `edit_sketch`
+> `toggle_fillet_edge_default` `edit_dimension_value` の6件が一覧から漏れていた。
 
-**移動/配置**: interactive_placement / interactive_transform / visual_snap / interactive_offset_pick
+---
 
-**管理**: remove_primitive / set_active_primitive / duplicate_primitive / pick_active_as_target / pick_target_modal / set_rollback_index / group_selection
+## 9. 対応ファイル形式 (実測)
 
-**インポート/エクスポート**: import_step / import_svg / export_step / separate_by_base
+| 形式 | 読込 | 書出 |
+|---|---|---|
+| **STEP** (`.stp` / `.step`) | ✅ `import_step` | ✅ `export_step` |
+| **SVG** | ✅ `import_svg` (2D プロファイル/ロゴ) | — |
+| Blender メッシュ | — | ✅ `bake_mesh` (以降は Blender 標準の書出が使える) |
 
-**ベイク**: bake_mesh
+**IGES は非対応。** コード内に該当する処理は一切存在しない
+(2026-08-01 に Python / Rust / C++ 全体を検索して確認。販売ページの原稿に
+「STEP & IGES 対応」と書かれていたため実装を確認し、誤りと判明して修正した)。
 
-**スケッチ**: start_sketch / sketch_draw_tool / select_reference_plane (面にスケッチ) / sketch_action (ミラー/オフセット/トリム/延長/自動直交拘束などのアクション制御)
+---
+
+## 10. 品質保証の仕組み (2026-07-30 以降に整備)
+
+| 仕組み | 内容 |
+|---|---|
+| `regression_test.py` | ヘッドレス回帰テスト **18件**。Blender 4.2 / 5.1 で確認。登録、プリミティブ追加、双方向同期、削除同期、確定フェーズの契約、FILLET/CHAMFER が実際に形状を変えること、スケッチ拘束ソルバ、スケッチ確定、ベイク、STEP 書出、保存→再読込、Undo 1回=1ステップ |
+| `audit_ui_params.py` | UI に出ているパラメータと実際に効くパラメータの突き合わせ。全11型で不一致ゼロ |
+| `package_addon.py` の PREFLIGHT | 必須ファイルの存在、全 `.py` の構文、同梱ライブラリの**実 import**、文字化け、バージョン整合、`license.txt` の同梱 |
+
+**自動化できないもの**: ドラッグ追従・確定後の描画・WGPU Overlay OFF 時の挙動。
+ネイティブの変形モーダルと GPU 描画が要るため原理的に再現できず、実機確認が必要。
+詳細は `Blender_CAD_V_8_1_5_1/DEPSGRAPH_STATE_MACHINE.md` §5。
+
+---
+
+## 11. 動作環境
+
+- **Windows 10 / 11 (64bit) のみ。** macOS / Linux ビルドは無い(カーネルが Windows 向けビルド)
+- **Blender 4.2 LTS 〜 5.1** で回帰テスト通過を確認 (4.2.7 / 4.3.2 / 4.4.0 / 5.1.1)
+- ライセンス: **GPL-2.0-or-later** (Blender 本体と同じ)
+- 状態: Beta
