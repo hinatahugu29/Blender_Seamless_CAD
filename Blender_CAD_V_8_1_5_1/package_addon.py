@@ -47,6 +47,10 @@ REQUIRED_PATHS = [
     "libs/svgwrite/__init__.py",
     # 幾何カーネル本体。無いとアドオンは起動するが何も計算できない。
     "cad_server.exe",
+    # Superhive が ZIP への同梱を要求するライセンス全文。中身はリポジトリ直下の
+    # LICENSE と同一(GPL-2.0-or-later)にしておくこと。以前ここに GPLv3 の全文が
+    # 置かれていて、コード側の SPDX 表記(GPL-2.0-or-later)と食い違っていた。
+    "license.txt",
 ]
 
 # libs/ を sys.path に載せた状態で実際に import できることを確かめる対象。
