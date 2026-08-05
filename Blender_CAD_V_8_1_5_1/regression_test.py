@@ -278,6 +278,16 @@ def t_save_reload_keeps_cad_live():
     assert utils.depsgraph_update_handler in bpy.app.handlers.depsgraph_update_post, \
         "depsgraph_update_handler must survive a file load (needs @persistent)"
 
+    # 同じ「ロードで捨てられる」問題がタイマー側にも残っていた(2026-08-05)。
+    # ハンドラだけ直してタイマーを見落としていたため、ファイルを開いた瞬間に
+    # 非同期結果を取り出す者が居なくなり、cad_server が返した結果は
+    # _async_results に溜まったまま描画されない。同期経路の Bake Mesh だけが
+    # 効くので「表示の不具合」に見えるが、実体は止まったポンプ。
+    from CAD_8_1_5_1 import core_bridge
+    assert bpy.app.timers.is_registered(core_bridge.poll_async_results), \
+        ("the async result pump must survive a file load (needs persistent=True); "
+         "without it every async preview silently stops being applied")
+
     col2 = utils.get_active_collection(bpy.context)
     props2 = utils.get_active_props(bpy.context)
     assert props2 and len(props2.primitives) == 1, "the saved feature tree did not come back"
@@ -291,6 +301,62 @@ def t_save_reload_keeps_cad_live():
     assert abs(props2.primitives[0].location[0] - 5.0) < 1e-3, \
         ("dragging a proxy right after opening a saved file must sync to the primitive; "
          f"got {list(props2.primitives[0].location)}")
+
+
+def t_dispatch_signature_precision():
+    """重複リクエスト除去のシグネチャが、利用者の入力値を潰さない。
+
+    _quantize_for_sig は「動かしていないのにプロキシ行列の分解で毎回わずかに
+    変わる」ドリフトを畳むための仕組みで、それ自体は必要。ただし丸めてよいのは
+    行列由来の location / rotation / size だけ。
+
+    以前は stack_data 全体を無差別に 1e-3 で丸めていたため、数値欄に直接
+    打ち込む radius / extrude_height などまで潰れていた。Blender の内部単位は
+    メートルなので実質 1mm 刻みで、半径 0.2000 -> 0.2003 の変更が
+    「前回と同一」と判定されて再計算がスキップされる。プロパティ側は更新
+    済みなので、パネルは 0.2003・形状は 0.2000 のまま食い違い、後で force 付き
+    再計算が走った瞬間に形状が飛ぶ。
+    """
+    from CAD_8_1_5_1.core_bridge import _quantize_for_sig as q
+
+    def prim(**over):
+        p = {
+            "type": "FILLET", "operation": "ADD", "uuid": "abc",
+            "location": [0.0, 0.0, 0.0],
+            "rotation": [0.0, 0.0, 0.0],
+            "size": [1.0, 1.0, 1.0],
+            "radius": 0.2,
+            "extrude_height": 0.5,
+            "pipe_radius": 0.05,
+            "radius2": 0.3,
+            "minor_radius": 0.1,
+            "edge_radii": [("Edge:1", 0.25)],
+        }
+        p.update(over)
+        return [p]
+
+    base = q(prim())
+
+    # 丸めが存在する理由。ここが崩れると重複除去そのものが効かなくなる。
+    for key in ("location", "rotation", "size"):
+        drifted = prim(**{key: [v + 4.0e-4 for v in prim()[0][key]]})
+        assert q(drifted) == base, \
+            f"matrix-derived drift in {key} must still collapse (that is why rounding exists)"
+
+    assert q(prim(location=[0.01, 0.0, 0.0])) != base, \
+        "a real move must still change the signature"
+
+    # 本題。利用者が打ち込む値は 1mm 未満でも別物として扱う。
+    for key in ("radius", "extrude_height", "pipe_radius", "radius2", "minor_radius"):
+        changed = prim(**{key: prim()[0][key] + 3.0e-4})
+        assert q(changed) != base, \
+            (f"a {key} change of 3e-4 must reach the kernel; rounding user-typed "
+             "scalars makes sub-millimetre edits silently do nothing")
+
+    assert q(prim(edge_radii=[("Edge:1", 0.2503)])) != base, \
+        "per-edge variable fillet radii must not be collapsed either"
+
+    hash(base)  # シグネチャは辞書キーになるのでハッシュ可能でなければならない
 
 
 # --------------------------------------------------------------------------
@@ -623,6 +689,7 @@ def main():
     check("settle drops the drag flags", t_settle_contract)
     check("settle is a no-op mid-drag", t_settle_is_a_noop_when_nothing_ended)
     check("G: fillet highlight data", t_g_fillet_highlight_data)
+    check("dispatch signature keeps user precision", t_dispatch_signature_precision)
     check("FILLET rounds edges", t_fillet_rounds_edges)
     check("CHAMFER cuts edges", t_chamfer_cuts_edges)
     check("sketch solver constraints", t_sketch_solver_constraints)

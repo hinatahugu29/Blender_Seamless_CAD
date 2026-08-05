@@ -1080,21 +1080,42 @@ def _profile_print(msg, props=None):
         print(msg)
         _profile_log_line(msg)
 
-def _quantize_for_sig(obj, ndigits=3):
-    """stack_data(list[dict]) を丸めたハッシュ可能構造に変換する。
+# プロキシの matrix_world を分解して prim へ書き戻すフィールド。
+# 書き戻しは utils.py の EPSILON=5e-4 判定を通るので、この3つだけが
+# 「動かしていないのに毎回わずかに変わる」性質を持つ。
+_MATRIX_DERIVED_KEYS = frozenset({"location", "rotation", "size"})
+
+
+def _quantize_for_sig(obj, ndigits=3, quantize=False):
+    """stack_data(list[dict]) をハッシュ可能構造に変換する。
+
     プロキシ同期の matrix 分解による微小ドリフト(±5e-4級)を吸収し、
     「実質同一」なフル品質リクエストの重複除去(顔②)を成立させるための鍵。
     丸め粒度(1e-3)は書き戻しEPSILON(5e-4)より広く取り、ドリフト連発を確実に畳む。
-    deflection=0.1 に対し 1e-3 は不可視なので描画/精度への影響なし。
-    ドラッグ(interactive)はこの経路を通らないため精密性に影響しない。"""
+    ドラッグ(interactive)はこの経路を通らないため精密性に影響しない。
+
+    丸めるのは _MATRIX_DERIVED_KEYS の中だけ。以前は stack_data 全体を無差別に
+    丸めていたため、ドリフトとは無縁の「利用者が数値欄に打ち込む値」——
+    radius / extrude_height / pipe_radius / radius2 / minor_radius など——まで
+    1e-3 粒度で潰れていた。Blender の内部単位はメートルなので、これは
+    「1mm 未満の変更が無視される」ということ。半径を 0.2000 から 0.2003 へ
+    変えてもシグネチャが動かず再計算がスキップされ、しかもプロパティ側の値は
+    更新済みなので、パネルは 0.2003・形状は 0.2000 という食い違いが残る。
+    後で force 付きの再計算が走った瞬間に形状が飛ぶので、
+    「値を変えても効かない、後から急に反映される」という形で表面化する。
+    """
     if isinstance(obj, float):
-        # -0.0 を 0.0 に正規化しつつ丸める
-        r = round(obj, ndigits)
-        return 0.0 if r == 0.0 else r
+        # -0.0 を 0.0 に正規化する(丸めの有無に関わらず)
+        if quantize:
+            obj = round(obj, ndigits)
+        return 0.0 if obj == 0.0 else obj
     if isinstance(obj, (list, tuple)):
-        return tuple(_quantize_for_sig(x, ndigits) for x in obj)
+        return tuple(_quantize_for_sig(x, ndigits, quantize) for x in obj)
     if isinstance(obj, dict):
-        return tuple((k, _quantize_for_sig(v, ndigits)) for k, v in sorted(obj.items()))
+        return tuple(
+            (k, _quantize_for_sig(v, ndigits, quantize or k in _MATRIX_DERIVED_KEYS))
+            for k, v in sorted(obj.items())
+        )
     return obj
 
 
