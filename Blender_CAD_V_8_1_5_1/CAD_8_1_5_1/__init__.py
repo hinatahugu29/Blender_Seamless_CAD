@@ -214,9 +214,31 @@ def _schedule_cad_resume(col_names):
         _resume_cad_collections(col_names)
 
 
+def _ensure_async_poll_timer():
+    """非同期結果を取り出すタイマーを、必ず persistent で登録する。
+
+    persistent=True が無いと Blender はファイルを開いた時点でこのタイマーを
+    破棄する。すると cad_server が返した結果は _async_results に溜まったまま
+    誰にも取り出されず、以後そのセッションでは非同期プレビューが一切反映
+    されなくなる(ファイルを開いても形状が出ない、フィレットの数値を変えても
+    変わらない、しかし同期経路の Bake Mesh だけは効く)。
+    2026-08-05 に実測で確認: ファイルを開いた直後のスナップショットで
+    _async_results len=1 / poll timer registered=False / engine stacks=[]。
+
+    register() からも load_post からも呼べるよう冪等にしてある。
+    """
+    if not bpy.app.timers.is_registered(core_bridge.poll_async_results):
+        bpy.app.timers.register(
+            core_bridge.poll_async_results, first_interval=0.05, persistent=True
+        )
+
+
 @persistent
 def load_post_handler(dummy):
     """Blenderファイルロード時や新規ファイル作成時に呼び出されます"""
+    # persistent 登録で破棄されないはずだが、ここでも必ず生きている状態にする。
+    # このタイマーが落ちると症状が「アドオンが黙って壊れる」形で出るため。
+    _ensure_async_poll_timer()
     # stack_ptr が 0 でないことは「保存した時点で CAD として生きていた」印。
     # safe_delete_stack が潰してしまうので、先に控えておく。
     resumable = [col.name for col in bpy.data.collections
@@ -411,8 +433,7 @@ def register():
     utils.subscribe_active_object_msgbus()
 
     # Register timer for async CAD polling
-    if not bpy.app.timers.is_registered(core_bridge.poll_async_results):
-        bpy.app.timers.register(core_bridge.poll_async_results, first_interval=0.05)
+    _ensure_async_poll_timer()
     
     ui.ui_preferences._apply_log_preferences(bpy.context)
     utils.info_print(
