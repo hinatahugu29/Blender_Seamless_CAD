@@ -521,9 +521,13 @@ def finalize_sketch(context, props, sketch_uuid=None):
         f"  ref_rot (Euler ZXY) = {ref_rot.to_euler('ZXY')}\n"
         f"  ref_rot (Euler ZYX) = {ref_rot.to_euler('ZYX')}\n"
     )
-    print(log_msg)
-    with open("cad_server_debug.log", "a", encoding="utf-8") as f:
-        f.write(log_msg + "\n")
+    # デバッグ出力は必ず debug_print 経由にする(設定でON/OFFでき、失敗しない)。
+    # ここは以前 open("cad_server_debug.log", "a") を直接呼んでいた。相対パスなので
+    # 書き込み先は「Blender を起動した時のカレントディレクトリ」になり、開発機では
+    # たまたま書けるが、スタートメニューから起動した利用者では Program Files 等の
+    # 書けない場所を指す。try/except も無かったため PermissionError がそのまま
+    # 伝播し、スケッチの確定そのものが失敗していた(2026-08-05 利用者報告)。
+    utils.debug_print(log_msg)
 
 
     for island in islands:

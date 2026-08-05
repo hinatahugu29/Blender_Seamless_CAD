@@ -80,10 +80,10 @@ class SEAMLESS_OT_select_reference_plane(bpy.types.Operator):
                     f"  z_axis = {z_axis}\n"
                     f"  matrix =\n{local_mat}\n"
                 )
-                print(log_msg)
+                # debug_print だけで足りる。同じ内容を相対パスのファイルへ直接
+                # 書く処理が残っていたが、書けない場所だと PermissionError で
+                # 面の選択ごと失敗する(sketch_finalize.py と同じ事故)。
                 utils.debug_print(log_msg)
-                with open("cad_server_debug.log", "a", encoding="utf-8") as f:
-                    f.write(log_msg + "\n")
 
                 context.workspace.status_text_set(None)
                 bpy.ops.seamless.start_sketch('INVOKE_DEFAULT')

@@ -134,6 +134,66 @@ def check_vendored_imports(cad_dir):
     return problems
 
 
+def check_literal_write_paths(cad_dir):
+    """リテラルの相対パス / 開発機の絶対パスへの書き込みを出荷前に止める。
+
+    8.1.5.2 まで、スケッチ確定と参照面の選択が `open("cad_server_debug.log", "a")`
+    をむき出しで呼んでいた。相対パスの書き込み先は「Blender を起動した時の
+    カレントディレクトリ」で、開発機ではリポジトリ直下にたまたま書けてしまう。
+    スタートメニューから起動した利用者では Program Files 配下などを指し、
+    try/except も無かったため PermissionError がそのまま伝播して
+    **スケッチの確定そのものが失敗**していた。開発機では絶対に踏めない種類の
+    事故なので、人間のレビューではなくここで機械的に落とす。
+
+    ログを書きたいときは core_bridge の _cad_server_log_path / _profile_log_path と
+    同じく tempfile.gettempdir() を基準にし、必ず try/except で囲むこと。
+    コンソールに出すだけでよければ utils.debug_print を使う(失敗しない)。
+    """
+    problems = []
+    for dirpath, dirnames, filenames in os.walk(cad_dir):
+        dirnames[:] = [d for d in dirnames if d not in EXCLUDE_DIRS and d != "libs"]
+        for name in filenames:
+            if not name.endswith(".py"):
+                continue
+            path = os.path.join(dirpath, name)
+            try:
+                tree = ast.parse(open(path, encoding="utf-8").read())
+            except SyntaxError:
+                continue  # check_syntax が別途報告する
+            for node in ast.walk(tree):
+                if not (isinstance(node, ast.Call)
+                        and isinstance(node.func, ast.Name)
+                        and node.func.id == "open"):
+                    continue
+                if not (node.args and isinstance(node.args[0], ast.Constant)
+                        and isinstance(node.args[0].value, str)):
+                    continue  # 変数経由は追えない。リテラルだけを対象にする
+
+                mode = ""
+                if len(node.args) > 1 and isinstance(node.args[1], ast.Constant):
+                    mode = str(node.args[1].value)
+                for kw in node.keywords:
+                    if kw.arg == "mode" and isinstance(kw.value, ast.Constant):
+                        mode = str(kw.value.value)
+                if not any(c in mode for c in "wax"):
+                    continue
+
+                target = node.args[0].value
+                rel = os.path.relpath(path, cad_dir)
+                if not os.path.isabs(target):
+                    problems.append(
+                        f"{rel}:{node.lineno} writes to the relative path {target!r} "
+                        "-- lands in Blender's launch directory, which is usually "
+                        "not writable for the user (use tempfile.gettempdir())"
+                    )
+                else:
+                    problems.append(
+                        f"{rel}:{node.lineno} writes to the hardcoded absolute path "
+                        f"{target!r} -- that path exists only on this machine"
+                    )
+    return problems
+
+
 def preflight(cad_dir):
     problems = []
 
@@ -165,6 +225,7 @@ def preflight(cad_dir):
 
     problems.extend(check_syntax(cad_dir))
     problems.extend(check_vendored_imports(cad_dir))
+    problems.extend(check_literal_write_paths(cad_dir))
 
     return problems
 
