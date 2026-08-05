@@ -154,22 +154,26 @@ class SeamlessWireframeManager:
         try:
             # Rust側でレンダリングを実行しピクセルデータをバイナリで受け取る
             now = time.perf_counter()
-            should_refresh = (
-                self._overlay_dirty or
-                self.wgpu_tex is None or
-                self._overlay_last_signature != signature or
-                (now - self._overlay_last_render_time) >= self._overlay_min_interval
-            )
+            elapsed = now - self._overlay_last_render_time
+            # The interval is a throttle, not a trigger. It used to be OR'd in
+            # with the other conditions, so an idle viewport still re-rendered
+            # the whole overlay 30 times a second: a Rust offscreen render, a
+            # GPU->CPU readback and a freshly allocated full-screen texture each
+            # time. That churn is what dragged whole machines down.
+            refresh_reasons = []
+            if self._overlay_dirty:
+                refresh_reasons.append("dirty")
+            if self.wgpu_tex is None:
+                refresh_reasons.append("no-texture")
+            if self._overlay_last_signature != signature:
+                refresh_reasons.append("signature-changed")
+
+            should_refresh = bool(refresh_reasons)
+            if should_refresh and self.wgpu_tex is not None and not self._overlay_dirty:
+                # Camera moves are paced; only a data change bypasses the pace.
+                if elapsed < self._overlay_min_interval:
+                    should_refresh = False
             if should_refresh:
-                refresh_reasons = []
-                if self._overlay_dirty:
-                    refresh_reasons.append("dirty")
-                if self.wgpu_tex is None:
-                    refresh_reasons.append("no-texture")
-                if self._overlay_last_signature != signature:
-                    refresh_reasons.append("signature-changed")
-                if (now - self._overlay_last_render_time) >= self._overlay_min_interval:
-                    refresh_reasons.append("interval")
                 utils.debug_print(
                     "WGPU overlay refresh: "
                     f"reasons={','.join(refresh_reasons) or 'unknown'} "
@@ -195,11 +199,25 @@ class SeamlessWireframeManager:
                     return
                 pixels_len = len(pixels_bytes)
                 expected_u8_size = width * height * 4
+                # Drop the previous texture before allocating the replacement,
+                # so the driver never has to hold two full-screen textures at
+                # once while Python's collector catches up.
+                self.wgpu_tex = None
+
                 if pixels_len == expected_u8_size:
-                    import numpy as np
-                    arr = np.frombuffer(pixels_bytes, dtype=np.uint8).astype(np.float32) / 255.0
-                    buffer = gpu.types.Buffer('FLOAT', (height, width, 4), arr)
-                    self.wgpu_tex = gpu.types.GPUTexture((width, height), format='RGBA32F', data=buffer)
+                    tex = None
+                    try:
+                        # 8 bits per channel is what the renderer produced, so
+                        # RGBA8 is lossless here and a quarter of the VRAM of
+                        # the RGBA32F copy this used to expand into.
+                        buffer = gpu.types.Buffer('UBYTE', (height, width, 4), pixels_bytes)
+                        tex = gpu.types.GPUTexture((width, height), format='RGBA8', data=buffer)
+                    except Exception:
+                        import numpy as np
+                        arr = np.frombuffer(pixels_bytes, dtype=np.uint8).astype(np.float32) / 255.0
+                        buffer = gpu.types.Buffer('FLOAT', (height, width, 4), arr)
+                        tex = gpu.types.GPUTexture((width, height), format='RGBA32F', data=buffer)
+                    self.wgpu_tex = tex
                 else:
                     floats_view = memoryview(pixels_bytes).cast('f')
                     buffer = gpu.types.Buffer('FLOAT', (height, width, 4), floats_view)
