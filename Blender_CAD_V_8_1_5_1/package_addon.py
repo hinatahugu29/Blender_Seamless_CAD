@@ -1,7 +1,7 @@
 """配布用 ZIP を作る。
 
 使い方:
-    python package_addon.py            # CAD_<version>_install_<日付>.zip を作る
+    python package_addon.py            # CAD_<bl_info の version>_install.zip を作る
     python package_addon.py --out foo.zip
 
 ZIP の中身は「CAD_8_1_5_1/ を丸ごと」で、Blender の
@@ -15,7 +15,6 @@ SVG インポートが10バージョン以上にわたり無言で壊れてい�
 
 import argparse
 import ast
-import datetime
 import os
 import re
 import subprocess
@@ -245,11 +244,17 @@ def main():
         return 1
     cad_dir = os.path.join(ROOT, CAD_DIR_NAME)
 
-    version = read_bl_info_version(cad_dir) or "unknown"
-    default_name = (
-        f"{CAD_DIR_NAME}_install_"
-        f"{datetime.date.today().strftime('%Y%m%d')}.zip"
-    )
+    # ZIP のファイル名は bl_info の version だけから作る。
+    # ディレクトリ名(CAD_8_1_5_1)からは作らない。フォルダコピーでバージョンを
+    # 管理していた頃はディレクトリ名 = バージョンだったが、git 移管でその前提が
+    # 崩れ、8.1.5.3 をビルドしても CAD_8_1_5_1_install_....zip が出るようになって
+    # いた。ズレを人間が手でリネームして埋めていたので、ここで断つ。
+    version = read_bl_info_version(cad_dir)
+    if not version:
+        print(f"ERROR: bl_info の version を読めなかった: {cad_dir}/__init__.py",
+              file=sys.stderr)
+        return 1
+    default_name = f"CAD_{version}_install.zip"
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--out", default=os.path.join(ROOT, default_name))
@@ -275,7 +280,12 @@ def main():
 
     with zipfile.ZipFile(args.out, "w", zipfile.ZIP_DEFLATED, compresslevel=6) as zf:
         for path in files:
-            # ZIP 内のトップレベルは CAD_<version>/ にする
+            # ZIP 内のトップレベルはディレクトリ名(CAD_8_1_5_1)のまま固定する。
+            # これは Blender が addons 配下に展開するフォルダ名 = Python の
+            # モジュール名なので、バージョンごとに変えてはいけない。変えると
+            # 更新時に古い版を上書きせず「隣に」入り、2つとも有効化された状態で
+            # 同じ cad_server.exe を奪い合う。ファイル名(上の default_name)が
+            # バージョンを持ち、こちらは持たない、という分担にする。
             arc = os.path.join(CAD_DIR_NAME, os.path.relpath(path, cad_dir))
             zf.write(path, arc.replace(os.sep, "/"))
 
