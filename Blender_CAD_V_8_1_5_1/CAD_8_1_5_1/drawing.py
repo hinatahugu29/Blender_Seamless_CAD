@@ -60,6 +60,7 @@ class SeamlessWireframeManager:
         self._overlay_last_signature = None
         self._overlay_last_render_time = 0.0
         self._overlay_min_interval = 1.0 / 30.0
+        self._overlay_catchup_pending = False
         
         self._handler = None
         self.enabled = True
@@ -137,6 +138,32 @@ class SeamlessWireframeManager:
         except Exception:
             return False
 
+    def _request_overlay_catchup(self, context, delay):
+        """Schedule a single redraw once the pacing window closes.
+
+        Only one is ever in flight; further skipped frames reuse it.
+        """
+        if self._overlay_catchup_pending:
+            return
+        area = getattr(context, "area", None)
+        if area is None:
+            return
+        self._overlay_catchup_pending = True
+
+        def _cb():
+            self._overlay_catchup_pending = False
+            try:
+                area.tag_redraw()
+            except Exception:
+                # The area can be gone by now (closed editor, file load).
+                pass
+            return None
+
+        try:
+            bpy.app.timers.register(_cb, first_interval=max(0.001, float(delay)))
+        except Exception:
+            self._overlay_catchup_pending = False
+
     def draw_wgpu_overlay(self, context, opacity=0.3):
         if not self.enabled: return
         region = context.region
@@ -173,6 +200,13 @@ class SeamlessWireframeManager:
                 # Camera moves are paced; only a data change bypasses the pace.
                 if elapsed < self._overlay_min_interval:
                     should_refresh = False
+                    # If this was the last redraw of a camera move, nothing else
+                    # would come along to repaint the overlay and it would sit
+                    # misaligned at the previous viewpoint. Ask for one more
+                    # redraw once the pacing window closes.
+                    self._request_overlay_catchup(
+                        context, self._overlay_min_interval - elapsed
+                    )
             if should_refresh:
                 utils.debug_print(
                     "WGPU overlay refresh: "
