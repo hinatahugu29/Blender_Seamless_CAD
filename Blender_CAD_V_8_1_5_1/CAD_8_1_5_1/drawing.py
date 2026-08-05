@@ -205,20 +205,20 @@ class SeamlessWireframeManager:
                 self.wgpu_tex = None
 
                 if pixels_len == expected_u8_size:
-                    tex = None
-                    try:
-                        # 8 bits per channel is what the renderer produced, so
-                        # RGBA8 is lossless here and a quarter of the VRAM of
-                        # the RGBA32F copy this used to expand into.
-                        buffer = gpu.types.Buffer('UBYTE', (height, width, 4), pixels_bytes)
-                        tex = gpu.types.GPUTexture((width, height), format='RGBA8', data=buffer)
-                    except Exception:
-                        import numpy as np
-                        arr = np.frombuffer(pixels_bytes, dtype=np.uint8).astype(np.float32) / 255.0
-                        buffer = gpu.types.Buffer('FLOAT', (height, width, 4), arr)
-                        tex = gpu.types.GPUTexture((width, height), format='RGBA32F', data=buffer)
-                    self.wgpu_tex = tex
+                    import numpy as np
+                    arr = np.frombuffer(pixels_bytes, dtype=np.uint8).astype(np.float32) / 255.0
+                    buffer = gpu.types.Buffer('FLOAT', (height, width, 4), arr)
+                    # The renderer gave us 8 bits per channel, so an RGBA8
+                    # texture is lossless here and a quarter of the VRAM the
+                    # RGBA32F copy used to occupy. GPUTexture only accepts a
+                    # FLOAT source buffer, but the stored format is ours to
+                    # choose. (The buffer itself is transient; the texture is
+                    # what stays resident.)
+                    self.wgpu_tex = gpu.types.GPUTexture((width, height), format='RGBA8', data=buffer)
                 else:
+                    # Unknown / possibly HDR payload (the SDF path): keep full
+                    # float precision rather than quantising something we did
+                    # not produce.
                     floats_view = memoryview(pixels_bytes).cast('f')
                     buffer = gpu.types.Buffer('FLOAT', (height, width, 4), floats_view)
                     self.wgpu_tex = gpu.types.GPUTexture((width, height), format='RGBA32F', data=buffer)
