@@ -27,6 +27,22 @@
         If you need a finished, cross-platform product today, this is not it yet.
     </div>
 
+    <!-- LATEST UPDATE / RELEASE NOTES -->
+    <div style="background-color: #e7f5ef; border-left: 6px solid #2e9e6b; padding: 14px 18px; margin-bottom: 24px; border-radius: 4px; color: #14532d;">
+        <strong>🔄 Latest update — version 8.1.5.3 (August 2026)</strong><br>
+        This release is a stability pass driven by user reports. Thank you to everyone who took the time to send details.
+        <ul style="margin: 10px 0 0 0;">
+            <li><strong>Sketches can be finalised again.</strong> Depending on where Blender was started from, finalising a sketch — or picking a face to sketch on — could fail immediately with a permission error, with nothing the user could do about it. Reinstalling or resetting to factory settings did not help, because the fault was in the add-on. Fixed.</li>
+            <li><strong>Reopened files show your model again.</strong> After opening a saved <code>.blend</code>, the live preview could stop updating for the rest of the session — the shape would not appear, and changing a value seemed to do nothing until you used Bake Mesh. Fixed.</li>
+            <li><strong>WGPU Overlay is lighter, and still best left off.</strong> With this option enabled, the add-on kept redrawing the viewport continuously even when nothing was happening; it now stays idle until something actually changes. <em>WGPU Overlay remains experimental and is off by default — the add-on is still expected to run faster with it off.</em></li>
+            <li><strong>Fine parameter edits are no longer skipped.</strong> Changes smaller than a millimetre — a fillet radius nudged from 0.2 to 0.2003, for example — could be discarded as duplicates and applied only later. They now take effect immediately.</li>
+            <li><strong>Housekeeping.</strong> Removed unused code that had been shipping in previous builds.</li>
+        </ul>
+        <p style="margin: 10px 0 0 0;">
+            If you hit a problem, please report it with your Blender version and graphics card — the fixes above came directly from reports like that.
+        </p>
+    </div>
+
     <!-- HERO SECTION -->
     <h1>Seamless CAD: Parametric Solid Modeling Inside Blender</h1>
     <p><strong>Your shapes stay editable.</strong> Seamless CAD keeps every operation as a feature tree, so you can go back to any step — a box, a boolean, a fillet — and simply retype a number. Nothing is baked into a mesh the moment you make it.</p>
