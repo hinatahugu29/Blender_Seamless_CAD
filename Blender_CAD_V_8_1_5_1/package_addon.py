@@ -72,6 +72,12 @@ REQUIRED_PATHS = [
     # LICENSE と同一(GPL-2.0-or-later)にしておくこと。以前ここに GPLv3 の全文が
     # 置かれていて、コード側の SPDX 表記(GPL-2.0-or-later)と食い違っていた。
     "license.txt",
+    # 幾何カーネルの OCCT は LGPL-2.1 + Open CASCADE exception。
+    # 同梱して動的リンクする以上、ライセンス全文の添付と、exception が要求する
+    # NOTICE の掲示が条件になる。落とすと出荷できないので必須扱いにする。
+    "THIRD_PARTY_LICENSES.txt",
+    "licenses/OCCT_LICENSE_LGPL_21.txt",
+    "licenses/OCCT_LGPL_EXCEPTION.txt",
 ]
 
 # libs/ を sys.path に載せた状態で実際に import できることを確かめる対象。

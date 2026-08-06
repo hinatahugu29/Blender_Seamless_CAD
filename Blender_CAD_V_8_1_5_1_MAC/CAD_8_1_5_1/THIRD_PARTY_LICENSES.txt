@@ -1,0 +1,74 @@
+THIRD-PARTY LICENSES
+====================
+
+Seamless CAD itself is distributed under the GNU General Public License
+version 2 or later. The full text is in license.txt, next to this file.
+
+This add-on ships and uses the third-party components listed below. Their
+licenses are separate from the add-on's own license and are reproduced in
+full in the licenses/ directory.
+
+
+1. Open CASCADE Technology (OCCT) 8.0.0
+---------------------------------------
+
+    Copyright (c) OPEN CASCADE SAS
+    https://dev.opencascade.org/
+
+    License: GNU Lesser General Public License version 2.1,
+             with the Open CASCADE exception version 1.0
+
+    Full text: licenses/OCCT_LICENSE_LGPL_21.txt
+               licenses/OCCT_LGPL_EXCEPTION.txt
+
+    OCCT is the geometry kernel. Seamless CAD ships it as shared libraries
+    (.dll on Windows, .so on Linux, .dylib on macOS) alongside the
+    cad_server executable, and links against them dynamically. The
+    libraries are unmodified.
+
+    NOTICE, as required by the Open CASCADE exception version 1.0:
+
+        This software makes use of and is based on facilities provided by
+        the Open CASCADE Technology software.
+
+    Under LGPL-2.1 you are entitled to replace the bundled OCCT libraries
+    with your own build. They live next to the cad_server executable in
+    the add-on directory; replacing them there is sufficient, as no OCCT
+    code is statically linked into cad_server.
+
+
+2. svgwrite 1.4.3
+-----------------
+
+    Copyright (c) Manfred Moitzi
+    License: MIT
+    Full text: libs/svgwrite-1.4.3.dist-info/LICENSE.TXT
+
+    Used by the SVG export path.
+
+
+3. svgpathtools 1.7.2
+---------------------
+
+    Copyright (c) Andrew Allan Port and contributors
+    License: MIT
+    Full text: libs/svgpathtools-1.7.2.dist-info/LICENSE.txt
+
+    Used by the SVG import path.
+
+
+4. Rust crates
+--------------
+
+    The cad_server executable is built in Rust and statically links a
+    number of crates, all of them under permissive licenses (MIT and/or
+    Apache-2.0, and in some cases the Unicode licence or BSD variants).
+
+    To reproduce the exact list for a given build:
+
+        cd src_rust
+        cargo install cargo-about
+        cargo about generate about.hbs
+
+    Notable direct dependencies: wgpu, rayon, serde, serde_json,
+    bytemuck, memmap2, pollster, once_cell, cpp, ezpz.
