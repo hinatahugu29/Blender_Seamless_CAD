@@ -97,7 +97,18 @@ chmod +x ~/.config/blender/*/scripts/addons/CAD_8_1_5_1/bin/cad_server
 - [ ] STEP のインポート／エクスポートができるか
 - [ ] Blender を終了したあと、`cad_server` のプロセスが残っていないか
 
-## 6. 不具合の報告について
+## 6. 使い方のマニュアル
+
+操作方法は、オンラインのマニュアルにまとまっています。
+
+**<https://hinatahugu29.github.io/Blender_Seamless_CAD/>**
+
+英語版と日本語版が全ページそろっています（ロシア語・中国語はクイックスタートのみ）。
+
+**ただしマニュアルの内容は Windows 版を前提に書かれています。**インストール手順など、
+このテスト版とは異なる部分があります。操作そのものの説明としてお読みください。
+
+## 7. 不具合の報告について
 
 うまくいかなかった場合、以下を添えてご連絡いただけると原因を追いやすいです。
 
@@ -108,7 +119,7 @@ chmod +x ~/.config/blender/*/scripts/addons/CAD_8_1_5_1/bin/cad_server
   - macOS / Linux: `/tmp/seamless_cad_server_debug.log`
   - Blender のコンソール出力（`Window > Toggle System Console` 相当）
 
-## 7. ライセンス
+## 8. ライセンス
 
 - Seamless CAD 本体: GNU General Public License v2 以降
 - 幾何カーネル [Open CASCADE Technology](https://dev.opencascade.org/): LGPL-2.1 + Open CASCADE exception
