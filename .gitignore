@@ -169,3 +169,6 @@ _removed_from_addon/
 
 # ルート直下から退避した使い捨てスクリプト（中身は残す・追跡はしない）
 _archive_scratch/
+
+# MkDocs build output (docs/ is the source; the site is built by CI)
+/site/

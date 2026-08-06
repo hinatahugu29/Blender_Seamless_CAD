@@ -1,0 +1,99 @@
+site_name: Seamless CAD
+site_description: Non-destructive CAD modelling inside Blender
+site_url: https://hinatahugu29.github.io/Blender_Seamless_CAD/
+repo_url: https://github.com/hinatahugu29/Blender_Seamless_CAD
+repo_name: hinatahugu29/Blender_Seamless_CAD
+copyright: GPL-2.0-or-later
+
+docs_dir: docs
+
+# これらは GitHub 上でリポジトリを見る人のための文書で、サイトのページではない。
+exclude_docs: |
+  README.md
+  CONTRIBUTING.md
+
+theme:
+  name: material
+  language: en
+  features:
+    # navigation.instant は入れないこと。mkdocs-static-i18n の言語切替リンクが
+    # 機能しなくなる（ビルド時に警告が出る）。
+    - navigation.tracking
+    - navigation.top
+    - content.code.copy
+    - search.suggest
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.keys
+
+plugins:
+  - search
+  - i18n:
+      docs_structure: folder
+      # ru / zh に英語ページを埋めない。ナビに無いページが生えて、ロシア語サイトの
+      # /ru/concepts/ が英語で出てくるのを避けるため。翻訳の範囲は明示的に保つ。
+      fallback_to_default: false
+      reconfigure_material: true
+      reconfigure_search: true
+      languages:
+        - locale: en
+          name: English
+          default: true
+          build: true
+          nav:
+            - Home: index.md
+            - Quick Start: quickstart.md
+            - How it works: concepts.md
+            - Modelling operations: modeling.md
+            - Sketching: sketching.md
+            - Quality and performance: quality.md
+            - Import and export: import-export.md
+            - Troubleshooting: troubleshooting.md
+            - Known limitations: limitations.md
+
+        - locale: ja
+          name: 日本語
+          build: true
+          nav:
+            - ホーム: index.md
+            - クイックスタート: quickstart.md
+            - 仕組み: concepts.md
+            - モデリング操作: modeling.md
+            - スケッチ: sketching.md
+            - 品質とパフォーマンス: quality.md
+            - 読み込みと書き出し: import-export.md
+            - 困ったとき: troubleshooting.md
+            - 既知の制約: limitations.md
+
+        # ru / zh はクイックスタートのみ。範囲を広げる場合は docs/CONTRIBUTING.md を読むこと。
+        - locale: ru
+          name: Русский
+          build: true
+          nav:
+            - Главная: index.md
+            - Быстрый старт: quickstart.md
+
+        - locale: zh
+          name: 中文
+          build: true
+          nav:
+            - 首页: index.md
+            - 快速入门: quickstart.md

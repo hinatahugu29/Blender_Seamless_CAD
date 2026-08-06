@@ -1,0 +1,10 @@
+# Documentation site build only. Not a dependency of the add-on itself.
+#
+#   py -m pip install -r docs/requirements.txt
+#   py -m mkdocs serve
+#
+# Keep this file ASCII-only: pip decodes it with the system locale encoding
+# (cp932 on Japanese Windows), so non-ASCII comments break the install.
+mkdocs==1.6.1
+mkdocs-material==9.5.49
+mkdocs-static-i18n==1.2.3
