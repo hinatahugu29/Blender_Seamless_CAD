@@ -50,6 +50,31 @@ for lib in "$OCCT_ROOT"/lib/libTK*."$LIB_EXT"*; do
     cp -f "$lib" "$CAD_DIR/bin/"
 done
 
+if [ "$TARGET_OS" = "linux" ]; then
+    # conda-forge の OCCT は GCC 14 世代でビルドされており、libstdc++ に
+    # CXXABI_1.3.15 を要求する。ubuntu-22.04 のシステム libstdc++ は GCC 12 世代
+    # (1.3.13 まで)なので、そのままでは起動時に
+    #   libTKCDF.so.8.0: version `CXXABI_1.3.15' not found
+    # で落ちる。実際に CI がこれで失敗した。
+    #
+    # ランナーを 24.04 に上げても GCC 13 (1.3.14) で届かず、しかも glibc の要求
+    # バージョンが上がって古いユーザー環境で動かなくなる。逆効果。
+    #
+    # そこで libstdc++ 側を conda から同梱する。glibc とは違い libstdc++ は
+    # 後方互換なので、新しいものを持ち込む分には安全。cad_server は Blender に
+    # dlopen される .so ではなく独立プロセスなので、Blender や他のライブラリの
+    # ランタイムを侵さない。rpath は build.rs が $ORIGIN に設定済み。
+    for lib in libstdc++.so.6 libgcc_s.so.1; do
+        src="$OCCT_ROOT/lib/$lib"
+        if [ -e "$src" ]; then
+            cp -fL "$src" "$CAD_DIR/bin/$lib"
+            echo "bundled runtime: $lib"
+        else
+            echo "WARNING: $src not found; cad_server may fail with a CXXABI/GLIBCXX error" >&2
+        fi
+    done
+fi
+
 if [ "$TARGET_OS" = "darwin" ]; then
     # conda-forge の dylib は install_name に絶対パスを持っている。
     # そのままだとユーザー環境で dyld が解決できないので @rpath 基準に直す。

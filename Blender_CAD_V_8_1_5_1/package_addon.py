@@ -67,7 +67,13 @@ REQUIRED_PATHS = [
     "libs/svgwrite/__init__.py",
     # 幾何カーネル本体。無いとアドオンは起動するが何も計算できない。
     # Windows だけ .exe が付く(SERVER_EXE の定義を参照)。
-    SERVER_EXE,
+    #
+    # タプルは「どれか1つあればよい」。core_bridge.py はアドオン直下と bin/ の
+    # 両方を実行時に探すので、どちらに置かれていても正しい。
+    # Windows の deploy.py は両方にコピーするため直下でも通っていたが、
+    # build_cad_addon.sh は bin/ にしか置かないので、直下だけを見ていると
+    # 「ldd がバイナリを表示しているのに missing と言われる」で必ず詰まる。
+    (SERVER_EXE, f"bin/{SERVER_EXE}"),
     # Superhive が ZIP への同梱を要求するライセンス全文。中身はリポジトリ直下の
     # LICENSE と同一(GPL-2.0-or-later)にしておくこと。以前ここに GPLv3 の全文が
     # 置かれていて、コード側の SPDX 表記(GPL-2.0-or-later)と食い違っていた。
@@ -225,8 +231,13 @@ def preflight(cad_dir):
     problems = []
 
     for rel in REQUIRED_PATHS:
-        if not os.path.exists(os.path.join(cad_dir, rel.replace("/", os.sep))):
-            problems.append(f"missing required path: {rel}")
+        # タプルなら「どれか1つあればよい」。文字列は従来どおり必須。
+        candidates = rel if isinstance(rel, tuple) else (rel,)
+        if not any(
+            os.path.exists(os.path.join(cad_dir, c.replace("/", os.sep)))
+            for c in candidates
+        ):
+            problems.append(f"missing required path: {' or '.join(candidates)}")
 
     # bl_info と core_bridge.get_version() の食い違いを防ぐ。
     # get_version() は bl_info から導出しているので、リテラルが残っていたら異常。

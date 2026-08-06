@@ -108,6 +108,35 @@ glibc 対策で古い Ubuntu を選ぶ必要がある一方、apt の OCCT は�
   `ubuntu-20.04` を指定すると割り当て待ちでフリーズします
 - rpath は `build.rs` が `$ORIGIN` 基準に設定済みですが**未検証**。CI のログで `ldd` に
   `not found` が無いか確認すること
+- **libstdc++ を同梱すること**（実測で必要と判明）。詳細は下記
+
+#### libstdc++ の同梱が必要な理由（2026-08-06 の CI 失敗より）
+
+最初の Linux ビルドはこれで落ちました。
+
+```
+libTKCDF.so.8.0: version `CXXABI_1.3.15' not found
+    (required by .../bin/libTKCDF.so.8.0)
+```
+
+**conda-forge の OCCT 8.0.0 は GCC 14 世代でビルドされており、`CXXABI_1.3.15` を
+要求します。**`ubuntu-22.04` のシステム libstdc++ は GCC 12 世代で `1.3.13` までしか
+持ちません。
+
+これは glibc の板挟みの一段深いところにある同種の問題です。**ランナーを上げても
+解決しません**——`ubuntu-24.04` は GCC 13（`1.3.14`）で依然届かず、しかも glibc の要求
+バージョンが上がって古いユーザー環境で動かなくなり、逆効果です。
+
+**解は libstdc++ 側を conda から同梱すること**です。`build_cad_addon.sh` が
+`libstdc++.so.6` と `libgcc_s.so.1` を `bin/` へコピーします。
+
+- glibc と違い **libstdc++ は後方互換**なので、新しいものを持ち込む分には安全です
+- `cad_server` は Blender に `dlopen` される `.so` ではなく**独立したプロセス**なので、
+  Blender 本体や他のライブラリのランタイムを侵しません
+- rpath が `$ORIGIN` なので、隣に置けば解決されます
+
+**OCCT のバージョンを上げるときは、この要求も上がる可能性があります。**`ldd` の出力を
+必ず確認してください。
 
 ## 残っている作業
 
