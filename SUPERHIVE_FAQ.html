@@ -11,7 +11,8 @@
     <!-- FAQ 1 -->
     <div style="margin-bottom: 24px;">
         <h3>Q1: Which operating systems are supported?</h3>
-        <p><strong>A:</strong> <strong>Windows 10 and 11 (64-bit) only.</strong> There is no macOS or Linux build, and none is currently scheduled. The geometry kernel is compiled for Windows, so porting is a real piece of work rather than a flag flip. Please check this before buying.</p>
+        <p><strong>A:</strong> <strong>Windows 10 and 11 (64-bit) only.</strong> There is no macOS or Linux build you can buy today. The geometry kernel is compiled for Windows, so porting is a real piece of work rather than a flag flip.</p>
+        <p>To be straight about where that stands: porting has started, and unsigned test builds for macOS and Linux exist. They are not a product — no guarantee they work, no code signature, and no release date. macOS code signing needs a paid Apple Developer membership that is not funded yet, and that, rather than the code, is the main thing in the way. <strong>Please buy only if you are on Windows.</strong></p>
     </div>
 
     <!-- FAQ 2 -->
@@ -24,6 +25,7 @@
     <div style="margin-bottom: 24px;">
         <h3>Q3: Which file formats can it read and write?</h3>
         <p><strong>A:</strong> <strong>STEP import and export</strong>, and <strong>SVG import</strong> for 2D profiles. STEP is the format that matters for moving real solids to and from SolidWorks, Fusion 360, Rhino or FreeCAD, and on to CNC or 3D printing. <strong>IGES is not supported.</strong> You can also bake any result to a normal Blender mesh and use Blender's own exporters from there.</p>
+        <p>Two things to know about STEP export specifically: <strong>1 Blender unit is written as 1&nbsp;mm</strong> and there is no export scale option, so build at millimetre scale; and the file carries geometry only — <strong>no part names, no colours, no assembly structure</strong>. The surfaces themselves are exact, not triangulated. STEP <em>import</em> does have a scale option.</p>
     </div>
 
     <!-- FAQ 4 -->

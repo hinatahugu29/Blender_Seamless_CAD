@@ -29,9 +29,15 @@
 
     <!-- LATEST UPDATE / RELEASE NOTES -->
     <div style="background-color: #e7f5ef; border-left: 6px solid #2e9e6b; padding: 14px 18px; margin-bottom: 24px; border-radius: 4px; color: #14532d;">
-        <strong>🔄 Latest update — version 8.1.5.3 (August 2026)</strong><br>
-        This release is a stability pass driven by user reports. Thank you to everyone who took the time to send details.
-        <ul style="margin: 10px 0 0 0;">
+        <strong>🔄 Latest update — version 8.1.5.4 (August 2026)</strong><br>
+        <strong>There is a manual now.</strong> Users writing in English, Japanese, Russian and Chinese
+        all asked for documentation, and until now there genuinely was none. The full manual is online
+        and free to read whether or not you own the add-on:
+        <a href="https://hinatahugu29.github.io/Blender_Seamless_CAD/">hinatahugu29.github.io/Blender_Seamless_CAD</a>.
+        This version also adds a <em>Documentation</em> button in the add-on preferences. No functional
+        changes to modelling.
+        <p style="margin: 12px 0 4px 0;"><strong>Previously, in 8.1.5.3</strong> — a stability pass driven by user reports:</p>
+        <ul style="margin: 4px 0 0 0;">
             <li><strong>Sketches can be finalised again.</strong> Depending on where Blender was started from, finalising a sketch — or picking a face to sketch on — could fail immediately with a permission error, with nothing the user could do about it. Reinstalling or resetting to factory settings did not help, because the fault was in the add-on. Fixed.</li>
             <li><strong>Reopened files show your model again.</strong> After opening a saved <code>.blend</code>, the live preview could stop updating for the rest of the session — the shape would not appear, and changing a value seemed to do nothing until you used Bake Mesh. Fixed.</li>
             <li><strong>WGPU Overlay is lighter, and still best left off.</strong> With this option enabled, the add-on kept redrawing the viewport continuously even when nothing was happening; it now stays idle until something actually changes. <em>WGPU Overlay remains experimental and is off by default — the add-on is still expected to run faster with it off.</em></li>
@@ -77,6 +83,12 @@
         <li><strong>STEP Import and Export:</strong> Bring parts in from SolidWorks, Fusion 360, Rhino or FreeCAD, and send real solids back out for CNC, mold design or additive manufacturing.</li>
         <li><strong>SVG Import:</strong> Pull 2D profiles and logos straight in as CAD geometry to extrude and cut with.</li>
     </ul>
+    <p style="background-color: #f6f8fa; border-left: 4px solid #8b949e; padding: 10px 14px; margin-top: 10px; font-size: 0.95em;">
+        <strong>Worth knowing before you rely on STEP export:</strong> the geometry written is exact
+        B-Rep (AP214), and <strong>1 Blender unit is written as 1&nbsp;mm</strong> — there is no export
+        scale option, so build at millimetre scale. The file carries geometry only: no part names,
+        no colours, no assembly structure. Import does have a scale option.
+    </p>
 
     <h3>5. Native Blender Integration</h3>
     <ul>
@@ -143,7 +155,9 @@
     <div style="background-color: #fff3cd; border-left: 6px solid #ffc107; padding: 14px 18px; margin-bottom: 20px; border-radius: 4px; color: #664d03;">
         <strong>⚠️ Important Notice regarding OS Support:</strong><br>
         Seamless CAD is built and supported <strong>ONLY for Windows 10/11 (64-bit)</strong>.<br>
-        <em>There is no macOS or Linux build, and none is currently scheduled. Please make sure you are running Windows before purchasing.</em>
+        <em>There is no macOS or Linux build you can buy today. Porting work has started and unsigned
+        test builds exist, but they are not a product, carry no guarantee, and have no release date.
+        Please make sure you are running Windows before purchasing.</em>
     </div>
 
     <ul>

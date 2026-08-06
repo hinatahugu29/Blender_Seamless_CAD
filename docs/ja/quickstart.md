@@ -1,6 +1,6 @@
 # クイックスタート
 
-> 英語版 v8.1.5.1 に対応。最新の情報は [English documentation](https://hinatahugu29.github.io/Blender_Seamless_CAD/quickstart/) を参照してください。
+> 英語版 v8.1.5.4 に対応。最新の情報は [English documentation](https://hinatahugu29.github.io/Blender_Seamless_CAD/quickstart/) を参照してください。
 >
 > **アドオンの UI は英語です。** このページではボタン名を英語のまま書き、必要に応じて
 > 意味を補足します。画面に出ている文字とこのページの表記は一致します。
