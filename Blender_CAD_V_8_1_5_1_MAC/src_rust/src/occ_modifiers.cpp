@@ -396,6 +396,17 @@ static std::vector<TopoDS_Edge> collect_face_boundary_edges(const TopoDS_Face& f
     return edges;
 }
 
+// 定義は下(register_shell_opening_history の後)にあるが、
+// collect_shell_opening_loop_from_builder から先に呼ばれる。
+// テンプレート内の非依存名は定義時点で解決される必要があり、GCC/Clang は
+// ここに宣言が無いと実体化時に「declared later in the translation unit」で
+// 落ちる。MSVC は遅延解決するので Windows では通っていた。
+template <typename BuilderT>
+static std::vector<TopoDS_Edge> collect_history_edges_from_builder(
+    BuilderT& builder,
+    const std::vector<TopoDS_Edge>& source_edges
+);
+
 template <typename BuilderT>
 static OpeningLoopDescriptor collect_shell_opening_loop_from_builder(
     BuilderT& builder,

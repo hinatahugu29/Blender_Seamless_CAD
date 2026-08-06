@@ -26,13 +26,14 @@ fi
 echo "--- target=$TARGET_OS  OCCT_ROOT=$OCCT_ROOT ---"
 
 # --- 1. ビルド ---------------------------------------------------------------
-# OCCT の共有ライブラリはビルド時にもリンカから見える必要がある。
+# リンカに OCCT を見せる。LIBRARY_PATH は「リンク時」だけに効くので安全。
+#
+# ここで DYLD_LIBRARY_PATH / LD_LIBRARY_PATH を設定してはいけない。
+# あれは「実行時」の探索パスで、この後に起動する cargo や git にも継承される。
+# conda 環境の libcurl / libssl / libiconv がシステムのものを上書きし、
+# cargo が起動直後に `dyld: missing symbol called` で abort する
+# (実際に macOS の CI がこれで落ちた)。
 export LIBRARY_PATH="$OCCT_ROOT/lib:${LIBRARY_PATH:-}"
-if [ "$TARGET_OS" = "darwin" ]; then
-    export DYLD_LIBRARY_PATH="$OCCT_ROOT/lib:${DYLD_LIBRARY_PATH:-}"
-else
-    export LD_LIBRARY_PATH="$OCCT_ROOT/lib:${LD_LIBRARY_PATH:-}"
-fi
 
 (cd src_rust && cargo build --release --bin cad_server)
 

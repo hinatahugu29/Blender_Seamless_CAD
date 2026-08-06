@@ -60,7 +60,7 @@ jobs:
           # 万一 activate されていなければ root prefix から組み立てる。
           export OCCT_ROOT="${CONDA_PREFIX:-$MAMBA_ROOT_PREFIX/envs/occt}"
           echo "OCCT_ROOT=$OCCT_ROOT"
-          ls "$OCCT_ROOT/lib" | head -20
+          ls "$OCCT_ROOT/lib" | head -20 || true
           chmod +x build_cad_addon.sh
           ./build_cad_addon.sh
 
@@ -101,7 +101,7 @@ jobs:
           # 万一 activate されていなければ root prefix から組み立てる。
           export OCCT_ROOT="${CONDA_PREFIX:-$MAMBA_ROOT_PREFIX/envs/occt}"
           echo "OCCT_ROOT=$OCCT_ROOT"
-          ls "$OCCT_ROOT/lib" | head -20
+          ls "$OCCT_ROOT/lib" | head -20 || true
           chmod +x build_cad_addon.sh
           ./build_cad_addon.sh
 
