@@ -32,6 +32,23 @@ _SERVER_PORT = 8080
 
 _server_process = None
 
+# 幾何カーネルの実行ファイル名。Windows だけ .exe が付く。
+# ここをリテラルで散らすと Mac/Linux 版で必ず取りこぼすので一箇所にまとめる。
+_SERVER_EXE_NAME = "cad_server.exe" if sys.platform == "win32" else "cad_server"
+
+
+def _server_popen_kwargs():
+    """cad_server を起動するときの OS 依存 Popen 引数。
+
+    CREATE_NO_WINDOW は Windows 専用の定数で、他の OS では subprocess に
+    属性そのものが存在しない。参照した時点で AttributeError になるため、
+    プラットフォームを見てから触ること。
+    """
+    if sys.platform == "win32":
+        # コンソールウィンドウを出さない(出ると Blender の前面に黒窓が残る)。
+        return {"creationflags": subprocess.CREATE_NO_WINDOW}
+    return {}
+
 
 class ShortReadError(Exception):
     """応答を読み切る前に接続が閉じられた(サーバーが落ちた/killされた)。"""
@@ -576,9 +593,9 @@ def start_server():
 
 
     candidate_paths = [
-        os.path.abspath(os.path.join(addon_dir, "cad_server.exe")),
-        os.path.abspath(os.path.join(addon_dir, "bin", "cad_server.exe")),
-        os.path.abspath(os.path.join(addon_dir, "..", "src_rust", "target", "release", "cad_server.exe")),
+        os.path.abspath(os.path.join(addon_dir, _SERVER_EXE_NAME)),
+        os.path.abspath(os.path.join(addon_dir, "bin", _SERVER_EXE_NAME)),
+        os.path.abspath(os.path.join(addon_dir, "..", "src_rust", "target", "release", _SERVER_EXE_NAME)),
     ]
     exe_path = next((path for path in candidate_paths if os.path.exists(path)), None)
     utils.info_print(
@@ -586,9 +603,19 @@ def start_server():
     )
 
     if not exe_path:
-        utils.error_print("Seamless: cad_server.exe not found in addon root, bin, or dev target path")
+        utils.error_print(f"Seamless: {_SERVER_EXE_NAME} not found in addon root, bin, or dev target path")
         return False
-        
+
+    # ZIP は実行権限ビットを保存しないことがある。Windows では意味がないが、
+    # Mac/Linux ではここで +x を補っておかないと Popen が PermissionError になる。
+    if sys.platform != "win32" and not os.access(exe_path, os.X_OK):
+        try:
+            os.chmod(exe_path, 0o755)
+            utils.info_print(f"Seamless: restored the executable bit on {exe_path}")
+        except OSError as e:
+            utils.error_print(f"Seamless: could not make {exe_path} executable: {e}")
+
+
     try:
         log_file = open(_cad_server_log_path, "a", encoding="utf-8", errors="replace")
         # Pass our (Blender's) PID so the server self-terminates if Blender
@@ -596,9 +623,9 @@ def start_server():
         # port 8080 and the next session reuses it, drawing stale geometry.
         _server_process = subprocess.Popen(
             [exe_path, _shm_file, str(os.getpid())],
-            creationflags=subprocess.CREATE_NO_WINDOW,
             stdout=log_file,
-            stderr=log_file
+            stderr=log_file,
+            **_server_popen_kwargs()
         )
         time.sleep(0.5)
         _server_generation += 1

@@ -29,6 +29,27 @@ CAD_DIR_NAME = next(
     None,
 )
 
+# どの OS 向けの成果物を梱包しているか。
+# Mac/Linux 版を Windows 機で梱包することがあるので、実行中の OS だけでは決められない。
+# 明示したいときは SEAMLESS_TARGET_OS=windows|darwin|linux を渡す。
+TARGET_OS = os.environ.get("SEAMLESS_TARGET_OS", "").strip().lower() or (
+    "windows" if sys.platform == "win32"
+    else "darwin" if sys.platform == "darwin"
+    else "linux"
+)
+if TARGET_OS not in ("windows", "darwin", "linux"):
+    print(f"ERROR: SEAMLESS_TARGET_OS が不正: {TARGET_OS!r}", file=sys.stderr)
+    sys.exit(2)
+
+SERVER_EXE = "cad_server.exe" if TARGET_OS == "windows" else "cad_server"
+
+# ZIP 内で実行権限(0o755)を立てるファイル。
+# 素の ZipFile.write は権限ビットを保存しないため、Mac/Linux で展開すると
+# cad_server が実行不可になり Popen が PermissionError で落ちる。
+# Windows 版には無関係だが、判定を OS で分けると「Windows 機で Mac 版を
+# 梱包したとき」に落とすので、名前で一律に見る。
+EXECUTABLE_NAMES = {"cad_server"}
+
 # ZIP に含めないもの
 EXCLUDE_DIRS = {"__pycache__", ".git", ".vscode", "target"}
 EXCLUDE_SUFFIXES = (".pyc", ".pyo", ".log", ".zip", ".bak", ".whl")
@@ -45,7 +66,8 @@ REQUIRED_PATHS = [
     "libs/svgpathtools/__init__.py",
     "libs/svgwrite/__init__.py",
     # 幾何カーネル本体。無いとアドオンは起動するが何も計算できない。
-    "cad_server.exe",
+    # Windows だけ .exe が付く(SERVER_EXE の定義を参照)。
+    SERVER_EXE,
     # Superhive が ZIP への同梱を要求するライセンス全文。中身はリポジトリ直下の
     # LICENSE と同一(GPL-2.0-or-later)にしておくこと。以前ここに GPLv3 の全文が
     # 置かれていて、コード側の SPDX 表記(GPL-2.0-or-later)と食い違っていた。
@@ -238,6 +260,29 @@ def iter_files(cad_dir):
             yield os.path.join(dirpath, name)
 
 
+def _write_entry(zf, path, arcname):
+    """1 ファイルを ZIP に書く。実行ファイルには 0o755 を明示する。
+
+    ZipFile.write は元ファイルの権限を見ない(Windows で作れば当然そうなる)。
+    Mac/Linux 版では cad_server の +x が落ちると Blender 側で
+    PermissionError になり、「アドオンは有効になるが何も計算できない」という
+    原因の分かりにくい壊れ方をする。ここで機械的に立てる。
+    """
+    info = zipfile.ZipInfo.from_file(path, arcname)
+    info.compress_type = zipfile.ZIP_DEFLATED
+
+    base = os.path.basename(path)
+    is_exec = base in EXECUTABLE_NAMES or os.path.splitext(base)[0] in EXECUTABLE_NAMES
+    mode = 0o755 if is_exec else 0o644
+    # 上位 16bit が Unix のパーミッション。作成側 OS も UNIX(3) にしておかないと
+    # 展開側が権限を読まない実装がある。
+    info.external_attr = (mode << 16)
+    info.create_system = 3
+
+    with open(path, "rb") as f:
+        zf.writestr(info, f.read())
+
+
 def main():
     if not CAD_DIR_NAME:
         print(f"ERROR: no CAD_* directory under {ROOT}", file=sys.stderr)
@@ -264,6 +309,7 @@ def main():
 
     print(f"addon dir : {CAD_DIR_NAME}")
     print(f"bl_info   : {version}")
+    print(f"target os : {TARGET_OS} (server={SERVER_EXE})")
 
     problems = [] if args.skip_preflight else preflight(cad_dir)
     if problems:
@@ -287,7 +333,7 @@ def main():
             # 同じ cad_server.exe を奪い合う。ファイル名(上の default_name)が
             # バージョンを持ち、こちらは持たない、という分担にする。
             arc = os.path.join(CAD_DIR_NAME, os.path.relpath(path, cad_dir))
-            zf.write(path, arc.replace(os.sep, "/"))
+            _write_entry(zf, path, arc.replace(os.sep, "/"))
 
     size = os.path.getsize(args.out)
     print(f"done      : {size / 1024 / 1024:.1f} MB")
