@@ -61,3 +61,11 @@ jobs:
     steps:
       - id: deployment
         uses: actions/deploy-pages@v4
+        with:
+          # Default is 10 minutes, and the first deployment to a newly enabled
+          # Pages site kept exceeding it: GitHub accepted the deployment and
+          # moved it to in_progress within seconds, then produced nothing until
+          # the action gave up. Not an approval gate (the environment's waiting
+          # state cleared in one second) and not size (the site is 70 files,
+          # 3 MB) -- just slow on GitHub's side.
+          timeout: 1800000
