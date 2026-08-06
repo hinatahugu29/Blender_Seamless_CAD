@@ -101,6 +101,13 @@ class SEAMLESS_AddonPreferences(bpy.types.AddonPreferences):
             icon='GHOST_ENABLED' if engine_up else 'GHOST_DISABLED',
         )
         row.operator("seamless.get_version", text="Version")
+
+        # マニュアルは同梱していないので、ここが唯一のアドオン内からの導線になる。
+        # 言語切替はサイト側にあるので、URL は英語トップで固定してよい。
+        row_doc = box_eng.row()
+        row_doc.operator(
+            "wm.url_open", text="Documentation / Manual", icon='HELP',
+        ).url = "https://hinatahugu29.github.io/Blender_Seamless_CAD/"
         layout.separator()
         
         layout.label(text="Seamless CAD Logging")
