@@ -1,0 +1,63 @@
+name: Documentation
+
+# Builds the MkDocs site and publishes it to GitHub Pages.
+#
+# One-time setup required in the repository settings:
+#   Settings > Pages > Build and deployment > Source: "GitHub Actions"
+# Without that, the deploy step fails even though the build succeeds.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/**'
+      - 'mkdocs.yml'
+      - '.github/workflows/docs.yml'
+  # Lets the site be republished by hand without an empty commit.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Never let two publishes race. Don't cancel one in flight: a half-finished
+# deploy would leave the live site inconsistent.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: docs/requirements.txt
+
+      - name: Install dependencies
+        run: python -m pip install -r docs/requirements.txt
+
+      # --strict turns MkDocs warnings into errors, so a broken cross-page link
+      # fails here instead of shipping as a 404. Cross-language links must be
+      # written as absolute URLs -- see docs/CONTRIBUTING.md.
+      - name: Build site
+        run: python -m mkdocs build --strict
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

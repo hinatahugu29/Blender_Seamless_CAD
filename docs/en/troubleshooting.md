@@ -1,0 +1,123 @@
+# Troubleshooting
+
+## Nothing computes at all
+
+Open `Edit > Preferences > Add-ons` and expand Seamless CAD. The panel reports
+**CAD Engine: Running** or **Not running**, based on the real state of the kernel
+process rather than a fixed assumption.
+
+If it says Not running, the kernel process failed to start or has exited. Restart
+Blender. If it happens repeatedly, enable **Enable ERROR Logs** (it is on by
+default) and check Blender's console output.
+
+## The Seamless tab is empty below the workspace panel
+
+No valid part collection is selected. The panels below **Active CAD Workspace**
+only appear when there is one.
+
+Pick a part from the dropdown, or press **Add New CAD Part**.
+
+## Panels disappeared and I see "Sketch Mode"
+
+You are in sketch mode. The normal panels are hidden while it is active. Press
+**Apply** or **Cancel** at the bottom of the sketch panel to leave.
+
+## A shape looks wrong while dragging, correct when released
+
+That is the fast preview doing its job. **Fast Modifier Preview** and **Live
+Boolean Preview** show an approximation during the drag; the released result is
+computed exactly.
+
+Turn them off in **Quality & Export** if you would rather always see the exact
+shape. See [Quality and performance](quality.md).
+
+## Nothing updates after an edit
+
+Press the refresh icon in **Modify & Pattern > Topology** to force a full
+recompute.
+
+If that fixes it consistently, the logs are worth capturing — enable
+**Enable WARN Logs** in preferences and report what you see.
+
+## Hide Occluded Edges is greyed out
+
+Intentional, not a bug. Faces only write depth when **Use WGPU Overlay** is off
+*and* **Opacity** is fully opaque. In any other combination the setting has
+nothing to work with.
+
+Turn off the WGPU overlay and set opacity to fully opaque, and it becomes
+available.
+
+## Edit Sketch is greyed out
+
+The panel will say "Hidden by rollback point". The entry sits below an active
+rollback pin, so it is not currently being evaluated.
+
+Click the pin icon in the Feature Tree to unpin, then edit.
+
+## A fillet or offset broke after I changed something earlier
+
+Fillets, chamfers, offsets, shells and drafts refer to specific face and edge
+identities in the kernel's topology. Most edits preserve those identities, which
+is why the operations survive dimension changes. Some do not.
+
+The usual culprit is **Cleanup (Unify)** somewhere above the operation in the
+tree — merging coplanar faces destroys the identities of the faces it merges.
+This is why Cleanup is manual and best kept as a final step before export. See
+[How it works](concepts.md).
+
+Reselect the targets for the affected operation to repair it.
+
+## The Distance constraint button vanished in sketch mode
+
+It is only shown when the current selection can take a distance constraint *and*
+does not already have one. If it is missing, the constraint already exists.
+
+Look at **Selection Info** — the existing constraint's value is editable there.
+For arcs it appears as **Radius** rather than **Length**.
+
+## The sketch will not move the way I want
+
+Usually over-constrained. Turn on **Constraints / Parameters** in the sketch
+panel for a full list of constraints with the IDs they act on, and delete the one
+that is holding it. See [Sketching](sketching.md).
+
+## Editing an early operation is slow
+
+Expected. Everything below the edited operation must be recomputed, so an edit
+near the top of a long history costs more than one near the bottom. This is
+inherent to history-based CAD.
+
+Set a rollback point just below the operation you are working on. Everything
+under the pin stops being evaluated until you unpin.
+
+## Dimensions came out 1000× wrong in another CAD program
+
+On STEP export, **1 Blender unit is written as 1 mm**. A 10-unit box arrives as
+10 mm. If your scene was built assuming 1 unit = 1 m, everything will be a
+thousand times too small.
+
+There is no export scale option, so the fix is to build at the right scale, or
+to rescale in the receiving application.
+
+## The exported STEP has no names or colours
+
+Correct, and currently expected. STEP export carries geometry only — no part
+names, no colours, no assembly structure. The geometry itself is exact. See
+[Import and export](import-export.md).
+
+## Reporting a problem
+
+Useful things to include:
+
+- Blender version, and whether the add-on was installed as a legacy add-on or as
+  a Blender 4.2+ Extension
+- What **CAD Engine** reports in preferences
+- The console output with **Enable WARN Logs** turned on
+- If it is a performance problem, enable **Perf Logging** and attach
+  `seamless_cad_profile.log` from your OS temp directory
+
+## See also
+
+- [Known limitations](limitations.md)
+- [How it works](concepts.md)
