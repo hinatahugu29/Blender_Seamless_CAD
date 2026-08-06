@@ -16,39 +16,42 @@ macOS 用の作業フォルダ。SDF.R の `Rust-GPU-SDF-V16.1.0_MAC` と同じ�
 
 | 項目 | 状態 |
 |---|---|
-| Python 側コード | Windows 版と同一。**未改修** |
-| `src_rust/build.rs` | Windows 版と同一。**MSVC 決め打ちのまま。要改修** |
+| `core_bridge.py` の OS 分岐 | **済**（実行ファイル名 / Popen フラグ / +x 復元） |
+| `package_addon.py` の実行権限保持 | **済**（`SEAMLESS_TARGET_OS` で対象 OS を指定） |
+| `src_rust/build.rs` の OS 分岐 | **済**（`OCCT_ROOT` 対応・rpath 設定込み） |
+| `build_cad_addon.sh` | **済**（未実行・未検証） |
+| GitHub Actions ワークフロー | **済**（未実行・未検証） |
+| OCCT（macOS 版） | 未取得。CI が conda-forge から取る |
 | `cad_server`（macOS 版バイナリ） | **未ビルド** |
-| OCCT（macOS 版） | **未取得** |
-| ビルドスクリプト | **未作成** |
+| `license.txt` への OCCT ライセンス追加 | **未対応** |
 
-つまり、**現時点でこのフォルダは動かない**。これは正常な状態。
+コードの下準備は完了しているが、**実際のビルドはまだ一度も通していない**。
+最初の CI 実行で `build.rs` の追加調整が発生する見込み（conda-forge の
+ヘッダ配置やライブラリ名が公式 Windows 版と異なる可能性があるため）。
 
-## 必要な改修（着手前に必ず読む）
+## 残っている作業
 
-1. **`src_rust/build.rs`** — 現在 MSVC 前提でベタ書き。
-   - `/std:c++17` `/utf-8` → macOS では `-std=c++17`
-   - `occt_root` の `win64/vc14/lib` → macOS のライブラリパス
-   - VS2022 の include パス群（15〜24 行目）は macOS では不要。`cfg!(target_os)` で分岐する。
+1. **OCCT ランタイムの同梱を実地で検証する**
+   - `build_cad_addon.sh` が OCCT の `.dylib` を `bin/` に並べ、
+     `@loader_path` 基準で解決させる。`install_name_tool` で install_name を `@rpath` 基準に書き換える処理は
+     `build_cad_addon.sh` に入れてあるが、未検証。
+   - CI のログで `otool -L` の出力を必ず確認すること。
+     ビルドマシンの絶対パスが残っていると、ユーザー環境で起動しない。
 
-2. **`CAD_8_1_5_1/core_bridge.py`** — 2 箇所。
-   - `cad_server.exe` の決め打ち（578 行目付近）→ macOS では拡張子なし `cad_server`
-   - `creationflags=subprocess.CREATE_NO_WINDOW`（599 行目付近）
-     → **Windows 以外では AttributeError で即死する**。分岐必須。
+2. **`CAD_8_1_5_1/license.txt` への OCCT ライセンス追加**
+   - 現在 GPL-2.0-or-later のみ。OCCT は LGPL-2.1 なので全文の追加が必要。
 
-3. **`package_addon.py`**
-   - `REQUIRED_PATHS` の `cad_server.exe` → プラットフォーム別に。
-   - **実行権限（+x）の保持**。素の `zipfile` は権限ビットを落とすため、
-     このまま zip を作ると macOS で `Permission denied` になる。
-     `ZipInfo.external_attr` に `0o755 << 16` を明示する必要がある。
-     ※ SDF.R は `.so`（実行権限不要）だったのでこの罠を踏んでいない。**こちらは踏む。**
+3. **実機での動作確認**
+   - ZIP が Blender に入るか / 有効化できるか / スケッチと押し出しが通るか。
 
-4. **OCCT ランタイムの同梱と `@loader_path`**
-   - OCCT の `.dylib` を同梱し、`install_name_tool` で参照を `@loader_path` 基準に
-     書き換える。ビルドマシンの絶対パスが残っているとユーザー環境で起動しない。
+### 対応済み（参考）
 
-5. **`CAD_8_1_5_1/license.txt`**
-   - 現在 GPL-2.0-or-later のみ。OCCT は LGPL-2.1 なので、その全文の追加が必要。
+- `src_rust/build.rs` — MSVC フラグと VS2022 の include パスを `cfg!` 分岐に。
+  OCCT の場所は `OCCT_ROOT` から取る。
+- `CAD_8_1_5_1/core_bridge.py` — 実行ファイル名を `_SERVER_EXE_NAME` に集約。
+  `CREATE_NO_WINDOW` は Windows 限定（他 OS では属性自体が無く AttributeError になる）。
+  起動時に `+x` を補う保険も追加。
+- `package_addon.py` — ZIP エントリに 0o755 / 0o644 を明示。
 
 ## OCCT の入手方法（調査済み・2026-08-06 時点）
 
@@ -74,6 +77,20 @@ conda-forge が 8.0.0 を持っているのが決定打。**3 OS すべてを 8.
 - CI ランナーは `macos-14`（Apple Silicon）。
 - GitHub Actions の Artifacts は**二重 ZIP**になる。解凍して中身の ZIP を配布すること。
 - ZIP は必ず `CAD_8_1_5_1` フォルダごと圧縮する（中身を直接圧縮しない）。
+
+
+## CI（GitHub Actions）
+
+`.github/workflows/build-cross-platform.yml` が macOS(`macos-14`) と
+Linux(`ubuntu-22.04`) の両方をビルドし、ZIP を artifact として出す。
+
+- 手動実行: Actions タブ > "Build cad_server for macOS and Linux" > Run workflow
+- 自動実行: このフォルダ配下かワークフロー自体を push したとき
+- OCCT は conda-forge から `occt=8.0.0` を micromamba で取得し、
+  `OCCT_ROOT` として `build_cad_addon.sh` に渡している。
+
+**Artifact は二重 ZIP になる**（GitHub の仕様）。一度解凍して、中の
+`CAD_8.1.5.3_install.zip` を取り出してから配布すること。
 
 ## 参考
 

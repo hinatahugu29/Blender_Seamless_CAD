@@ -1,0 +1,118 @@
+name: Build cad_server for macOS and Linux
+
+# 幾何カーネル(cad_server)を macOS / Linux 向けにビルドし、
+# Blender にそのまま入れられる ZIP を artifact として出す。
+#
+# OCCT は conda-forge から取る。公式 dev.opencascade.org のプリビルドは
+# Windows 専用で、Ubuntu の apt にあるものは 7.5/7.6 と古く TKDESTEP
+# (7.8 で TKSTEP から改名)が無いためリンクできない。conda-forge だけが
+# 3 OS すべてを 8.0.0 で揃えられる。
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/build-cross-platform.yml'
+      - 'Blender_CAD_V_8_1_5_1_MAC/**'
+      - 'Blender_CAD_V_8_1_5_1_LINUX/**'
+
+env:
+  OCCT_VERSION: "8.0.0"
+
+jobs:
+  linux:
+    # ubuntu-latest / 24.04 でビルドすると glibc の要求バージョンが上がり、
+    # 古い環境で GLIBC_2.xx not found になる。22.04 を明示する。
+    # (廃止済みの 20.04 を指定すると割り当て待ちのままフリーズするので使わない。)
+    runs-on: ubuntu-22.04
+    defaults:
+      run:
+        working-directory: Blender_CAD_V_8_1_5_1_LINUX
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config libx11-dev libxcursor-dev libxrandr-dev libxi-dev \
+            libgl1-mesa-dev libwayland-dev libxkbcommon-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: Blender_CAD_V_8_1_5_1_LINUX/src_rust
+
+      - uses: mamba-org/setup-micromamba@v2
+        with:
+          environment-name: occt
+          create-args: >-
+            occt=${{ env.OCCT_VERSION }}
+          condarc: |
+            channels:
+              - conda-forge
+
+      - name: Build and package
+        shell: bash -el {0}
+        run: |
+          # setup-micromamba が env を activate 済みなので CONDA_PREFIX が使える。
+          # 万一 activate されていなければ root prefix から組み立てる。
+          export OCCT_ROOT="${CONDA_PREFIX:-$MAMBA_ROOT_PREFIX/envs/occt}"
+          echo "OCCT_ROOT=$OCCT_ROOT"
+          ls "$OCCT_ROOT/lib" | head -20
+          chmod +x build_cad_addon.sh
+          ./build_cad_addon.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CAD_LINUX
+          path: Blender_CAD_V_8_1_5_1_LINUX/*.zip
+          if-no-files-found: error
+
+  macos:
+    # Apple Silicon。Intel Mac 向けが必要になったら macos-13 のジョブを足す。
+    runs-on: macos-14
+    defaults:
+      run:
+        working-directory: Blender_CAD_V_8_1_5_1_MAC
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: Blender_CAD_V_8_1_5_1_MAC/src_rust
+
+      - uses: mamba-org/setup-micromamba@v2
+        with:
+          environment-name: occt
+          create-args: >-
+            occt=${{ env.OCCT_VERSION }}
+          condarc: |
+            channels:
+              - conda-forge
+
+      - name: Build and package
+        shell: bash -el {0}
+        run: |
+          # setup-micromamba が env を activate 済みなので CONDA_PREFIX が使える。
+          # 万一 activate されていなければ root prefix から組み立てる。
+          export OCCT_ROOT="${CONDA_PREFIX:-$MAMBA_ROOT_PREFIX/envs/occt}"
+          echo "OCCT_ROOT=$OCCT_ROOT"
+          ls "$OCCT_ROOT/lib" | head -20
+          chmod +x build_cad_addon.sh
+          ./build_cad_addon.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CAD_MAC
+          path: Blender_CAD_V_8_1_5_1_MAC/*.zip
+          if-no-files-found: error
+
+# 配布時の注意:
+# Actions の artifact をダウンロードすると、GitHub の仕様で ZIP の中に
+# 本物のアドオン ZIP が入った二重 ZIP になる。必ず一度解凍し、中の
+# CAD_8.1.5.3_install.zip を取り出して配布すること。
+# 二重のまま配ると購入者側で構造エラーになる。
