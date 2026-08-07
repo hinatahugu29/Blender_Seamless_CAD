@@ -1,6 +1,6 @@
 # クイックスタート
 
-> 英語版 v8.1.5.4 に対応。最新の情報は [English documentation](https://hinatahugu29.github.io/Blender_Seamless_CAD/quickstart/) を参照してください。
+> 2026-08-06 時点の英語版に対応。最新の情報は [English documentation](https://hinatahugu29.github.io/Blender_Seamless_CAD/quickstart/) を参照してください。
 >
 > **アドオンの UI は英語です。** このページではボタン名を英語のまま書き、必要に応じて
 > 意味を補足します。画面に出ている文字とこのページの表記は一致します。
@@ -16,7 +16,7 @@ Seamless CAD は現在ベータ版で、Windows 専用です。macOS 版・Linux
 ## 1. インストール
 
 1. Blender で `Edit > Preferences > Add-ons > Install...` を開く
-2. `CAD_<バージョン>_install_<日付>.zip` を選ぶ
+2. `CAD_<バージョン>_install.zip` を選ぶ
 3. アドオンを有効化する
 4. 3D ビューポートで <kbd>N</kbd> を押してサイドバーを開く。**Seamless** タブが出ます
 

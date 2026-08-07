@@ -11,7 +11,7 @@ exist but are not a released product.
 ## 1. Install
 
 1. In Blender, open `Edit > Preferences > Add-ons > Install...`
-2. Select the `CAD_<version>_install_<date>.zip` file
+2. Select the `CAD_<version>_install.zip` file
 3. Enable the add-on
 4. Press <kbd>N</kbd> in the 3D viewport to open the sidebar. A **Seamless** tab
    appears.

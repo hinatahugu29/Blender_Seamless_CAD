@@ -3,7 +3,7 @@
 > **关于本译文。** 本文由 AI 从英文翻译而来，**未经中文母语者审校**，措辞上可能存在
 > 不准确之处。[英文文档](https://hinatahugu29.github.io/Blender_Seamless_CAD/quickstart/) 为正式版本，若有出入，以英文版为准。
 >
-> 对应英文版 v8.1.5.4。
+> 对应 2026-08-06 版英文文档。
 >
 > **插件界面为英文。** 本文中的按钮名称保留英文原文，与屏幕上显示的一致，并在必要时
 > 补充说明其含义。
@@ -18,7 +18,7 @@ Seamless CAD 目前为测试版，仅支持 Windows。macOS 与 Linux 的测试�
 ## 1. 安装
 
 1. 在 Blender 中打开 `Edit > Preferences > Add-ons > Install...`
-2. 选择 `CAD_<版本>_install_<日期>.zip` 文件
+2. 选择 `CAD_<版本>_install.zip` 文件
 3. 启用该插件
 4. 在 3D 视图中按 <kbd>N</kbd> 打开侧边栏，会出现 **Seamless** 选项卡
 
