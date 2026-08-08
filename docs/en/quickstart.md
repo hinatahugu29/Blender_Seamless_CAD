@@ -3,8 +3,8 @@
 This guide takes you from a fresh install to a finished part exported as STEP.
 It should take about ten minutes.
 
-Seamless CAD is currently in beta and Windows-only. macOS and Linux test builds
-exist but are not a released product.
+Seamless CAD is currently in beta and Windows-only. macOS and Linux are being
+worked on, but there is no build to download yet.
 
 ---
 

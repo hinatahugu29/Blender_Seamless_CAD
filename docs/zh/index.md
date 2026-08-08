@@ -10,8 +10,8 @@
 输出有两种方式：在 Blender 内部使用则选 **Bake to Mesh**，交给其他 CAD 软件则选
 **Export STEP**（真正的 B-Rep 文件）。
 
-> **测试版。** 仅支持 Windows。macOS 与 Linux 的测试版本虽然存在，但尚未作为正式
-> 产品发布。
+> **测试版。** 仅支持 Windows。macOS 与 Linux 的适配正在进行中，目前还没有可供
+> 下载的版本。
 
 ## 文档
 

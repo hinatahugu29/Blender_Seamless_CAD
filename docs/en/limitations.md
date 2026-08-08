@@ -13,18 +13,16 @@ Save often.
 The released product runs on **Windows only**, because the geometry kernel ships
 as a bundled executable built for Windows.
 
-macOS and Linux builds exist and are being worked on, but they are **test builds,
-not a product**:
+Porting to macOS and Linux is being worked on, but **there is no build you can
+download yet** — not even a test build. There is no release date.
 
-- No guarantee of correct operation
-- The binaries are **not code-signed**. macOS will warn that the developer cannot
-  be verified and will block the first launch
-- Work in progress may be lost. Do not use them for anything that matters
-- Support is limited to accepting bug reports
+Two things stand in the way, and neither of them is the add-on's Python code:
 
-Code signing on macOS requires an Apple Developer Program membership, which is
-not currently funded. That is the honest reason, and it is the main obstacle to
-a macOS release — not the code.
+- The geometry kernel has to be rebuilt against OpenCASCADE on each platform,
+  which is a build-infrastructure job rather than a flag flip
+- On macOS, an unsigned binary is blocked on first launch. Code signing requires
+  an Apple Developer Program membership, which is not currently funded. That is
+  the honest reason, and it is the main obstacle to a macOS release.
 
 ## Blender versions
 

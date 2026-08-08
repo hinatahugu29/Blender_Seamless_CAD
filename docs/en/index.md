@@ -11,8 +11,8 @@ geometry follows in real time.
 Output goes two ways: **Bake to Mesh** for use inside Blender, or **Export STEP**
 for a real B-Rep file other CAD software can open.
 
-> **Beta.** Windows only. macOS and Linux test builds exist but are not a
-> released product. See [Known limitations](limitations.md).
+> **Beta.** Windows only. macOS and Linux are being worked on, but there is no
+> build to download yet. See [Known limitations](limitations.md).
 
 ## Start here
 
