@@ -74,14 +74,14 @@ G / R / S で動かせば、形状がリアルタイムに追従します。
 - MSVC 2022 と Windows SDK
 - **OpenCASCADE 8.0.0（vc14 / win64）**
 
-`src_rust/build.rs` は現状これらの場所を**ハードコードしています**。
-自分の環境に合わせて書き換えてください。
+| 何 | build.rs が見る場所 | 差し替え |
+|---|---|---|
+| OCCT | `../../occt-combined-release-no-pch/opencascade-8.0.0-vc14-64-combined/opencascade-8.0.0-vc14-64`（リポジトリルートからの相対） | 環境変数 `OCCT_ROOT`。`inc` / `include/opencascade` などの階層は自動で探します |
+| MSVC | `C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/include` | **ハードコード。**自分の環境に合わせて書き換えてください |
+| Windows SDK | `C:/Program Files (x86)/Windows Kits/10/include/10.0.26100.0/{ucrt,um,shared}` | 同上 |
 
-| 何 | build.rs が期待する場所 |
-|---|---|
-| OCCT | `../../occt-combined-release-no-pch/opencascade-8.0.0-vc14-64-combined/opencascade-8.0.0-vc14-64`（リポジトリルートからの相対） |
-| MSVC | `C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/include` |
-| Windows SDK | `C:/Program Files (x86)/Windows Kits/10/include/10.0.26100.0/{ucrt,um,shared}` |
+macOS / Linux 向けのビルドは GitHub Actions で行います。手順と、
+共有ライブラリ同梱の注意点は `CROSS_PLATFORM_BUILD.md` を参照してください。
 
 ビルドと配置:
 
@@ -166,7 +166,6 @@ Blender_CAD_V_8_1_5_1/
 - **Beta。** 破壊的な変更が入る可能性があります
 - Windows でビルドする場合、MSVC と Windows SDK のパスが `build.rs` に
   ハードコードされています。OCCT の場所は `OCCT_ROOT` で差し替え可能です
-- ライセンス未定（下記）
 
 ## ライセンス
 
