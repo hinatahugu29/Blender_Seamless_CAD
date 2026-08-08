@@ -138,6 +138,7 @@ Feature Tree から形状が完全に復元されます。
 | ファイル | 内容 |
 |---|---|
 | `Blender_CAD_V_8_1_5_1/DEPSGRAPH_STATE_MACHINE.md` | ドラッグ〜確定の状態機械マップ。フラグの意味、フェーズ構成、既知の注意点、回帰チェックリスト |
+| `CROSS_PLATFORM_BUILD.md` | macOS / Linux 対応。CI でのビルド手順、共有ライブラリ同梱の仕組み（OS ごとに違う）、踏んだ罠、残っている壁 |
 | `PERFORMANCE_ROADMAP.md` | 性能面の課題と方針 |
 | `PROJECT_STATUS.md` | 実装済み機能の一覧と経緯 |
 
@@ -159,9 +160,12 @@ Blender_CAD_V_8_1_5_1/
 
 ## 制約
 
-- **Windows 専用。** macOS / Linux 版はありません
+- **配布しているのは Windows 版のみ。** Linux / macOS(Apple Silicon) は CI で
+  ビルドが通り ZIP まで出るようになりましたが、署名も実機確認も無いため
+  まだ配っていません（`CROSS_PLATFORM_BUILD.md`）
 - **Beta。** 破壊的な変更が入る可能性があります
-- ビルド環境のパスが `build.rs` にハードコードされています
+- Windows でビルドする場合、MSVC と Windows SDK のパスが `build.rs` に
+  ハードコードされています。OCCT の場所は `OCCT_ROOT` で差し替え可能です
 - ライセンス未定（下記）
 
 ## ライセンス
