@@ -73,9 +73,13 @@ jobs:
         if: runner.os == 'macOS'
         run: brew install cmake ninja freetype
 
-      - name: Cache OpenCASCADE ${{ env.OCCT_TAG }}
+      # restore と save を分けているのは、actions/cache 一体型だとジョブが
+      # 失敗したときにキャッシュが保存されないから。カーネルのビルドで落ちる
+      # たびに OCCT の 30〜60 分を払い直すことになり、実際に1往復無駄にした。
+      # OCCT が建った時点で確定させ、その先の失敗と切り離す。
+      - name: Restore OpenCASCADE ${{ env.OCCT_TAG }}
         id: occt-cache
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: ${{ github.workspace }}/occt-install
           key: occt-${{ matrix.label }}-${{ env.OCCT_TAG }}-${{ env.OCCT_CACHE_EPOCH }}
@@ -113,6 +117,15 @@ jobs:
           find "$root" -name 'libTKernel.*' -print -quit | grep . || {
             echo "::error::libTKernel not installed"; exit 1; }
 
+      # 検証を通ってから保存する。壊れた OCCT をキャッシュに焼き付けると、
+      # 以後の run が全部それを引くので直すのが面倒になる。
+      - name: Save OpenCASCADE to cache
+        if: steps.occt-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ github.workspace }}/occt-install
+          key: occt-${{ matrix.label }}-${{ env.OCCT_TAG }}-${{ env.OCCT_CACHE_EPOCH }}
+
       - name: Build the kernel
         env:
           OCCT_ROOT: ${{ github.workspace }}/occt-install
@@ -123,52 +136,16 @@ jobs:
           cargo build --release --bin cad_server
 
       # Windows 版が DLL をアドオン直下に置いているのと同じことを、
-      # .so / .dylib でやる。build.rs が $ORIGIN / @loader_path を rpath に
-      # 入れてあるので、cad_server の隣に置けば見つかる。
+      # .so / .dylib でやる。中身は .github/scripts/bundle_kernel.sh に置いた
+      # (インラインに置いていたら、grep が空振りして pipefail で死ぬ失敗の
+      #  切り分けがしにくかった)。
       - name: Bundle the kernel and its OCCT libraries
         run: |
-          set -euo pipefail
-          cad="$GITHUB_WORKSPACE/$CAD_DIR"
-          bin="$GITHUB_WORKSPACE/$ADDON_ROOT/src_rust/target/release/cad_server"
-          prefix="$GITHUB_WORKSPACE/occt-install"
-          cp "$bin" "$cad/cad_server"
-          chmod +x "$cad/cad_server"
-
-          if [ "${{ runner.os }}" = "Linux" ]; then
-            # ldd の出力から、OCCT prefix 由来のものだけを引く。システムの
-            # libc/libstdc++ は同梱しない(ホストのものと二重ロードになる)。
-            ldd "$cad/cad_server" | awk '{print $3}' | grep -F "$prefix" | sort -u \
-              | while read -r lib; do cp -L "$lib" "$cad/"; done
-            # OCCT ライブラリ同士の依存も引き込む(TKBO -> TKBRep など)。
-            for i in 1 2 3 4; do
-              for so in "$cad"/lib*.so*; do
-                ldd "$so" | awk '{print $3}' | grep -F "$prefix" | sort -u \
-                  | while read -r dep; do
-                      [ -f "$cad/$(basename "$dep")" ] || cp -L "$dep" "$cad/"
-                    done
-              done
-            done
-          else
-            # macOS は install_name を書き換えないと、ビルドマシンの絶対パスを
-            # 見に行ったまま配られる。参照を @loader_path に付け替える。
-            copy_deps() {
-              otool -L "$1" | tail -n +2 | awk '{print $1}' | grep -F "$prefix" | while read -r dep; do
-                base=$(basename "$dep")
-                if [ ! -f "$cad/$base" ]; then
-                  cp -L "$dep" "$cad/$base"
-                  chmod u+w "$cad/$base"
-                  install_name_tool -id "@loader_path/$base" "$cad/$base"
-                  copy_deps "$cad/$base"
-                fi
-                install_name_tool -change "$dep" "@loader_path/$base" "$1"
-              done
-            }
-            copy_deps "$cad/cad_server"
-            for dylib in "$cad"/*.dylib; do copy_deps "$dylib"; done
-          fi
-
-          echo "--- bundled ---"
-          ls -la "$cad" | grep -E 'cad_server|\.so|\.dylib' || true
+          chmod +x .github/scripts/bundle_kernel.sh
+          .github/scripts/bundle_kernel.sh \
+            "$GITHUB_WORKSPACE/$CAD_DIR" \
+            "$GITHUB_WORKSPACE/$ADDON_ROOT/src_rust/target/release/cad_server" \
+            "$GITHUB_WORKSPACE/occt-install"
 
       # 同梱漏れは実行するまで気付けない。ここで一度起動して、TCP 8080 に
       # 応答することまで確かめる。Windows で av*.dll を外したときの
