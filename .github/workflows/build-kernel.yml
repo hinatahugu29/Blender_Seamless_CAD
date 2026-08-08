@@ -168,6 +168,13 @@ jobs:
           kill $server 2>/dev/null || true
           exit 1
 
+      # PREFLIGHT は同梱ライブラリを実際に import して確かめる(8.1.2.5 の
+      # 脱落事故の再発を機械的に止める関門)。svgpathtools は numpy を要求し、
+      # Blender の Python には入っているが、ランナーの python3 には無い。
+      # 検査を緩めるのではなく、CI 側を Blender の環境に合わせる。
+      - name: Install numpy for the preflight check
+        run: python3 -m pip install --disable-pip-version-check --quiet numpy
+
       - name: Package the add-on
         run: |
           set -euo pipefail

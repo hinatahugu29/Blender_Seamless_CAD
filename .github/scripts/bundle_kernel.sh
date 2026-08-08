@@ -26,7 +26,7 @@ Linux)
   # OCCT の prefix に向けて解決させる。
   export LD_LIBRARY_PATH="$prefix/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 
-  for pass in 1 2 3 4 5 6; do
+  for pass in 1 2 3 4 5 6 7 8; do
     before=$(find "$cad" -maxdepth 1 -name '*.so*' | wc -l)
     for f in "$cad/cad_server" "$cad"/*.so*; do
       [ -f "$f" ] || continue
@@ -43,6 +43,45 @@ Linux)
     after=$(find "$cad" -maxdepth 1 -name '*.so*' | wc -l)
     [ "$before" = "$after" ] && break
   done
+
+  # ここまでは LD_LIBRARY_PATH を prefix に向けたまま走らせている。つまり
+  # 「まだコピーしていないライブラリ」も解決できてしまい、漏れが漏れとして
+  # 見えない。配布先に prefix は存在しないので、検証は探索の助けを外し、
+  # $ORIGIN だけが頼りという実際の条件で行う。
+  # (この検証が無かったせいで libTKG2d.so.8.0 の欠落を CI が素通しした。)
+  for pass in 1 2 3; do
+    missing=$(
+      unset LD_LIBRARY_PATH
+      for f in "$cad/cad_server" "$cad"/*.so*; do
+        [ -f "$f" ] || continue
+        ldd "$f" 2>/dev/null | awk '/not found/ {print $1}'
+      done | sort -u
+    )
+    [ -n "$missing" ] || break
+    echo "unresolved after pass $pass: $missing"
+    for name in $missing; do
+      if [ -e "$prefix/lib/$name" ]; then
+        cp -L "$prefix/lib/$name" "$cad/$name"
+      else
+        echo "::error::$name is needed but not present in $prefix/lib"
+        exit 1
+      fi
+    done
+  done
+
+  # ループを抜けた時点の missing は最後にコピーする前の値なので、取り直す。
+  missing=$(
+    unset LD_LIBRARY_PATH
+    for f in "$cad/cad_server" "$cad"/*.so*; do
+      [ -f "$f" ] || continue
+      ldd "$f" 2>/dev/null | awk '/not found/ {print $1}'
+    done | sort -u
+  )
+  if [ -n "$missing" ]; then
+    echo "::error::still unresolved after bundling: $missing"
+    exit 1
+  fi
+  echo "all shared libraries resolve without LD_LIBRARY_PATH"
   ;;
 
 Darwin)
