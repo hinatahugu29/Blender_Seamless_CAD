@@ -104,11 +104,17 @@ Linux)
 Darwin)
   # OCCT は install name を @rpath/libTK*.dylib の形で持つ。書き換えないと
   # 実行時に自分の rpath 頼みになるので、参照を @loader_path に付け替える。
+  # OCCT の prefix だけを対象にしてはいけない。TKService / TKV3d は Homebrew の
+  # freetype を参照しており(cad_server -> TKDESTEP -> TKXCAF -> TKV3d -> TKService)、
+  # /opt/homebrew はユーザーの Mac には存在しない。ランナーには OCCT のビルド
+  # 依存として入っているのでスモークテストも素通りする。
+  # 「OS 付属でない絶対パスは全部同梱対象」という規則にして、出所を問わない。
   resolve() {
     case "$1" in
-      @rpath/*)   echo "$prefix/lib/${1#@rpath/}" ;;
-      "$prefix"/*) echo "$1" ;;
-      *)          echo "" ;;   # /usr/lib などシステム側は同梱しない
+      @rpath/*)             echo "$prefix/lib/${1#@rpath/}" ;;
+      /usr/lib/*|/System/*) echo "" ;;   # OS 付属。同梱しない
+      /*)                   echo "$1" ;; # prefix でも Homebrew でも同梱する
+      *)                    echo "" ;;   # @loader_path 済み / @executable_path
     esac
   }
 
@@ -136,9 +142,26 @@ Darwin)
     [ "$before" = "$after" ] && break
   done
 
+  # ビルドマシンにしか無いパスが残っていないことを確かめる。Linux 側で
+  # LD_LIBRARY_PATH を外して検証するのと同じ趣旨で、こちらはスモークテストが
+  # 検出できない(ランナーには Homebrew があるので動いてしまう)。
+  leftover=$(
+    for f in "$cad/cad_server" "$cad"/*.dylib; do
+      [ -f "$f" ] || continue
+      otool -L "$f" | tail -n +2 | awk '{print $1}'
+    done | grep -v '^@loader_path/' | grep -v '^/usr/lib/' | grep -v '^/System/' | sort -u || true
+  )
+  if [ -n "$leftover" ]; then
+    echo "::error::install names still pointing outside the bundle:"
+    echo "$leftover"
+    exit 1
+  fi
+  echo "all install names are @loader_path or OS-provided"
+
   # install_name_tool はバイナリを書き換えるので、付いていた ad-hoc 署名が
   # 無効になる。Apple Silicon は署名の壊れた実行ファイルを起動時に SIGKILL
   # するため、ここで署名し直さないと「何も言わずに落ちる」形で失敗する。
+  # 署名は必ず最後 — 書き換えより先にやると無効になる。
   for f in "$cad/cad_server" "$cad"/*.dylib; do
     [ -f "$f" ] || continue
     codesign --force --sign - "$f"
