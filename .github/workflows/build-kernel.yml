@@ -21,6 +21,12 @@ on:
 permissions:
   contents: read
 
+# 押し直したら前の run は用済み。macOS ランナーは待ち行列が長く、放っておくと
+# 古い run が順番を先に取ってしまう。
+concurrency:
+  group: build-kernel-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   OCCT_TAG: V8_0_0
   # 同梱している Windows 版 OCCT が 8.0.0 なので、そこに揃える。
