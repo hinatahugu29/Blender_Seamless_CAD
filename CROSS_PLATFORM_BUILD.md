@@ -207,6 +207,25 @@ OCCT は install name を `@rpath/libTK*.dylib` の形で持つ。これを
 症状は「ライブラリは全部隣にあるのに、`libTKernel.so.8.0` を含む全部が
 not found」という形で出る。
 
+### 同梱対象は「OS 付属でない絶対パス」全部
+
+OCCT の prefix 由来だけを同梱対象にしてはいけない。macOS の `TKService` /
+`TKV3d` は **Homebrew の freetype** を参照しており、この連鎖は避けられない:
+
+```
+cad_server → TKDESTEP → TKXCAF → TKV3d → TKService → libfreetype
+```
+
+STEP を触れば必ず読まれる。`/opt/homebrew` はユーザーの Mac に存在しないので、
+そのまま配ると起動しない。
+
+OCCT の Visualization モジュールを切れば依存ごと消えるが、上の連鎖のとおり
+`TKDESTEP` が `TKXCAF` 経由で `TKV3d` に依存しているため **STEP が壊れる**。
+切るのではなく同梱するのが正解。
+
+規則は「`/usr/lib` と `/System` 以外の絶対パスは出所を問わず同梱」。
+freetype 自身の依存連鎖（libpng / brotli 等）も再帰で拾える。
+
 ### 検証は配布先と同じ条件で
 
 依存を辿る間は `LD_LIBRARY_PATH` を OCCT の prefix に向けている。この状態のまま
@@ -216,12 +235,20 @@ not found」という形で出る。
 最後の確認は `LD_LIBRARY_PATH` を外して行う。prefix が存在せず `$ORIGIN` だけが
 頼りという、ユーザーの環境と同じ条件になる。
 
+macOS 側も同じ趣旨で、`install_name` に `@loader_path` / `/usr/lib` / `/System`
+以外が残っていないかを確認する。**スモークテストではこれを検出できない** —
+ランナーには Homebrew が入っているので、参照先が実在してしまい起動する。
+
+> **一般則**: ビルドマシンには、配布先に無いものが入っている。
+> 検証は必ず「無い側」の条件を作って行うこと。この文書に出てくる同梱の失敗は
+> 3件とも、この一点を守らなかったことが原因だった。
+
 ---
 
 ## 6. 検証の関門
 
 同梱漏れは**実行するまで表に出ない**。人間の目視では捕まらないので、機械的な
-関門を3段構えにしてある。
+関門を4段構えにしてある。
 
 1. **未解決チェック**（Linux、`bundle_kernel.sh`）
    `LD_LIBRARY_PATH` 無しで `ldd` して "not found" が残っていないか。
@@ -231,6 +258,10 @@ not found」という形で出る。
 3. **スモークテスト**（ワークフロー）
    カーネルを実際に起動し、20秒以内に TCP 8080 へ応答するか。
    Windows で `av*.dll` を外したときの「一切応答しない」を捕まえるための関門
+
+4. **install_name の残留チェック**（macOS、`bundle_kernel.sh`）
+   `@loader_path` / `/usr/lib` / `/System` 以外が残っていたら失敗させる。
+   スモークテストでは検出できない種類の欠陥を捕まえるための関門
 
 さらにパッケージ段階で `package_addon.py` の PREFLIGHT が走る。同梱ライブラリを
 **実際に import して**確かめる検査で、8.1.2.5 の `svgpathtools` 脱落
@@ -290,7 +321,12 @@ MSVC だけが後方の定義を拾うため、Windows でしか成り立って�
 3. **Blender 上での実動作確認** — ヘッドレス回帰テストは Windows でしか
    走らせていない。C/D/H（ドラッグ追従・確定後の固まり・WGPU Overlay OFF）は
    そもそもヘッドレスでは検証できない
-4. **Linux のディストリ差** — `ubuntu-22.04` の glibc が実質の下限になる
+4. **Linux の動作要件** — 成果物を実測した下限は **glibc 2.34 / GLIBCXX 3.4.30
+   / CXXABI 1.3.9**。Ubuntu 22.04、Debian 12、RHEL 9 以降に相当する。
+   ホスト任せの依存は `libc` `libstdc++` `libgcc_s` `libm` `ld-linux` `libX11`
+   `libfontconfig` `libfreetype` で、いずれも Blender 自身が要求するもの。
+   下限を下げたいなら `libstdc++` の同梱が候補になる（カーネルは別プロセスなので
+   Blender 側との衝突は起きない）。未検証
 5. **Intel Mac** — 現在対象外。必要なら `macos-14` 上でクロスビルドできるが
    （`CMAKE_OSX_ARCHITECTURES=x86_64` + `cargo --target x86_64-apple-darwin`）、
    arm64 上で x86_64 バイナリは起動できないため、**スモークテストの関門が
