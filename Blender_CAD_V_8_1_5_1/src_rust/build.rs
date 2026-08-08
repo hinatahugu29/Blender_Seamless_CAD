@@ -26,6 +26,24 @@ fn occt_root() -> String {
         .to_string()
 }
 
+/// OCCT のインストール階層は配布形態でまちまち。Windows 向けドロップは
+/// `inc` / `win64/vc14/lib`、cmake の Unix レイアウトは
+/// `include/opencascade` / `lib`、Homebrew はまた別。決め打ちすると
+/// 「ヘッダが無い」という遠い場所のコンパイルエラーになるので、ここで探す。
+fn find_subdir(root: &str, candidates: &[&str], what: &str) -> String {
+    for rel in candidates {
+        let path = format!("{}/{}", root, rel);
+        if std::path::Path::new(&path).is_dir() {
+            return path;
+        }
+    }
+    panic!(
+        "OCCT {} not found under {:?}. Tried: {:?}. \
+         Set OCCT_ROOT to the OpenCASCADE install prefix.",
+        what, root, candidates
+    );
+}
+
 fn main() {
     println!("cargo:rerun-if-env-changed=OCCT_ROOT");
 
@@ -33,14 +51,9 @@ fn main() {
     let is_windows = target_os == "windows";
 
     let occt_root = occt_root();
-    let occt_inc = format!("{}/inc", occt_root);
-    // Windows 同梱ドロップだけが win64/vc14 という階層を持つ。ソースビルドした
-    // OCCT (Homebrew / 自前ビルド) は素直に <prefix>/lib へ入る。
-    let occt_lib = if is_windows {
-        format!("{}/win64/vc14/lib", occt_root)
-    } else {
-        format!("{}/lib", occt_root)
-    };
+    let occt_inc = find_subdir(&occt_root, &["inc", "include/opencascade", "include"], "headers");
+    // Windows 同梱ドロップだけが win64/vc14 という階層を持つ。
+    let occt_lib = find_subdir(&occt_root, &["win64/vc14/lib", "lib", "lib64"], "libraries");
 
     // MSVC 標準ヘッダパス。cl.exe を素の環境から呼ぶ都合で明示している。
     // Unix では clang/gcc が自前で標準ヘッダを見つけるので、渡すものは無い。

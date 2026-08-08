@@ -1,0 +1,200 @@
+# macOS / Linux 向けの幾何カーネルをビルドし、インストール可能な ZIP まで作る。
+#
+# Windows 版は従来どおり手元でビルドする(MSVC と同梱 OCCT ドロップがある)。
+# ここが受け持つのは、手元に実機の無い macOS / Linux だけ。
+#
+# 一番重いのは OCCT のソースビルドなので、インストール先ごとキャッシュする。
+# 初回は 30〜60 分かかるが、以降は数分で終わる。キャッシュを捨てたいときは
+# 下の OCCT_CACHE_EPOCH を上げること。
+#
+# サードパーティ製 action は使わない(actions/* のみ)。ビルド成果物に署名して
+# 配る性質上、CI に持ち込む依存は少ないほどよい。
+
+name: Build kernel (macOS / Linux)
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - 'port/**'
+
+permissions:
+  contents: read
+
+env:
+  OCCT_TAG: V8_0_0
+  # 同梱している Windows 版 OCCT が 8.0.0 なので、そこに揃える。
+  # (occt-combined-release-no-pch/.../inc/Standard_Version.hxx で確認)
+  OCCT_CACHE_EPOCH: '1'
+  ADDON_ROOT: Blender_CAD_V_8_1_5_1
+  CAD_DIR: Blender_CAD_V_8_1_5_1/CAD_8_1_5_1
+
+jobs:
+  build:
+    name: ${{ matrix.label }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      # 1つ落ちても残りの結果は見たい。どのプラットフォーム固有の問題かの
+      # 切り分けが、まとめて落とされると出来なくなる。
+      fail-fast: false
+      matrix:
+        include:
+          # glibc は前方互換しかない。新しいランナーでビルドすると古い
+          # ディストリで動かないので、意図的に一番古い ubuntu を使う。
+          - label: linux-x64
+            runner: ubuntu-22.04
+            platform: linux
+          - label: macos-arm64
+            runner: macos-14
+            platform: macos
+          - label: macos-x64
+            runner: macos-13
+            platform: macos
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake ninja-build build-essential \
+            libfreetype6-dev libx11-dev libxext-dev libxmu-dev libxi-dev \
+            libgl1-mesa-dev libglu1-mesa-dev
+
+      - name: Install build dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: brew install cmake ninja freetype
+
+      - name: Cache OpenCASCADE ${{ env.OCCT_TAG }}
+        id: occt-cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/occt-install
+          key: occt-${{ matrix.label }}-${{ env.OCCT_TAG }}-${{ env.OCCT_CACHE_EPOCH }}
+
+      - name: Build OpenCASCADE from source
+        if: steps.occt-cache.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          git clone --depth 1 --branch "$OCCT_TAG" \
+            https://github.com/Open-Cascade-SAS/OCCT.git occt-src
+          cmake -S occt-src -B occt-build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX="$GITHUB_WORKSPACE/occt-install" \
+            -DBUILD_LIBRARY_TYPE=Shared \
+            -DBUILD_MODULE_Draw=OFF \
+            -DBUILD_DOC_Overview=OFF \
+            -DINSTALL_DIR_LAYOUT=Unix
+          cmake --build occt-build --target install
+
+      # インストール後の階層は INSTALL_DIR_LAYOUT で変わる(Unix レイアウトだと
+      # ヘッダは include/opencascade)。build.rs 側で候補を探す作りにしてあるので
+      # ここでは中身が揃っていることと、掴んだ版が 8.0.0 であることだけ確かめる。
+      # キャッシュが古い版のまま生き残っていると、リンクは通るのに挙動だけ違う
+      # という一番わかりにくい壊れ方をする。
+      - name: Verify OCCT install
+        run: |
+          set -euo pipefail
+          root="$GITHUB_WORKSPACE/occt-install"
+          header=$(find "$root" -name Standard_Version.hxx -print -quit)
+          if [ -z "$header" ]; then
+            echo "::error::no OCCT headers under $root"; ls -R "$root" | head -40; exit 1
+          fi
+          grep -m1 'OCC_VERSION_COMPLETE' "$header"
+          grep -q '"8.0.0"' "$header" || { echo "::error::OCCT is not 8.0.0"; exit 1; }
+          find "$root" -name 'libTKernel.*' -print -quit | grep . || {
+            echo "::error::libTKernel not installed"; exit 1; }
+
+      - name: Build the kernel
+        env:
+          OCCT_ROOT: ${{ github.workspace }}/occt-install
+        run: |
+          set -euo pipefail
+          rustc --version
+          cd "$ADDON_ROOT/src_rust"
+          cargo build --release --bin cad_server
+
+      # Windows 版が DLL をアドオン直下に置いているのと同じことを、
+      # .so / .dylib でやる。build.rs が $ORIGIN / @loader_path を rpath に
+      # 入れてあるので、cad_server の隣に置けば見つかる。
+      - name: Bundle the kernel and its OCCT libraries
+        run: |
+          set -euo pipefail
+          cad="$GITHUB_WORKSPACE/$CAD_DIR"
+          bin="$GITHUB_WORKSPACE/$ADDON_ROOT/src_rust/target/release/cad_server"
+          prefix="$GITHUB_WORKSPACE/occt-install"
+          cp "$bin" "$cad/cad_server"
+          chmod +x "$cad/cad_server"
+
+          if [ "${{ runner.os }}" = "Linux" ]; then
+            # ldd の出力から、OCCT prefix 由来のものだけを引く。システムの
+            # libc/libstdc++ は同梱しない(ホストのものと二重ロードになる)。
+            ldd "$cad/cad_server" | awk '{print $3}' | grep -F "$prefix" | sort -u \
+              | while read -r lib; do cp -L "$lib" "$cad/"; done
+            # OCCT ライブラリ同士の依存も引き込む(TKBO -> TKBRep など)。
+            for i in 1 2 3 4; do
+              for so in "$cad"/lib*.so*; do
+                ldd "$so" | awk '{print $3}' | grep -F "$prefix" | sort -u \
+                  | while read -r dep; do
+                      [ -f "$cad/$(basename "$dep")" ] || cp -L "$dep" "$cad/"
+                    done
+              done
+            done
+          else
+            # macOS は install_name を書き換えないと、ビルドマシンの絶対パスを
+            # 見に行ったまま配られる。参照を @loader_path に付け替える。
+            copy_deps() {
+              otool -L "$1" | tail -n +2 | awk '{print $1}' | grep -F "$prefix" | while read -r dep; do
+                base=$(basename "$dep")
+                if [ ! -f "$cad/$base" ]; then
+                  cp -L "$dep" "$cad/$base"
+                  chmod u+w "$cad/$base"
+                  install_name_tool -id "@loader_path/$base" "$cad/$base"
+                  copy_deps "$cad/$base"
+                fi
+                install_name_tool -change "$dep" "@loader_path/$base" "$1"
+              done
+            }
+            copy_deps "$cad/cad_server"
+            for dylib in "$cad"/*.dylib; do copy_deps "$dylib"; done
+          fi
+
+          echo "--- bundled ---"
+          ls -la "$cad" | grep -E 'cad_server|\.so|\.dylib' || true
+
+      # 同梱漏れは実行するまで気付けない。ここで一度起動して、TCP 8080 に
+      # 応答することまで確かめる。Windows で av*.dll を外したときの
+      # 「カーネルが一切応答しない」を CI で捕まえるための関門。
+      - name: Smoke-test the kernel
+        run: |
+          set -euo pipefail
+          cad="$GITHUB_WORKSPACE/$CAD_DIR"
+          "$cad/cad_server" &
+          server=$!
+          for i in $(seq 1 20); do
+            if python3 -c "import socket,sys; s=socket.create_connection(('127.0.0.1',8080),1); s.close()" 2>/dev/null; then
+              echo "kernel answered on port 8080"
+              kill $server
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::kernel did not answer on port 8080 within 20s"
+          kill $server 2>/dev/null || true
+          exit 1
+
+      - name: Package the add-on
+        run: |
+          set -euo pipefail
+          cd "$ADDON_ROOT"
+          python3 package_addon.py \
+            --platform "${{ matrix.platform }}" \
+            --out "$GITHUB_WORKSPACE/CAD_${{ matrix.label }}_install.zip"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CAD-${{ matrix.label }}
+          path: CAD_${{ matrix.label }}_install.zip
+          if-no-files-found: error
