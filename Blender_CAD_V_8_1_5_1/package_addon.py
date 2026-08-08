@@ -44,8 +44,8 @@ REQUIRED_PATHS = [
     # 無条件 import し、それが svgwrite を要求するので両方必要。
     "libs/svgpathtools/__init__.py",
     "libs/svgwrite/__init__.py",
-    # 幾何カーネル本体。無いとアドオンは起動するが何も計算できない。
-    "cad_server.exe",
+    # 幾何カーネル本体はここには書かない。ファイル名が OS で変わるので
+    # PLATFORMS の kernel から足す(required_paths を参照)。
     # Superhive が ZIP への同梱を要求するライセンス全文。中身はリポジトリ直下の
     # LICENSE と同一(GPL-2.0-or-later)にしておくこと。以前ここに GPLv3 の全文が
     # 置かれていて、コード側の SPDX 表記(GPL-2.0-or-later)と食い違っていた。
@@ -56,6 +56,34 @@ REQUIRED_PATHS = [
 # REQUIRED_PATHS の「ファイルがある」より一段強い検査で、パッケージ内部の
 # サブモジュール欠落(8.1.2.5 の事故そのもの)まで捕まえる。
 IMPORTABLE_MODULES = ["svgwrite", "svgpathtools"]
+
+# プラットフォームごとの差分。中身の差はカーネルの実行ファイル名と、
+# ZIP のファイル名だけ。Python ソースは3プラットフォームで共通の1本を配る。
+#
+# Windows の suffix が空なのは意図的で、既存の配布物・ドキュメント・購入者の
+# 手元にある名前 (CAD_<version>_install.zip) を変えないため。
+PLATFORMS = {
+    "windows": {"kernel": "cad_server.exe", "suffix": ""},
+    "macos":   {"kernel": "cad_server",     "suffix": "_macos"},
+    "linux":   {"kernel": "cad_server",     "suffix": "_linux"},
+}
+
+
+def host_platform():
+    if sys.platform == "win32":
+        return "windows"
+    if sys.platform == "darwin":
+        return "macos"
+    return "linux"
+
+
+def required_paths(platform):
+    """REQUIRED_PATHS に、そのプラットフォームの幾何カーネルを足したもの。
+
+    カーネルが無いとアドオンは起動こそするが何も計算できない、という
+    一番静かな壊れ方をするので、必須扱いは外さない。
+    """
+    return REQUIRED_PATHS + [PLATFORMS[platform]["kernel"]]
 
 
 def read_bl_info_version(cad_dir):
@@ -193,10 +221,10 @@ def check_literal_write_paths(cad_dir):
     return problems
 
 
-def preflight(cad_dir):
+def preflight(cad_dir, platform):
     problems = []
 
-    for rel in REQUIRED_PATHS:
+    for rel in required_paths(platform):
         if not os.path.exists(os.path.join(cad_dir, rel.replace("/", os.sep))):
             problems.append(f"missing required path: {rel}")
 
@@ -254,18 +282,24 @@ def main():
         print(f"ERROR: bl_info の version を読めなかった: {cad_dir}/__init__.py",
               file=sys.stderr)
         return 1
-    default_name = f"CAD_{version}_install.zip"
-
     parser = argparse.ArgumentParser()
-    parser.add_argument("--out", default=os.path.join(ROOT, default_name))
+    parser.add_argument("--out")
+    parser.add_argument("--platform", choices=sorted(PLATFORMS), default=host_platform(),
+                        help="どの OS 向けの ZIP か(既定は実行中のホスト)。"
+                             "同梱すべきカーネルの実行ファイル名と ZIP 名が変わる")
     parser.add_argument("--skip-preflight", action="store_true",
                         help="出荷前チェックを飛ばす(デバッグ用。通常は使わない)")
     args = parser.parse_args()
 
+    platform = args.platform
+    out = args.out or os.path.join(
+        ROOT, f"CAD_{version}_install{PLATFORMS[platform]['suffix']}.zip")
+
     print(f"addon dir : {CAD_DIR_NAME}")
     print(f"bl_info   : {version}")
+    print(f"platform  : {platform} (kernel: {PLATFORMS[platform]['kernel']})")
 
-    problems = [] if args.skip_preflight else preflight(cad_dir)
+    problems = [] if args.skip_preflight else preflight(cad_dir, platform)
     if problems:
         print("\nPREFLIGHT FAILED:", file=sys.stderr)
         for p in problems:
@@ -276,20 +310,34 @@ def main():
     files = sorted(iter_files(cad_dir))
     total = sum(os.path.getsize(f) for f in files)
     print(f"files     : {len(files)} ({total / 1024 / 1024:.1f} MB uncompressed)")
-    print(f"writing   : {args.out}")
+    print(f"writing   : {out}")
 
-    with zipfile.ZipFile(args.out, "w", zipfile.ZIP_DEFLATED, compresslevel=6) as zf:
+    with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED, compresslevel=6) as zf:
         for path in files:
             # ZIP 内のトップレベルはディレクトリ名(CAD_8_1_5_1)のまま固定する。
             # これは Blender が addons 配下に展開するフォルダ名 = Python の
             # モジュール名なので、バージョンごとに変えてはいけない。変えると
             # 更新時に古い版を上書きせず「隣に」入り、2つとも有効化された状態で
-            # 同じ cad_server.exe を奪い合う。ファイル名(上の default_name)が
-            # バージョンを持ち、こちらは持たない、という分担にする。
+            # 同じカーネルを奪い合う。ZIP のファイル名がバージョンを持ち、
+            # こちらは持たない、という分担にする。
             arc = os.path.join(CAD_DIR_NAME, os.path.relpath(path, cad_dir))
-            zf.write(path, arc.replace(os.sep, "/"))
+            arc = arc.replace(os.sep, "/")
+            is_kernel = (platform != "windows"
+                         and os.path.basename(path) == PLATFORMS[platform]["kernel"])
+            if is_kernel:
+                # macOS/Linux 向けの ZIP は、Windows 上で作っても実行ビットを
+                # 持たせる必要がある。立てないと展開したカーネルが実行不能の
+                # まま配られる(アドオン側に chmod のフォールバックはあるが、
+                # 書き込めない場所に入れられたら効かない)。
+                info = zipfile.ZipInfo.from_file(path, arc)
+                info.compress_type = zipfile.ZIP_DEFLATED
+                info.external_attr = (0o755 << 16) | (info.external_attr & 0xFFFF)
+                with open(path, "rb") as f:
+                    zf.writestr(info, f.read())
+            else:
+                zf.write(path, arc)
 
-    size = os.path.getsize(args.out)
+    size = os.path.getsize(out)
     print(f"done      : {size / 1024 / 1024:.1f} MB")
     return 0
 

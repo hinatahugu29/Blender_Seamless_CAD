@@ -719,6 +719,31 @@ fn watch_parent_and_exit(parent_pid: u32) {
     });
 }
 
+// Unix equivalent of the watchdog above. There is no waitable process handle, so
+// poll once a second instead.
+//
+// Two independent checks, because neither alone is enough:
+//   - getppid() != parent_pid: we are a *direct* child of Blender, so when Blender
+//     exits we are reparented to init/launchd and getppid() becomes 1. This fires
+//     even while Blender is still an unreaped zombie, which kill(pid, 0) would not.
+//   - kill(parent_pid, 0) != 0: covers the case where we were somehow not spawned
+//     as a direct child, and catches the pid disappearing outright.
+#[cfg(unix)]
+fn watch_parent_and_exit(parent_pid: u32) {
+    extern "C" {
+        fn kill(pid: i32, sig: i32) -> i32;
+        fn getppid() -> i32;
+    }
+    let parent = parent_pid as i32;
+    std::thread::spawn(move || loop {
+        let orphaned = unsafe { getppid() != parent || kill(parent, 0) != 0 };
+        if orphaned {
+            std::process::exit(0);
+        }
+        std::thread::sleep(std::time::Duration::from_secs(1));
+    });
+}
+
 fn main() {
     println!("Starting Seamless CAD Server v1.7.0 (parallel stacks + CSG preview: SUB/ADD/INT) on port 8080...");
 
@@ -730,8 +755,10 @@ fn main() {
     }
     if args.len() > 2 {
         if let Ok(ppid) = args[2].parse::<u32>() {
-            #[cfg(windows)]
+            #[cfg(any(windows, unix))]
             watch_parent_and_exit(ppid);
+            #[cfg(not(any(windows, unix)))]
+            let _ = ppid;
         }
     }
 

@@ -26,9 +26,21 @@ addon_dir = os.path.dirname(__file__)
 # バージョン番号をファイル名に埋めない。埋めると版を上げるたびに更新漏れが起きる。
 _cad_server_log_path = os.path.join(tempfile.gettempdir(), "seamless_cad_server_debug.log")
 
-# cad_server.exe の待ち受けアドレス。ポートは Rust 側と揃えること。
+# cad_server の待ち受けアドレス。ポートは Rust 側と揃えること。
 _SERVER_HOST = '127.0.0.1'
 _SERVER_PORT = 8080
+
+_IS_WINDOWS = sys.platform == "win32"
+
+# 幾何カーネルの実行ファイル名。拡張子が付くのは Windows だけ。
+_SERVER_EXE_NAME = "cad_server.exe" if _IS_WINDOWS else "cad_server"
+
+# CREATE_NO_WINDOW は subprocess の Windows 専用属性で、macOS/Linux では
+# 参照した時点で AttributeError になる。存在しないフラグを渡さないよう、
+# プラットフォーム依存の Popen 引数はここに閉じ込める。
+_POPEN_PLATFORM_KWARGS = (
+    {"creationflags": subprocess.CREATE_NO_WINDOW} if _IS_WINDOWS else {}
+)
 
 _server_process = None
 
@@ -569,16 +581,16 @@ def start_server():
         if not _foreign_port_warned and not is_server_alive():
             _foreign_port_warned = True
             utils.error_print(
-                f"Seamless: port {_SERVER_PORT} responded but does not look like cad_server.exe. "
+                f"Seamless: port {_SERVER_PORT} responded but does not look like {_SERVER_EXE_NAME}. "
                 "If CAD operations fail, free that port and re-enable the addon."
             )
         return True
 
 
     candidate_paths = [
-        os.path.abspath(os.path.join(addon_dir, "cad_server.exe")),
-        os.path.abspath(os.path.join(addon_dir, "bin", "cad_server.exe")),
-        os.path.abspath(os.path.join(addon_dir, "..", "src_rust", "target", "release", "cad_server.exe")),
+        os.path.abspath(os.path.join(addon_dir, _SERVER_EXE_NAME)),
+        os.path.abspath(os.path.join(addon_dir, "bin", _SERVER_EXE_NAME)),
+        os.path.abspath(os.path.join(addon_dir, "..", "src_rust", "target", "release", _SERVER_EXE_NAME)),
     ]
     exe_path = next((path for path in candidate_paths if os.path.exists(path)), None)
     utils.info_print(
@@ -586,9 +598,19 @@ def start_server():
     )
 
     if not exe_path:
-        utils.error_print("Seamless: cad_server.exe not found in addon root, bin, or dev target path")
+        utils.error_print(f"Seamless: {_SERVER_EXE_NAME} not found in addon root, bin, or dev target path")
         return False
-        
+
+    # ZIP は実行ビットを保存しない(Python の zipfile も Blender のインストーラも
+    # パーミッションを落とす)。展開直後の macOS/Linux では実行ビットが無く、
+    # Popen が PermissionError になるので、起動前に自分で付ける。
+    if not _IS_WINDOWS and not os.access(exe_path, os.X_OK):
+        try:
+            os.chmod(exe_path, os.stat(exe_path).st_mode | 0o111)
+        except OSError as e:
+            utils.error_print(f"Seamless: could not make {exe_path} executable: {e}")
+            return False
+
     try:
         log_file = open(_cad_server_log_path, "a", encoding="utf-8", errors="replace")
         # Pass our (Blender's) PID so the server self-terminates if Blender
@@ -596,9 +618,9 @@ def start_server():
         # port 8080 and the next session reuses it, drawing stale geometry.
         _server_process = subprocess.Popen(
             [exe_path, _shm_file, str(os.getpid())],
-            creationflags=subprocess.CREATE_NO_WINDOW,
             stdout=log_file,
-            stderr=log_file
+            stderr=log_file,
+            **_POPEN_PLATFORM_KWARGS
         )
         time.sleep(0.5)
         _server_generation += 1
