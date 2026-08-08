@@ -13,16 +13,22 @@ Save often.
 The released product runs on **Windows only**, because the geometry kernel ships
 as a bundled executable built for Windows.
 
-Porting to macOS and Linux is being worked on, but **there is no build you can
-download yet** — not even a test build. There is no release date.
+Builds for **Linux (x86-64)** and **macOS (Apple Silicon)** now exist and are
+being given to testers. They are not on sale and have no release date. There is
+no Intel Mac build. See [Testing builds](testing-builds.md) for what has and has
+not been verified — the short version is that nobody has yet run them inside
+Blender.
 
-Two things stand in the way, and neither of them is the add-on's Python code:
+What still stands between those builds and a release is not the add-on's Python
+code:
 
-- The geometry kernel has to be rebuilt against OpenCASCADE on each platform,
-  which is a build-infrastructure job rather than a flag flip
-- On macOS, an unsigned binary is blocked on first launch. Code signing requires
-  an Apple Developer Program membership, which is not currently funded. That is
-  the honest reason, and it is the main obstacle to a macOS release.
+- **macOS is not notarised.** The kernel is ad-hoc signed only. Notarisation
+  requires an Apple Developer Program membership, which is not currently funded.
+  That is the honest reason, and it is the main obstacle to a macOS release
+- **Nothing has been confirmed on real hardware.** Whether the viewport draws at
+  all through Metal cannot be established by automated builds
+- On Linux, glibc 2.34 is the effective floor (Ubuntu 22.04, Debian 12, RHEL 9
+  and newer)
 
 ## Blender versions
 

@@ -68,6 +68,7 @@ plugins:
             - Import and export: import-export.md
             - Troubleshooting: troubleshooting.md
             - Known limitations: limitations.md
+            - macOS / Linux testing builds: testing-builds.md
 
         - locale: ja
           name: 日本語
@@ -82,6 +83,7 @@ plugins:
             - 読み込みと書き出し: import-export.md
             - 困ったとき: troubleshooting.md
             - 既知の制約: limitations.md
+            - macOS / Linux テストビルド: testing-builds.md
 
         # ru / zh はクイックスタートのみ。範囲を広げる場合は docs/CONTRIBUTING.md を読むこと。
         - locale: ru

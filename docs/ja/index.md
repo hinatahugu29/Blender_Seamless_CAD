@@ -11,8 +11,9 @@ Blender の中でノンデストラクティブな CAD モデリングを行う�
 出力は2通りです。Blender 内で使うなら **Bake to Mesh**、他の CAD ソフトに渡すなら
 **Export STEP**（本物の B-Rep）。
 
-> **ベータ版。**Windows 専用です。macOS 版・Linux 版は対応作業中で、配布できる
-> ビルドはまだありません。[既知の制約](limitations.md) を参照して
+> **ベータ版。**販売しているのは Windows 版です。macOS (Apple Silicon) 版と
+> Linux 版のビルドはあり、テスターの方にお渡ししていますが、製品ではありません。
+> [テストビルド](testing-builds.md) と [既知の制約](limitations.md) を参照して
 > ください。
 
 ## まずここから

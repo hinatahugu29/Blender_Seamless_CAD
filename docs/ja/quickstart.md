@@ -1,6 +1,6 @@
 # クイックスタート
 
-> 2026-08-08 時点の英語版に対応。最新の情報は [English documentation](https://hinatahugu29.github.io/Blender_Seamless_CAD/quickstart/) を参照してください。
+> 2026-08-09 時点の英語版に対応。最新の情報は [English documentation](https://hinatahugu29.github.io/Blender_Seamless_CAD/quickstart/) を参照してください。
 >
 > **アドオンの UI は英語です。** このページではボタン名を英語のまま書き、必要に応じて
 > 意味を補足します。画面に出ている文字とこのページの表記は一致します。
@@ -8,8 +8,9 @@
 インストールから、STEP ファイルとして書き出すところまでを一通り扱います。
 所要時間はおよそ10分です。
 
-Seamless CAD は現在ベータ版で、Windows 専用です。macOS 版・Linux 版は対応
-作業中で、配布できるビルドはまだありません。
+Seamless CAD はベータ版で、販売しているのは Windows 版です。このページの内容は
+macOS / Linux の [テストビルド](testing-builds.md) にもそのまま当てはまります
+（アドオン本体は同じものです）。
 
 ---
 
