@@ -21,6 +21,20 @@ chmod +x "$cad/cad_server"
 
 case "$(uname -s)" in
 Linux)
+  # 集めた .so 全部に $ORIGIN を持たせる。build.rs が cad_server に付ける
+  # rpath だけでは足りない: リンカが既定で吐くのは DT_RUNPATH で、これは
+  # **直接の依存にしか使われず、推移的な依存には引き継がれない**。
+  # OCCT のライブラリ同士(TKBO -> TKBRep -> TKMath ...)はそれぞれ自分の
+  # rpath で相手を探すので、各ファイルに入れて回る必要がある。
+  # OCCT が元から持っている rpath はビルドマシンの prefix を指していて、
+  # 配布先には存在しない。
+  set_origin_rpath() {
+    for f in "$cad/cad_server" "$cad"/*.so*; do
+      [ -f "$f" ] || continue
+      patchelf --set-rpath '$ORIGIN' "$f"
+    done
+  }
+
   # ldd はバイナリの rpath($ORIGIN = コピー先)を見る。コピー先はまだ空なので
   # 素で実行すると全部 "not found" になり、パスが1つも取れない。探索先を
   # OCCT の prefix に向けて解決させる。
@@ -43,6 +57,8 @@ Linux)
     after=$(find "$cad" -maxdepth 1 -name '*.so*' | wc -l)
     [ "$before" = "$after" ] && break
   done
+
+  set_origin_rpath
 
   # ここまでは LD_LIBRARY_PATH を prefix に向けたまま走らせている。つまり
   # 「まだコピーしていないライブラリ」も解決できてしまい、漏れが漏れとして
@@ -67,6 +83,7 @@ Linux)
         exit 1
       fi
     done
+    set_origin_rpath
   done
 
   # ループを抜けた時点の missing は最後にコピーする前の値なので、取り直す。

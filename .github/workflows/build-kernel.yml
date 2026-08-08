@@ -65,7 +65,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            cmake ninja-build build-essential \
+            cmake ninja-build build-essential patchelf \
             libfreetype6-dev libx11-dev libxext-dev libxmu-dev libxi-dev \
             libgl1-mesa-dev libglu1-mesa-dev
 
@@ -172,6 +172,14 @@ jobs:
       # 脱落事故の再発を機械的に止める関門)。svgpathtools は numpy を要求し、
       # Blender の Python には入っているが、ランナーの python3 には無い。
       # 検査を緩めるのではなく、CI 側を Blender の環境に合わせる。
+      #
+      # setup-python を挟むのは、macOS ランナーの python3 が Homebrew 管理下で
+      # PEP 668 の externally-managed になっており、pip install を拒むため。
+      # --break-system-packages で押し通すより、専用の Python を用意する方が安全。
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
       - name: Install numpy for the preflight check
         run: python3 -m pip install --disable-pip-version-check --quiet numpy
 
