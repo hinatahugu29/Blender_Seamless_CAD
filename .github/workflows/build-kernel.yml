@@ -53,9 +53,13 @@ jobs:
           - label: macos-arm64
             runner: macos-14
             platform: macos
-          - label: macos-x64
-            runner: macos-13
-            platform: macos
+          # Intel Mac は当面対象外。macos-13 ランナーは順番が回ってこず
+          # (30分以上待って着手すらしない)、修正のたびに同じ待ちが発生して
+          # 反復が止まる。Apple Silicon 版が先に固まってから、必要なら
+          # macos-14 上のクロスビルド(CMAKE_OSX_ARCHITECTURES=x86_64 +
+          # cargo --target x86_64-apple-darwin)で足す。その場合、arm64 上では
+          # x86_64 バイナリを起動できないので、スモークテストの関門は
+          # Intel 版だけ効かなくなることに注意。
 
     steps:
       - uses: actions/checkout@v4
