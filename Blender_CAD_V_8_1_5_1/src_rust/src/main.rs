@@ -745,7 +745,14 @@ fn watch_parent_and_exit(parent_pid: u32) {
 }
 
 fn main() {
-    println!("Starting Seamless CAD Server v1.7.0 (parallel stacks + CSG preview: SUB/ADD/INT) on port 8080...");
+    // 起動バナーに OCCT の版を出す。8.0.0 と 8.0.1 は API が同じでビルドも
+    // 通るので、不具合報告が来たときユーザーがどちらのカーネルを掴んでいるか
+    // 判定する手段がこれ以外に無い。seamless_core::api::utils::get_version() は
+    // OCC_VERSION_COMPLETE をそのまま返すので、手で更新する版数ではない。
+    println!(
+        "Starting Seamless CAD Server v1.7.0 (parallel stacks + CSG preview: SUB/ADD/INT) [{}] on port 8080...",
+        seamless_core::api::utils::get_version()
+    );
 
     // argv[1] (if present) is the path to Python's 64MB shared-memory file.
     // argv[2] (if present) is the launching Blender PID for the parent watchdog.

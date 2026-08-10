@@ -1,4 +1,5 @@
 #define _CRT_SECURE_NO_WARNINGS
+#include <Standard_Version.hxx>
 #include <Standard_DefineAlloc.hxx>
 #include <Standard_Handle.hxx>
 #include <gp_Pnt.hxx>
@@ -2023,7 +2024,19 @@ void generate_full_edges(void* stack_ptr, double deflection, double angular_defl
 
 
 
-std::string get_version() { return "V8.1.3.3 (cache instrumentation pass)"; }
+// カーネルが**どの OCCT で建てられたか**を返す。
+//
+// ここは以前 "V8.1.3.3 (cache instrumentation pass)" というアドオン版数の
+// 手書きリテラルだった。呼び出し元がどこにも無かったので誰にも気付かれず、
+// 本体が 8.1.5.4 になるまで 12 版ぶん放置されていた。アドオンの版数は
+// bl_info を単一ソースにして core_bridge.get_version() が導出しており、
+// ここに二つ目の版数を置くと必ず食い違う。
+//
+// 代わりに、二重管理のしようがないもの — コンパイル時に効いていた OCCT の
+// 版 — を返す。ユーザーから不具合報告が来たとき、掴んでいるカーネルが
+// どの OCCT かはログから分かる必要がある(8.0.0 と 8.0.1 は API が同じで
+// 挙動だけ違いうるので、バイナリを見ても区別がつかない)。
+std::string get_version() { return std::string("OCCT ") + OCC_VERSION_COMPLETE; }
 
 } // namespace occ_core
 
