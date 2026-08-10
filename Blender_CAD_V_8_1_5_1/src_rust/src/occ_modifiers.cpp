@@ -396,6 +396,17 @@ static std::vector<TopoDS_Edge> collect_face_boundary_edges(const TopoDS_Face& f
     return edges;
 }
 
+// 定義は下(collect_history_edges_from_builder)にあるが、テンプレートの中から
+// 呼ぶには先に宣言が要る。Clang/GCC は二段階名前解決を厳密にやり、依存名でない
+// 呼び出しはテンプレート定義時点の可視性で解決する。この関数は occ_core 名前空間に
+// あって引数型(OCCT のビルダー)の関連名前空間はグローバルなので、ADL でも
+// 見つからない。MSVC は後方の定義を拾ってしまうため、Windows だけで通っていた。
+template <typename BuilderT>
+static std::vector<TopoDS_Edge> collect_history_edges_from_builder(
+    BuilderT& builder,
+    const std::vector<TopoDS_Edge>& source_edges
+);
+
 template <typename BuilderT>
 static OpeningLoopDescriptor collect_shell_opening_loop_from_builder(
     BuilderT& builder,

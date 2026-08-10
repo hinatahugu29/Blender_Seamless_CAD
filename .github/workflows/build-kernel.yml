@@ -1,0 +1,202 @@
+# macOS / Linux 向けの幾何カーネルをビルドし、インストール可能な ZIP まで作る。
+#
+# Windows 版は従来どおり手元でビルドする(MSVC と同梱 OCCT ドロップがある)。
+# ここが受け持つのは、手元に実機の無い macOS / Linux だけ。
+#
+# 一番重いのは OCCT のソースビルドなので、インストール先ごとキャッシュする。
+# 初回は 30〜60 分かかるが、以降は数分で終わる。キャッシュを捨てたいときは
+# 下の OCCT_CACHE_EPOCH を上げること。
+#
+# サードパーティ製 action は使わない(actions/* のみ)。ビルド成果物に署名して
+# 配る性質上、CI に持ち込む依存は少ないほどよい。
+
+name: Build kernel (macOS / Linux)
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - 'port/**'
+
+permissions:
+  contents: read
+
+# 押し直したら前の run は用済み。macOS ランナーは待ち行列が長く、放っておくと
+# 古い run が順番を先に取ってしまう。
+concurrency:
+  group: build-kernel-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  OCCT_TAG: V8_0_0
+  # 同梱している Windows 版 OCCT が 8.0.0 なので、そこに揃える。
+  # (occt-combined-release-no-pch/.../inc/Standard_Version.hxx で確認)
+  OCCT_CACHE_EPOCH: '1'
+  ADDON_ROOT: Blender_CAD_V_8_1_5_1
+  CAD_DIR: Blender_CAD_V_8_1_5_1/CAD_8_1_5_1
+
+jobs:
+  build:
+    name: ${{ matrix.label }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      # 1つ落ちても残りの結果は見たい。どのプラットフォーム固有の問題かの
+      # 切り分けが、まとめて落とされると出来なくなる。
+      fail-fast: false
+      matrix:
+        include:
+          # glibc は前方互換しかない。新しいランナーでビルドすると古い
+          # ディストリで動かないので、意図的に一番古い ubuntu を使う。
+          - label: linux-x64
+            runner: ubuntu-22.04
+            platform: linux
+          - label: macos-arm64
+            runner: macos-14
+            platform: macos
+          # Intel Mac は当面対象外。macos-13 ランナーは順番が回ってこず
+          # (30分以上待って着手すらしない)、修正のたびに同じ待ちが発生して
+          # 反復が止まる。Apple Silicon 版が先に固まってから、必要なら
+          # macos-14 上のクロスビルド(CMAKE_OSX_ARCHITECTURES=x86_64 +
+          # cargo --target x86_64-apple-darwin)で足す。その場合、arm64 上では
+          # x86_64 バイナリを起動できないので、スモークテストの関門は
+          # Intel 版だけ効かなくなることに注意。
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake ninja-build build-essential patchelf \
+            libfreetype6-dev libx11-dev libxext-dev libxmu-dev libxi-dev \
+            libgl1-mesa-dev libglu1-mesa-dev
+
+      - name: Install build dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: brew install cmake ninja freetype
+
+      # restore と save を分けているのは、actions/cache 一体型だとジョブが
+      # 失敗したときにキャッシュが保存されないから。カーネルのビルドで落ちる
+      # たびに OCCT の 30〜60 分を払い直すことになり、実際に1往復無駄にした。
+      # OCCT が建った時点で確定させ、その先の失敗と切り離す。
+      - name: Restore OpenCASCADE ${{ env.OCCT_TAG }}
+        id: occt-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ github.workspace }}/occt-install
+          key: occt-${{ matrix.label }}-${{ env.OCCT_TAG }}-${{ env.OCCT_CACHE_EPOCH }}
+
+      - name: Build OpenCASCADE from source
+        if: steps.occt-cache.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          git clone --depth 1 --branch "$OCCT_TAG" \
+            https://github.com/Open-Cascade-SAS/OCCT.git occt-src
+          cmake -S occt-src -B occt-build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX="$GITHUB_WORKSPACE/occt-install" \
+            -DBUILD_LIBRARY_TYPE=Shared \
+            -DBUILD_MODULE_Draw=OFF \
+            -DBUILD_DOC_Overview=OFF \
+            -DINSTALL_DIR_LAYOUT=Unix
+          cmake --build occt-build --target install
+
+      # インストール後の階層は INSTALL_DIR_LAYOUT で変わる(Unix レイアウトだと
+      # ヘッダは include/opencascade)。build.rs 側で候補を探す作りにしてあるので
+      # ここでは中身が揃っていることと、掴んだ版が 8.0.0 であることだけ確かめる。
+      # キャッシュが古い版のまま生き残っていると、リンクは通るのに挙動だけ違う
+      # という一番わかりにくい壊れ方をする。
+      - name: Verify OCCT install
+        run: |
+          set -euo pipefail
+          root="$GITHUB_WORKSPACE/occt-install"
+          header=$(find "$root" -name Standard_Version.hxx -print -quit)
+          if [ -z "$header" ]; then
+            echo "::error::no OCCT headers under $root"; ls -R "$root" | head -40; exit 1
+          fi
+          grep -m1 'OCC_VERSION_COMPLETE' "$header"
+          grep -q '"8.0.0"' "$header" || { echo "::error::OCCT is not 8.0.0"; exit 1; }
+          find "$root" -name 'libTKernel.*' -print -quit | grep . || {
+            echo "::error::libTKernel not installed"; exit 1; }
+
+      # 検証を通ってから保存する。壊れた OCCT をキャッシュに焼き付けると、
+      # 以後の run が全部それを引くので直すのが面倒になる。
+      - name: Save OpenCASCADE to cache
+        if: steps.occt-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ github.workspace }}/occt-install
+          key: occt-${{ matrix.label }}-${{ env.OCCT_TAG }}-${{ env.OCCT_CACHE_EPOCH }}
+
+      - name: Build the kernel
+        env:
+          OCCT_ROOT: ${{ github.workspace }}/occt-install
+        run: |
+          set -euo pipefail
+          rustc --version
+          cd "$ADDON_ROOT/src_rust"
+          cargo build --release --bin cad_server
+
+      # Windows 版が DLL をアドオン直下に置いているのと同じことを、
+      # .so / .dylib でやる。中身は .github/scripts/bundle_kernel.sh に置いた
+      # (インラインに置いていたら、grep が空振りして pipefail で死ぬ失敗の
+      #  切り分けがしにくかった)。
+      - name: Bundle the kernel and its OCCT libraries
+        run: |
+          chmod +x .github/scripts/bundle_kernel.sh
+          .github/scripts/bundle_kernel.sh \
+            "$GITHUB_WORKSPACE/$CAD_DIR" \
+            "$GITHUB_WORKSPACE/$ADDON_ROOT/src_rust/target/release/cad_server" \
+            "$GITHUB_WORKSPACE/occt-install"
+
+      # 同梱漏れは実行するまで気付けない。ここで一度起動して、TCP 8080 に
+      # 応答することまで確かめる。Windows で av*.dll を外したときの
+      # 「カーネルが一切応答しない」を CI で捕まえるための関門。
+      - name: Smoke-test the kernel
+        run: |
+          set -euo pipefail
+          cad="$GITHUB_WORKSPACE/$CAD_DIR"
+          "$cad/cad_server" &
+          server=$!
+          for i in $(seq 1 20); do
+            if python3 -c "import socket,sys; s=socket.create_connection(('127.0.0.1',8080),1); s.close()" 2>/dev/null; then
+              echo "kernel answered on port 8080"
+              kill $server
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::kernel did not answer on port 8080 within 20s"
+          kill $server 2>/dev/null || true
+          exit 1
+
+      # PREFLIGHT は同梱ライブラリを実際に import して確かめる(8.1.2.5 の
+      # 脱落事故の再発を機械的に止める関門)。svgpathtools は numpy を要求し、
+      # Blender の Python には入っているが、ランナーの python3 には無い。
+      # 検査を緩めるのではなく、CI 側を Blender の環境に合わせる。
+      #
+      # setup-python を挟むのは、macOS ランナーの python3 が Homebrew 管理下で
+      # PEP 668 の externally-managed になっており、pip install を拒むため。
+      # --break-system-packages で押し通すより、専用の Python を用意する方が安全。
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install numpy for the preflight check
+        run: python3 -m pip install --disable-pip-version-check --quiet numpy
+
+      - name: Package the add-on
+        run: |
+          set -euo pipefail
+          cd "$ADDON_ROOT"
+          python3 package_addon.py \
+            --platform "${{ matrix.platform }}" \
+            --out "$GITHUB_WORKSPACE/CAD_${{ matrix.label }}_install.zip"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CAD-${{ matrix.label }}
+          path: CAD_${{ matrix.label }}_install.zip
+          if-no-files-found: error

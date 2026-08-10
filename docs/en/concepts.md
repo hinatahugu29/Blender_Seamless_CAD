@@ -54,8 +54,13 @@ it inert.
 The pin icon at the right of each Feature Tree row sets a **rollback point**.
 Evaluation stops there; rows below are greyed out and ignored.
 
-Use it to inspect an intermediate state, or to insert an operation into the
-middle of an existing history. Unpin to restore full evaluation.
+Use it to inspect an intermediate state, or to stop a long history from being
+recomputed while you edit an early operation. Unpin to restore full evaluation.
+
+It does **not** let you insert an operation into the middle. New entries are
+always appended to the end of the tree, including while a pin is set — where
+they land below the pin and are not evaluated. See
+[The Feature Tree and parts](feature-tree.md).
 
 Some controls are disabled while a rollback point hides them — **Edit Sketch**
 is one. The panel says "Hidden by rollback point" rather than silently doing

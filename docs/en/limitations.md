@@ -13,27 +13,41 @@ Save often.
 The released product runs on **Windows only**, because the geometry kernel ships
 as a bundled executable built for Windows.
 
-macOS and Linux builds exist and are being worked on, but they are **test builds,
-not a product**:
+Builds for **Linux (x86-64)** and **macOS (Apple Silicon)** now exist and are
+being given to testers. They are not on sale and have no release date. There is
+no Intel Mac build. See [Testing builds](testing-builds.md) for what has and has
+not been verified — the short version is that nobody has yet run them inside
+Blender.
 
-- No guarantee of correct operation
-- The binaries are **not code-signed**. macOS will warn that the developer cannot
-  be verified and will block the first launch
-- Work in progress may be lost. Do not use them for anything that matters
-- Support is limited to accepting bug reports
+What still stands between those builds and a release is not the add-on's Python
+code:
 
-Code signing on macOS requires an Apple Developer Program membership, which is
-not currently funded. That is the honest reason, and it is the main obstacle to
-a macOS release — not the code.
+- **macOS is not notarised.** The kernel is ad-hoc signed only. Notarisation
+  requires an Apple Developer Program membership, which is not currently funded.
+  That is the honest reason, and it is the main obstacle to a macOS release
+- **Nothing has been confirmed on real hardware.** Whether the viewport draws at
+  all through Metal cannot be established by automated builds
+- On Linux, glibc 2.34 is the effective floor (Ubuntu 22.04, Debian 12, RHEL 9
+  and newer)
 
 ## Blender versions
 
 Blender 4.2 or newer. Development and testing happen on 5.1. Versions in between
 are expected to work but receive less testing.
 
-The add-on can be installed either as a legacy add-on or as a Blender 4.2+
-Extension. Both are supported; mention which one you used when reporting a
-problem, because the two are loaded differently.
+The add-on ships as a **classic add-on, not as a Blender Extension**. The zip
+carries no `blender_manifest.toml`, so drag-and-drop installation and the
+Extensions repository do not apply — use `Install from Disk…`. See
+[Installation](install.md).
+
+## The Feature Tree cannot be reordered
+
+Order is creation order. Rows cannot be moved up or down, and a new operation
+cannot be inserted into the middle of an existing history — new entries are
+always appended to the end, including while a rollback pin is set.
+
+This is a real constraint on how you work: order has to be decided as you build.
+[The Feature Tree and parts](feature-tree.md) covers what to do instead.
 
 ## STEP export carries geometry only
 

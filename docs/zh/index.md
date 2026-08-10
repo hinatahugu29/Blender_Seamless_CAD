@@ -10,8 +10,9 @@
 输出有两种方式：在 Blender 内部使用则选 **Bake to Mesh**，交给其他 CAD 软件则选
 **Export STEP**（真正的 B-Rep 文件）。
 
-> **测试版。** 仅支持 Windows。macOS 与 Linux 的测试版本虽然存在，但尚未作为正式
-> 产品发布。
+> **测试版。** 出售的是 Windows 版。Linux 与 macOS (Apple Silicon) 的版本已经
+> 构建出来并发给测试者，但尚非正式产品 —— 详见
+> [英文说明](https://hinatahugu29.github.io/Blender_Seamless_CAD/testing-builds/)。
 
 ## 文档
 
