@@ -18,6 +18,7 @@ theme:
   features:
     # navigation.instant は入れないこと。mkdocs-static-i18n の言語切替リンクが
     # 機能しなくなる（ビルド時に警告が出る）。
+    - navigation.sections
     - navigation.tracking
     - navigation.top
     - content.code.copy
@@ -37,6 +38,7 @@ theme:
 markdown_extensions:
   - admonition
   - attr_list
+  - def_list      # 用語集 (glossary.md) の定義リストに必要
   - tables
   - toc:
       permalink: true
@@ -60,30 +62,56 @@ plugins:
           build: true
           nav:
             - Home: index.md
-            - Quick Start: quickstart.md
-            - How it works: concepts.md
-            - Modelling operations: modeling.md
-            - Sketching: sketching.md
-            - Quality and performance: quality.md
-            - Import and export: import-export.md
-            - Troubleshooting: troubleshooting.md
-            - Known limitations: limitations.md
-            - macOS / Linux testing builds: testing-builds.md
+            - Getting started:
+                - Installation: install.md
+                - Quick Start: quickstart.md
+            - How to:
+                - Turn a sketch into a solid: howto-sketch-to-solid.md
+                - Cut holes and pockets: howto-holes.md
+                - Exchange files with other CAD: howto-cad-exchange.md
+            - Reference:
+                - The Feature Tree and parts: feature-tree.md
+                - Modelling operations: modeling.md
+                - Sketching: sketching.md
+                - Keyboard and mouse: shortcuts.md
+                - Quality and performance: quality.md
+                - Import and export: import-export.md
+            - Background and limits:
+                - How it works: concepts.md
+                - Known limitations: limitations.md
+                - Troubleshooting: troubleshooting.md
+                - macOS / Linux testing builds: testing-builds.md
+            - Resources:
+                - FAQ: faq.md
+                - Glossary: glossary.md
 
         - locale: ja
           name: 日本語
           build: true
           nav:
             - ホーム: index.md
-            - クイックスタート: quickstart.md
-            - 仕組み: concepts.md
-            - モデリング操作: modeling.md
-            - スケッチ: sketching.md
-            - 品質とパフォーマンス: quality.md
-            - 読み込みと書き出し: import-export.md
-            - 困ったとき: troubleshooting.md
-            - 既知の制約: limitations.md
-            - macOS / Linux テストビルド: testing-builds.md
+            - はじめに:
+                - インストール: install.md
+                - クイックスタート: quickstart.md
+            - 使い方:
+                - スケッチから立体を作る: howto-sketch-to-solid.md
+                - 穴とポケットを開ける: howto-holes.md
+                - 他の CAD とファイルをやりとりする: howto-cad-exchange.md
+            - リファレンス:
+                - Feature Tree と Part: feature-tree.md
+                - モデリング操作: modeling.md
+                - スケッチ: sketching.md
+                - キーボードとマウス: shortcuts.md
+                - 品質とパフォーマンス: quality.md
+                - 読み込みと書き出し: import-export.md
+            - 仕組みと制約:
+                - 仕組み: concepts.md
+                - 既知の制約: limitations.md
+                - 困ったとき: troubleshooting.md
+                - macOS / Linux テストビルド: testing-builds.md
+            - 資料:
+                - よくある質問: faq.md
+                - 用語集: glossary.md
 
         # ru / zh はクイックスタートのみ。範囲を広げる場合は docs/CONTRIBUTING.md を読むこと。
         - locale: ru

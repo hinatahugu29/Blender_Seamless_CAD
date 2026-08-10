@@ -125,8 +125,12 @@ converted into a mesh for display.
 Each Feature Tree row has a pin icon on the right. Pinning a row makes the part
 evaluate only up to that point; everything after it is greyed out and ignored.
 
-Use this to inspect an intermediate state, or to insert a new operation in the
-middle of an existing history. Unpin to restore the full tree.
+Use this to inspect an intermediate state, or to keep a long history responsive
+while you edit something early in it. Unpin to restore the full tree.
+
+Note that new operations are always added to the *end* of the tree, never at the
+pin. If you create a shape while a pin is set, it lands below the pin and is not
+evaluated — which looks like nothing happened.
 
 ## 10. Get the result out
 

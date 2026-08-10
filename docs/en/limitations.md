@@ -35,9 +35,19 @@ code:
 Blender 4.2 or newer. Development and testing happen on 5.1. Versions in between
 are expected to work but receive less testing.
 
-The add-on can be installed either as a legacy add-on or as a Blender 4.2+
-Extension. Both are supported; mention which one you used when reporting a
-problem, because the two are loaded differently.
+The add-on ships as a **classic add-on, not as a Blender Extension**. The zip
+carries no `blender_manifest.toml`, so drag-and-drop installation and the
+Extensions repository do not apply — use `Install from Disk…`. See
+[Installation](install.md).
+
+## The Feature Tree cannot be reordered
+
+Order is creation order. Rows cannot be moved up or down, and a new operation
+cannot be inserted into the middle of an existing history — new entries are
+always appended to the end, including while a rollback pin is set.
+
+This is a real constraint on how you work: order has to be decided as you build.
+[The Feature Tree and parts](feature-tree.md) covers what to do instead.
 
 ## STEP export carries geometry only
 

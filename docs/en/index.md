@@ -17,20 +17,44 @@ for a real B-Rep file other CAD software can open.
 
 ## Start here
 
+- **[Installation](install.md)** — requirements, install, update, first start
 - **[Quick Start](quickstart.md)** — install to exported STEP file, about ten
   minutes
+
+## How to
+
+| Page | Contents |
+|---|---|
+| [Turn a sketch into a solid](howto-sketch-to-solid.md) | Sketch, constrain, apply, and give the result thickness |
+| [Cut holes and pockets](howto-holes.md) | Booleans, patterned holes, rounding the edges |
+| [Exchange files with other CAD](howto-cad-exchange.md) | Getting a part out to SolidWorks, Fusion or FreeCAD, and back |
 
 ## Reference
 
 | Page | Contents |
 |---|---|
-| [How it works](concepts.md) | The kernel, the Feature Tree, why some things behave as they do |
+| [The Feature Tree and parts](feature-tree.md) | Rows, order, rollback, groups, targets, parts |
 | [Modelling operations](modeling.md) | The Create and Modify & Pattern panels |
 | [Sketching](sketching.md) | Sketch mode, tools and constraints |
+| [Keyboard and mouse](shortcuts.md) | Every key, per interactive mode |
 | [Quality and performance](quality.md) | Display quality, previews, baking, what to do when it feels slow |
 | [Import and export](import-export.md) | STEP in and out, SVG in, Bake to Mesh |
-| [Troubleshooting](troubleshooting.md) | Symptoms and their causes |
+
+## Background and limits
+
+| Page | Contents |
+|---|---|
+| [How it works](concepts.md) | The kernel, the Feature Tree, why some things behave as they do |
 | [Known limitations](limitations.md) | What this does not do yet |
+| [Troubleshooting](troubleshooting.md) | Symptoms and their causes |
+| [Testing builds](testing-builds.md) | macOS and Linux, and what has not been verified |
+
+## Resources
+
+| Page | Contents |
+|---|---|
+| [FAQ](faq.md) | Short answers, with links to the detail |
+| [Glossary](glossary.md) | Terms as this add-on uses them |
 
 ## Other languages
 
