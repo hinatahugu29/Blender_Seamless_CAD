@@ -39,7 +39,7 @@ Being specific about this matters more than usual here.
 
 **Verified automatically, on every build:**
 
-- The kernel compiles from source against OpenCASCADE 8.0.0
+- The kernel compiles from source against OpenCASCADE 8.0.1
 - Every shared library it needs is bundled, and resolves without help from the
   build machine's environment
 - The kernel starts and answers on its port

@@ -28,10 +28,12 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  OCCT_TAG: V8_0_0
-  # 同梱している Windows 版 OCCT が 8.0.0 なので、そこに揃える。
-  # (occt-combined-release-no-pch/.../inc/Standard_Version.hxx で確認)
-  OCCT_CACHE_EPOCH: '1'
+  OCCT_TAG: V8_0_1
+  # 同梱している Windows 版 OCCT が 8.0.1 なので、そこに揃える。
+  # (occt-combined-release-no-pch_801/.../inc/Standard_Version.hxx で確認)
+  # プラットフォーム間で版がずれると、Windows でしか出ない(あるいは
+  # Windows でだけ出ない)不具合の切り分けが不可能になる。
+  OCCT_CACHE_EPOCH: '2'
   ADDON_ROOT: Blender_CAD_V_8_1_5_1
   CAD_DIR: Blender_CAD_V_8_1_5_1/CAD_8_1_5_1
 
@@ -105,7 +107,7 @@ jobs:
 
       # インストール後の階層は INSTALL_DIR_LAYOUT で変わる(Unix レイアウトだと
       # ヘッダは include/opencascade)。build.rs 側で候補を探す作りにしてあるので
-      # ここでは中身が揃っていることと、掴んだ版が 8.0.0 であることだけ確かめる。
+      # ここでは中身が揃っていることと、掴んだ版が 8.0.1 であることだけ確かめる。
       # キャッシュが古い版のまま生き残っていると、リンクは通るのに挙動だけ違う
       # という一番わかりにくい壊れ方をする。
       - name: Verify OCCT install
@@ -117,7 +119,7 @@ jobs:
             echo "::error::no OCCT headers under $root"; ls -R "$root" | head -40; exit 1
           fi
           grep -m1 'OCC_VERSION_COMPLETE' "$header"
-          grep -q '"8.0.0"' "$header" || { echo "::error::OCCT is not 8.0.0"; exit 1; }
+          grep -q '"8.0.1"' "$header" || { echo "::error::OCCT is not 8.0.1"; exit 1; }
           find "$root" -name 'libTKernel.*' -print -quit | grep . || {
             echo "::error::libTKernel not installed"; exit 1; }
 

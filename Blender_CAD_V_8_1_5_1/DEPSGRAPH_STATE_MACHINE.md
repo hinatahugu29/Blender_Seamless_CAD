@@ -331,7 +331,7 @@ DLL は `.gitignore` の `*.dll` で追跡されていないため、**git で�
 cd Blender_CAD_V_8_1_5_1/src_rust && cargo build --release   # 約44秒
 cd .. && py deploy.py                                        # CAD_* へバイナリを配置
 ```
-cargo 1.92 / MSVC 14.44.35207 / OCCT 8.0.0。**ビルド前に既存バイナリを退避すること**
+cargo 1.92 / MSVC 14.44.35207 / OCCT 8.0.0(当時)。**ビルド前に既存バイナリを退避すること**
 (`.gitignore` の `*.dll` `*.exe` 対象で git から戻せない)。
 今回の控えは `_removed_from_addon/binary_backup_20260801/`。
 

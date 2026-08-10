@@ -30,7 +30,7 @@
 | MSVC ランタイム | 9 | 1.4 MB | 同梱済みなので利用者の別途インストールは不要 |
 | その他 (freetype/jemalloc 等) | 21 | 4.5 MB | OCCT の依存 |
 
-- **OpenCASCADE は 8.0.0** (vc14/win64)。前版の「7.x」は誤り。
+- **OpenCASCADE は 8.0.1** (vc14/win64)。8.0.0 から 2026-08-11 に更新。前々版の「7.x」は誤り。
 - **`libs/` の同梱 Python は `svgwrite` と `svgpathtools` のみ**(各 1MB 未満)。
   NumPy / SciPy は同梱していない — Blender が自前の NumPy を必ず持っており、
   `vendor_libs.py` は `libs/` を sys.path の**末尾**に足すだけなので同梱版は使われない設計。

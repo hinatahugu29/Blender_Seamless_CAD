@@ -47,6 +47,29 @@ Python↔ネイティブの ABI 境界が存在しないので、Blender の Pyt
 
 ## 3. ビルド手順
 
+### 3.0 OCCT の版（2026-08-11 に 8.0.0 → 8.0.1）
+
+3プラットフォームで**必ず同じ版に揃える**。ずれると、Windows でしか出ない
+（あるいは Windows でだけ出ない）不具合の切り分けが原理的にできなくなる。
+揃える先は2箇所:
+
+- Windows: `build.rs` の `occt_root()` 既定値と `compile*.bat` の `-I`
+- Linux / macOS: `build-kernel.yml` の `OCCT_TAG` と、その直後の版検証 grep
+
+8.0.1 に上げた理由は、こちらのコード変更なしに直る不具合が3つあったため:
+
+| 修正 | 効く場所 |
+|---|---|
+| Boolean の section で無限ループ | `BRepAlgoAPI_Cut/Fuse/Common` — ハングなので実害が一番大きい |
+| `BRepFill_CompatibleWires` のイテレータ過進行 | `BRepOffsetAPI_ThruSections`（Loft）。断面の頂点数が食い違うとクラッシュしていた |
+| `BRepExtrema_DistanceSS` の null 参照 | `BRepExtrema_DistShapeShape`（計測・スナップ） |
+
+同時に BRepGraph（8.0 のトポロジ土台）が広く作り替えられている。API は
+変わらないのでビルドは通るが、**挙動の回帰はここから出る**と思って検証する。
+
+8.0.0 のドロップは `occt-combined-release-no-pch/` にそのまま残してある。
+戻すのは上記2箇所を書き戻して再ビルドするだけ。
+
 ### 3.1 Windows（手元）
 
 従来どおり。変更なし。
@@ -58,7 +81,7 @@ py package_addon.py
 ```
 
 `build.rs` は `OCCT_ROOT` が未設定なら、これまでどおりリポジトリ同梱の
-`occt-combined-release-no-pch/.../opencascade-8.0.0-vc14-64` を相対パスで見る。
+`occt-combined-release-no-pch_801/.../opencascade-8.0.1-vc14-64` を相対パスで見る。
 `package_addon.py` の `--platform` は既定でホスト（Windows）になり、
 出力名も従来の `CAD_<version>_install.zip` のまま。**既存の運用は何も変わらない。**
 
@@ -85,7 +108,7 @@ py package_addon.py
 | 2-3 | 依存インストール | Linux は `patchelf` を含む（後述） |
 | 4 | OCCT を restore | `cache/restore`。`cache` 一体型ではない（後述） |
 | 5 | OCCT をソースビルド | キャッシュミス時のみ。初回30〜60分 |
-| 6 | OCCT を検証 | 掴んだ版が 8.0.0 か。壊れたキャッシュを焼き付けない |
+| 6 | OCCT を検証 | 掴んだ版が 8.0.1 か。壊れたキャッシュを焼き付けない |
 | 7 | OCCT を save | 検証を通ってから保存 |
 | 8 | カーネルをビルド | `OCCT_ROOT` を渡して `cargo build --release` |
 | 9 | 同梱 | `bundle_kernel.sh` |
@@ -96,7 +119,7 @@ py package_addon.py
 
 #### OCCT のビルド設定
 
-タグ `V8_0_0`（同梱 Windows 版の `Standard_Version.hxx` が 8.0.0 なので合わせた）。
+タグ `V8_0_1`（同梱 Windows 版の `Standard_Version.hxx` が 8.0.1 なので合わせた）。
 
 ```
 -DCMAKE_BUILD_TYPE=Release

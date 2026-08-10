@@ -72,11 +72,11 @@ G / R / S で動かせば、形状がリアルタイムに追従します。
 
 - Rust（`src_rust` は edition 2021）
 - MSVC 2022 と Windows SDK
-- **OpenCASCADE 8.0.0（vc14 / win64）**
+- **OpenCASCADE 8.0.1（vc14 / win64）**
 
 | 何 | build.rs が見る場所 | 差し替え |
 |---|---|---|
-| OCCT | `../../occt-combined-release-no-pch/opencascade-8.0.0-vc14-64-combined/opencascade-8.0.0-vc14-64`（リポジトリルートからの相対） | 環境変数 `OCCT_ROOT`。`inc` / `include/opencascade` などの階層は自動で探します |
+| OCCT | `../../occt-combined-release-no-pch_801/opencascade-8.0.1-vc14-64-combined/opencascade-8.0.1-vc14-64`（リポジトリルートからの相対） | 環境変数 `OCCT_ROOT`。`inc` / `include/opencascade` などの階層は自動で探します |
 | MSVC | `C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/include` | **ハードコード。**自分の環境に合わせて書き換えてください |
 | Windows SDK | `C:/Program Files (x86)/Windows Kits/10/include/10.0.26100.0/{ucrt,um,shared}` | 同上 |
 
@@ -181,7 +181,7 @@ GPL 互換ライセンスで配布する必要がある、というのが Blende
 
 | | ライセンス |
 |---|---|
-| OpenCASCADE 8.0.0 | LGPL-2.1（例外条項付き） |
+| OpenCASCADE 8.0.1 | LGPL-2.1（例外条項付き） |
 | ezpz (KittyCAD) | MIT |
 | numpy | BSD-3-Clause ほか |
 | svgwrite / svgpathtools | MIT |

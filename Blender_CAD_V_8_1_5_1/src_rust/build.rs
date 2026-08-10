@@ -17,12 +17,15 @@ const CPP_SOURCES: [&str; 9] = [
 /// OCCT の展開先。CI では OS ごとに置き場所が違うので環境変数を最優先する。
 /// 未設定なら、従来どおりリポジトリ同梱の Windows 版を相対パスで見る
 /// (USB メモリ等に載せて移動しても動くように、絶対パスにはしない)。
+///
+/// 8.0.0 のドロップ (`occt-combined-release-no-pch/`) はディスク上に残してある。
+/// 8.0.1 で回帰が出たときに、このパスを戻すだけで前の版に戻れるようにするため。
 fn occt_root() -> String {
     if let Ok(root) = std::env::var("OCCT_ROOT") {
         println!("cargo:rerun-if-env-changed=OCCT_ROOT");
         return root.trim_end_matches(['/', '\\']).to_string();
     }
-    "../../occt-combined-release-no-pch/opencascade-8.0.0-vc14-64-combined/opencascade-8.0.0-vc14-64"
+    "../../occt-combined-release-no-pch_801/opencascade-8.0.1-vc14-64-combined/opencascade-8.0.1-vc14-64"
         .to_string()
 }
 
