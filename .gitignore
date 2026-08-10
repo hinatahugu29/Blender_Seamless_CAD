@@ -172,3 +172,9 @@ _archive_scratch/
 
 # MkDocs build output (docs/ is the source; the site is built by CI)
 /site/
+
+# CI からダウンロードした macOS / Linux のビルド成果物 (297MB)。
+# build-kernel.yml が吐いたものを展開しただけで、ソースからいつでも作り直せる。
+# 中身は cad_server と OCCT の .so/.dylib なので、追跡すると履歴が
+# バイナリで膨らむ。配布物として保存したい版は Releases に上げる。
+/MAC_LINUX/
