@@ -515,6 +515,8 @@ class SeamlessSketchConstraint(bpy.types.PropertyGroup):
             ('RADIUS', "Radius", "Fix the radius of a circle or arc"),
             ('ANGLE', "Angle", "Fix the angle between two lines, in degrees"),
             ('EQUAL', "Equal", "Make two lines the same length"),
+            ('CONCENTRIC', "Concentric", "Make two circles or arcs share a centre"),
+            ('SYMMETRIC', "Symmetric", "Mirror two points across a line"),
             ('ARC', "Arc", "Constraint for circular arc shape")
         ],
         default='FIXED'

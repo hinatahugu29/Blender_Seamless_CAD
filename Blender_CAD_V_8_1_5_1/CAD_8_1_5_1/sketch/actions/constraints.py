@@ -456,6 +456,114 @@ def action_constraint_equal(op, context, props):
     op.report({'INFO'}, f"Lines {line1.id} and {line2.id} constrained to equal length!")
 
 
+def _circular_centre_of(props, point_id):
+    """その点が属する円/円弧の中心点IDを返す。属していなければ None。
+
+    中心点そのものを選んだ場合も、円周上の点を選んだ場合も同じ中心を返す。
+    """
+    for c in props.sketch_circles:
+        if point_id in (c.center_point_id, c.radius_point_id):
+            return c.center_point_id
+    for a in props.sketch_arcs:
+        if point_id in (a.center_point_id, a.start_point_id, a.end_point_id, a.mid_point_id):
+            return a.center_point_id
+    return None
+
+
+def action_constraint_concentric(op, context, props):
+    """2つの円/円弧の中心を一致させる。
+
+    Coincident(点の統合)とは別物。あちらは点IDを付け替えて片方を消してしまう
+    ので、円を2つとも残したまま中心だけ揃えることができない。こちらは点を
+    2つとも残す拘束なので、後から解除すれば元の自由度に戻る。
+    """
+    selected_pts = [int(x) for x in props.sketch_selected_points_str.split(",") if x]
+    for pid in (props.sketch_selected_point_id, props.sketch_selected_point_id_2):
+        if pid >= 0 and pid not in selected_pts:
+            selected_pts.append(pid)
+
+    centres = []
+    for pid in selected_pts:
+        c = _circular_centre_of(props, pid)
+        if c is not None and c not in centres:
+            centres.append(c)
+
+    if len(centres) < 2:
+        op.report({'WARNING'}, "Select points on two different circles or arcs.")
+        return
+
+    c1, c2 = centres[0], centres[1]
+    pair = {c1, c2}
+    for c in props.sketch_constraints:
+        if c.type != 'CONCENTRIC':
+            continue
+        parts = [int(x.strip()) for x in c.target_ids_str.split(",") if x.strip()]
+        if len(parts) == 2 and set(parts) == pair:
+            op.report({'WARNING'}, "These two are already concentric.")
+            return
+
+    push_history(props)
+    const = props.sketch_constraints.add()
+    const.id = len(props.sketch_constraints) + 1
+    const.type = 'CONCENTRIC'
+    const.target_ids_str = f"{c1},{c2}"
+    const.value = 0.0
+
+    solve_gcs_external(props, context)
+    update_cad_preview(None, context)
+    op.report({'INFO'}, f"Centres {c1} and {c2} constrained concentric!")
+
+
+def action_constraint_symmetric(op, context, props):
+    """2点を1本の線について対称にする。
+
+    選択は「線1本 + 点2つ」。Rust へは [軸始点, 軸終点, 点1, 点2] の順で渡す
+    (ezpz の Symmetric は (線, 点, 点) の順だが、targets の並びは軸を先頭に
+    そろえてある --- ANGLE などと同じく線の端点が先という規則)。
+    """
+    line_id = props.sketch_selected_line_id
+    if line_id < 0:
+        op.report({'WARNING'}, "Select a line to mirror across, plus the two points.")
+        return
+    axis = next((l for l in props.sketch_lines if l.id == line_id), None)
+    if not axis:
+        op.report({'WARNING'}, "The selected line was not found.")
+        return
+
+    axis_pts = {axis.start_point_id, axis.end_point_id}
+    selected_pts = [int(x) for x in props.sketch_selected_points_str.split(",") if x]
+    for pid in (props.sketch_selected_point_id, props.sketch_selected_point_id_2):
+        if pid >= 0 and pid not in selected_pts:
+            selected_pts.append(pid)
+    # 軸の端点そのものを対称対象にはできない(自明に解けてしまう)
+    selected_pts = [p for p in selected_pts if p not in axis_pts]
+
+    if len(selected_pts) < 2:
+        op.report({'WARNING'}, "Select two points that are not on the mirror line.")
+        return
+
+    p1, p2 = selected_pts[0], selected_pts[1]
+    pair = {p1, p2}
+    for c in props.sketch_constraints:
+        if c.type != 'SYMMETRIC':
+            continue
+        parts = [int(x.strip()) for x in c.target_ids_str.split(",") if x.strip()]
+        if len(parts) == 4 and set(parts[2:]) == pair:
+            op.report({'WARNING'}, "These two points are already constrained symmetric.")
+            return
+
+    push_history(props)
+    const = props.sketch_constraints.add()
+    const.id = len(props.sketch_constraints) + 1
+    const.type = 'SYMMETRIC'
+    const.target_ids_str = f"{axis.start_point_id},{axis.end_point_id},{p1},{p2}"
+    const.value = 0.0
+
+    solve_gcs_external(props, context)
+    update_cad_preview(None, context)
+    op.report({'INFO'}, f"Points {p1} and {p2} constrained symmetric about line {line_id}!")
+
+
 def _find_radius_target(props, selected_pts):
     """選択された点から、半径を拘束できる円/円弧を1つ選ぶ。
 

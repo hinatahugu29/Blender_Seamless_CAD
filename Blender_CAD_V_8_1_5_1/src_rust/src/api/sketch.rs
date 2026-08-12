@@ -262,6 +262,53 @@ pub fn solve_sketch(
 
             }
 
+            // 同心。targets = [円1の中心, 円2の中心]。
+            //
+            // Coincident(点の統合)とは別物であることに注意。あちらは点IDを
+            // 付け替えて片方を消す破壊的な編集で、元に戻せない。こちらは
+            // 2つの中心点を別々の点のまま残し、位置だけ一致させる拘束。
+            "CONCENTRIC" => {
+
+                if targets.len() >= 2 {
+
+                    if let (Some(p1), Some(p2)) = (point_map.get(&targets[0]), point_map.get(&targets[1])) {
+
+                        requests.push(ConstraintRequest::highest_priority(Constraint::PointsCoincident(*p1, *p2)));
+
+                    }
+
+                }
+
+            }
+
+            // 対称。targets = [軸の始点, 軸の終点, 点1, 点2]。
+            // ezpz の引数順は (線, 点, 点) なので、targets の並びとは違う。
+            "SYMMETRIC" => {
+
+                if targets.len() >= 4 {
+
+                    if let (Some(a1), Some(a2), Some(p1), Some(p2)) = (
+
+                        point_map.get(&targets[0]),
+
+                        point_map.get(&targets[1]),
+
+                        point_map.get(&targets[2]),
+
+                        point_map.get(&targets[3]),
+
+                    ) {
+
+                        let axis = DatumLineSegment { p0: *a1, p1: *a2 };
+
+                        requests.push(ConstraintRequest::highest_priority(Constraint::Symmetric(axis, *p1, *p2)));
+
+                    }
+
+                }
+
+            }
+
             // 2本の線がなす角を数値で固定する。targets = [線1始点, 線1終点, 線2始点, 線2終点]、
             // value は **度**。PARALLEL / PERPENDICULAR と同じ並びなので、
             // 選択の解釈は Python 側でそのまま使い回せる。

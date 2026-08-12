@@ -84,6 +84,20 @@ class SEAMLESS_PT_SketchPanel(bpy.types.Panel):
                 text="Radius",
                 icon="MESH_CIRCLE",
             ).action = "CONSTRAINT_RADIUS"
+            col_constraints.operator(
+                "seamless.sketch_action",
+                text="Concentric",
+                icon="ANTIALIASED",
+            ).action = "CONSTRAINT_CONCENTRIC"
+
+        # 対称は「軸にする線1本 + 点2つ」を選んだとき
+        if props.sketch_selected_line_id >= 0 and props.sketch_selected_point_id >= 0 \
+                and props.sketch_selected_point_id_2 >= 0:
+            col_constraints.operator(
+                "seamless.sketch_action",
+                text="Symmetric",
+                icon="MOD_MIRROR",
+            ).action = "CONSTRAINT_SYMMETRIC"
 
         row = col_constraints.row(align=True)
         row.operator(

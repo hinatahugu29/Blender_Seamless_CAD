@@ -629,6 +629,64 @@ def t_sketch_angle_and_equal():
     assert abs(len1 - 4.0) < 1e-3, f"the pinned line should not have moved; it is {len1:.4f}"
 
 
+def t_sketch_concentric_and_symmetric():
+    """CONCENTRIC と SYMMETRIC が解けている。"""
+    col, props = _fresh_part()
+
+    # CONCENTRIC: 2つ目の円の中心が1つ目に寄る。中心点は2つとも残る
+    # (Coincident の統合と違い、点を消す拘束ではない)
+    _sketch_reset(props)
+    _sk_point(props, 1, 0.0, 0.0)   # 円1 中心
+    _sk_point(props, 2, 2.0, 0.0)   # 円1 円周
+    _sk_circle(props, 1, 1, 2)
+    _sk_point(props, 3, 5.0, 3.0)   # 円2 中心
+    _sk_point(props, 4, 6.0, 3.0)   # 円2 円周
+    _sk_circle(props, 2, 3, 4)
+    _sk_constraint(props, 1, 'FIXED', [1])
+    _sk_constraint(props, 2, 'CONCENTRIC', [1, 3])
+
+    assert _sk_co(props, 3) == (0.0, 0.0), \
+        f"CONCENTRIC should pull the second centre onto the first, got {_sk_co(props, 3)}"
+    assert len(props.sketch_points) == 4, \
+        "CONCENTRIC must not merge or delete points; that is what Coincident does"
+    assert len(props.sketch_circles) == 2, "both circles must survive"
+
+    # SYMMETRIC: Y軸を鏡にして2点が対称になる。非対称な初期配置から始める
+    _sketch_reset(props)
+    _sk_point(props, 1, 0.0, 0.0)   # 軸 始点
+    _sk_point(props, 2, 0.0, 5.0)   # 軸 終点 (Y軸)
+    _sk_line(props, 1, 1, 2)
+    _sk_point(props, 3, -3.0, 2.0)  # 点1
+    _sk_point(props, 4, 1.0, 0.5)   # 点2 (まだ対称ではない)
+    _sk_constraint(props, 1, 'FIXED', [1])
+    _sk_constraint(props, 2, 'FIXED', [2])
+    _sk_constraint(props, 3, 'FIXED', [3])
+    _sk_constraint(props, 4, 'SYMMETRIC', [1, 2, 3, 4])
+
+    x3, y3 = _sk_co(props, 3)
+    x4, y4 = _sk_co(props, 4)
+    assert abs(x4 - (-x3)) < 1e-3 and abs(y4 - y3) < 1e-3, \
+        f"SYMMETRIC about the Y axis should mirror ({x3}, {y3}) to ({-x3}, {y3}); got ({x4}, {y4})"
+
+    # 斜めの軸でも効くこと。Y軸だけで確かめると、単に X を反転しているだけの
+    # 実装や、軸の向きを無視した実装を見逃す
+    _sketch_reset(props)
+    _sk_point(props, 1, 0.0, 0.0)
+    _sk_point(props, 2, 4.0, 4.0)   # 45度の軸
+    _sk_line(props, 1, 1, 2)
+    _sk_point(props, 3, 3.0, 0.0)
+    _sk_point(props, 4, 1.0, 1.5)
+    _sk_constraint(props, 1, 'FIXED', [1])
+    _sk_constraint(props, 2, 'FIXED', [2])
+    _sk_constraint(props, 3, 'FIXED', [3])
+    _sk_constraint(props, 4, 'SYMMETRIC', [1, 2, 3, 4])
+
+    # 45度線について (3, 0) の鏡像は (0, 3)
+    x4, y4 = _sk_co(props, 4)
+    assert abs(x4 - 0.0) < 1e-2 and abs(y4 - 3.0) < 1e-2, \
+        f"mirroring (3, 0) across the 45-degree axis should give (0, 3); got ({x4}, {y4})"
+
+
 def t_sketch_two_line_constraint_actions():
     """Angle / Equal ボタンの経路。重複拒否と、選択なしの扱い。"""
     from CAD_8_1_5_1.sketch.actions import constraints as sk_constraints
@@ -915,6 +973,7 @@ def main():
     check("sketch radius constraint", t_sketch_radius_constraint_action)
     check("sketch angle + equal solve", t_sketch_angle_and_equal)
     check("sketch angle/equal actions", t_sketch_two_line_constraint_actions)
+    check("sketch concentric + symmetric", t_sketch_concentric_and_symmetric)
     check("sketch finalize makes geometry", t_sketch_finalize_makes_geometry)
     check("panels registered", t_panels_registered)
     check("bake to mesh", t_bake_to_mesh)
