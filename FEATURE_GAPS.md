@@ -105,8 +105,43 @@ PERPENDICULAR / TANGENT / MIDPOINT / ARC
 `2D_CAD_ROADMAP.md` が「完全寸法駆動・幾何拘束型の2D CAD エンジン」を掲げている。
 **半径と角度が無い状態はまだ寸法駆動と呼びにくい。**
 
-そしてソルバー（ezpz crate）も拘束 UI の器も既にある。1 に比べて格段に安い。
-**先にこちらを片付けるのが現実的な判断だと思う。**
+### 調査結果（2026-08-11）— ソルバー側の作業はゼロ
+
+ピン留めしている ezpz（`rev df5edd1d`）の `Constraint` enum を直接読んだ。
+**必要なものは全部すでにある。数値解法を書く仕事は無く、配線するだけ。**
+
+| 状態 | 拘束 |
+|---|---|
+| 配線済み | Fixed / Distance / DistanceVar / Horizontal / Vertical / lines_parallel / lines_perpendicular / LineTangentToCircle / Midpoint / Arc / **CircleRadius**(8.1.5.5後に追加) |
+| **未使用** | `ArcRadius` `LinesAtAngle` `PointsAtAngle` `ArcAngle` `LinesEqualLength` `ScalarEqual` `Symmetric` `PointsCoincident` `PointArcCoincident` `CircleTangentToCircle` `PointLineDistance` `HorizontalDistance` `VerticalDistance` `ArcLength` |
+
+### 配線の型（半径拘束で確立済み）
+
+触る場所は5つ。`src/api/sketch.rs` の `match c_type.as_str()` が一箇所ディスパッチで、
+**未知の型は警告を出して無視される**ので、足す側が既存を壊すことはない。
+
+1. `properties.py` の拘束 enum に1行
+2. `sketch/actions/constraints.py` に `action_constraint_*`（選択→対象の解決→拘束追加）
+3. `sketch/sketch_actions.py` の dispatch に1行
+4. `ui/ui_sketch_panel.py` にボタン（押せる選択のときだけ出す）
+5. `src/api/sketch.rs` に `match` の腕を1本
+
+**罠**: ezpz の拘束には「どの変数を式に出すか」が定義されていて
+（`constraints.rs` の `all_variables`）、`CircleRadius` は**半径変数しか出さない**。
+半径変数を固定しただけでは何の点にも繋がっておらず、
+**リクエストは受理され、solve も成功し、しかし形は動かない。**
+`DistanceVar` で変数を実際の点に縛って初めて効く。他の拘束を足すときも、
+まず `all_variables` を読んで「その拘束が本当に点を動かせるのか」を確認すること。
+
+**検証**: 追加した拘束は必ずサボタージュテストまでやる。半径のときは
+`DistanceVar` の1行を落として「solver のテストだけが赤くなる」ことを確認した。
+なお `cargo build` だけでは**テストが読むバイナリは変わらない**（`deploy.py` が要る）。
+これを忘れると、直したはずの失敗が残って別のバグを疑うことになる。
+
+### 残り
+
+半径は 8.1.5.5 後に実装済み。**次は角度（`LinesAtAngle`）と同値（`LinesEqualLength`）**で、
+上と同じ型でいける。そのあと同心・対称。
 
 ---
 
