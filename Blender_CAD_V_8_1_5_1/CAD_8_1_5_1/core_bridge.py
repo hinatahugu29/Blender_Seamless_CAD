@@ -587,9 +587,16 @@ def start_server():
         return True
 
 
+    # `bin/` を候補から外してある。8.1.5.5 まで、配布物の bin/ には 7月14日の
+    # cad_server.exe が残っていた。ルートが先に見つかるので普段は使われないが、
+    # ルートが失われた環境ではそれが黙って起動し、OCCT 8.0.1 どころか
+    # 8.1.5.3 の修正すら入っていないカーネルで「直したはずの不具合が再現する」
+    # という一番追いにくい形になる。フォールバックする価値のある場所ではない。
+    #
+    # 開発ツリーの target/release は残す。手元でビルドしただけで動くのは有用で、
+    # かつユーザーの環境には ../src_rust が存在しない。
     candidate_paths = [
         os.path.abspath(os.path.join(addon_dir, _SERVER_EXE_NAME)),
-        os.path.abspath(os.path.join(addon_dir, "bin", _SERVER_EXE_NAME)),
         os.path.abspath(os.path.join(addon_dir, "..", "src_rust", "target", "release", _SERVER_EXE_NAME)),
     ]
     exe_path = next((path for path in candidate_paths if os.path.exists(path)), None)
@@ -598,7 +605,7 @@ def start_server():
     )
 
     if not exe_path:
-        utils.error_print(f"Seamless: {_SERVER_EXE_NAME} not found in addon root, bin, or dev target path")
+        utils.error_print(f"Seamless: {_SERVER_EXE_NAME} not found in the addon root or the dev target path")
         return False
 
     # ZIP は実行ビットを保存しない(Python の zipfile も Blender のインストーラも
