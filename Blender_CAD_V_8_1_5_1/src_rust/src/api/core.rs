@@ -146,6 +146,35 @@ pub fn measure_stack(stack_ptr: isize) -> Result<Vec<f64>, String> {
     }
 }
 
+/// 選択されている辺/面ひとつの寸法。
+///
+/// 返るのは4つの f64: `[種別, 長さor面積, 半径, 形状コード]`
+/// 種別 0 は「lineage を解決できなかった」で、エラーではない。トポロジが
+/// 変わって照合が外れるのは正常に起こりうるので、UI 側で「取得できません」と
+/// 出すこと。**近い別の辺を返して数字を埋めるより、出さないほうがよい。**
+pub fn measure_entity(stack_ptr: isize, lineage: &str, is_face: bool) -> Result<Vec<f64>, String> {
+    if !crate::is_valid_stack_ptr(stack_ptr) {
+        return Err(format!("measure_entity: unknown or already-deleted stack_ptr {}", stack_ptr));
+    }
+    let lineage_c = std::ffi::CString::new(lineage).map_err(|_| "Invalid lineage")?;
+    let lineage_ptr = lineage_c.as_ptr();
+
+    // measure_stack と同じ理由でスタックのロックを取る。更新中の
+    // current_shape を読むと作りかけの形状を触ることになる。
+    let lock = crate::get_stack_lock(stack_ptr);
+    let _guard = lock.lock().map_err(|_| "measure_entity: stack lock poisoned".to_string())?;
+
+    let mut out = vec![0.0f64; 4];
+    let out_ptr = out.as_mut_ptr();
+    let ok = unsafe {
+        cpp!([stack_ptr as "void*", lineage_ptr as "const char*", is_face as "bool", out_ptr as "double*"] -> bool as "bool" {
+            return occ_core::measure_entity(stack_ptr, lineage_ptr, is_face, out_ptr);
+        })
+    };
+
+    if ok { Ok(out) } else { Err("measure_entity: the stack has no shape to measure".to_string()) }
+}
+
 pub fn export_stack_to_step(stack_ptr: isize, filepath: &str) -> Result<(), String> {
     if !crate::is_valid_stack_ptr(stack_ptr) {
         return Err(format!("export_stack_to_step: unknown or already-deleted stack_ptr {}", stack_ptr));

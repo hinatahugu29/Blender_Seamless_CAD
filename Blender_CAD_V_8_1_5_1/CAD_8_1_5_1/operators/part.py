@@ -188,3 +188,62 @@ class SEAMLESS_OT_MeasurePart(bpy.types.Operator):
         else:
             self.report({'INFO'}, f"Volume {result['volume']:.3f}, area {result['area']:.3f}")
         return {'FINISHED'}
+
+
+class SEAMLESS_OT_MeasureSelected(bpy.types.Operator):
+    """Measure the edge or face currently picked in Selection Mode"""
+    bl_idname = "seamless.measure_selected"
+    bl_label = "Measure Selection"
+    bl_description = "Measure the edge or face last picked in Selection Mode"
+
+    def execute(self, context):
+        props = utils.get_active_props(context)
+        if not props:
+            self.report({'ERROR'}, "No active Seamless CAD part")
+            return {'CANCELLED'}
+
+        # 選択ハイライト用に維持されている文字列をそのまま使う
+        # (modal_selection.py が拾うたびに更新している)。'|' 区切りで、
+        # **最後の要素が一番新しくクリックしたもの**。
+        is_face = (props.selection_type == 'FACE')
+        raw = props.selected_faces_str if is_face else props.selected_edges_str
+        tokens = [t for t in raw.split("|") if t.strip()]
+        if not tokens:
+            props.measure_sel_state = 'NONE'
+            self.report({'WARNING'}, "Pick an edge or a face first (Selection Mode)")
+            return {'CANCELLED'}
+
+        try:
+            stack_ptr = int(utils.get_active_stack_ptr(context))
+        except (TypeError, ValueError):
+            stack_ptr = 0
+        if not stack_ptr:
+            self.report({'ERROR'}, "This part has no geometry yet")
+            return {'CANCELLED'}
+
+        result = core_bridge.measure_entity(stack_ptr, tokens[-1], is_face)
+        if result is None:
+            props.measure_sel_state = 'NONE'
+            self.report({'ERROR'}, "The kernel did not answer")
+            return {'CANCELLED'}
+
+        if not result["resolved"]:
+            # lineage が現在の形状に見つからない。近い別の辺で埋めるより、
+            # 分からないと言うほうがよい。
+            props.measure_sel_state = 'UNRESOLVED'
+            self.report({'WARNING'},
+                        "That selection no longer matches the current shape; re-pick it")
+            return {'FINISHED'}
+
+        props.measure_sel_state = 'FACE' if result["is_face"] else 'EDGE'
+        props.measure_sel_amount = result["amount"]
+        props.measure_sel_radius = result["radius"] if result["radius"] is not None else -1.0
+        props.measure_sel_shape = result["shape"]
+        props.measure_sel_count = len(tokens)
+
+        if result["radius"] is not None:
+            self.report({'INFO'}, f"{result['shape']}, radius {result['radius']:.4f}")
+        else:
+            label = "area" if result["is_face"] else "length"
+            self.report({'INFO'}, f"{result['shape']}, {label} {result['amount']:.4f}")
+        return {'FINISHED'}

@@ -138,6 +138,42 @@ class SEAMLESS_PT_MeasurePanel(bpy.types.Panel):
         layout = self.layout
         props = utils.get_active_props(context)
 
+        # --- 選択している辺/面 ---
+        #
+        # Part 全体より先に置く。選択モードで何かを摘まんでいるときは、
+        # 知りたいのはたいてい「今つまんでいるもの」のほう。
+        box_sel = layout.box()
+        box_sel.operator("seamless.measure_selected", text="Measure Selection", icon='EDGESEL')
+
+        state = props.measure_sel_state
+        if state == 'UNRESOLVED':
+            # 値は出さない。lineage が現在の形状に一致しないとき、近い別の辺の
+            # 数字を出すのは「間違いを自信満々に表示する」ことになる。
+            col = box_sel.column(align=True)
+            col.label(text="Selection no longer matches", icon='ERROR')
+            col.label(text="the current shape. Re-pick it.")
+        elif state in {'EDGE', 'FACE'}:
+            col = box_sel.column(align=True)
+            label = "Face" if state == 'FACE' else "Edge"
+            col.label(text=f"{label}: {props.measure_sel_shape}")
+            if state == 'FACE':
+                col.label(text=f"Area: {props.measure_sel_amount:.4f}")
+            else:
+                col.label(text=f"Length: {props.measure_sel_amount:.4f}")
+            if props.measure_sel_radius > 0.0:
+                col.label(text=f"Radius: {props.measure_sel_radius:.4f}", icon='SPHERECURVE')
+            elif state == 'FACE':
+                # 面取りは平面、可変フィレットは BSpline になる。半径が
+                # 出ないことと、測れなかったことは違う。
+                col.label(text="No constant radius")
+            if props.measure_sel_count > 1:
+                col.label(text=f"({props.measure_sel_count} picked; showing the last)")
+        else:
+            box_sel.label(text="Pick an edge or face in Selection Mode.", icon='INFO')
+
+        layout.separator()
+
+        # --- Part 全体 ---
         layout.operator("seamless.measure_part", text="Measure Active Part", icon='DRIVER_DISTANCE')
 
         if not props.measure_valid:

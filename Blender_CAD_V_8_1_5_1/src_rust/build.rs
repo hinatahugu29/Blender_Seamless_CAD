@@ -131,6 +131,19 @@ fn main() {
     }
 
     println!("cargo:rerun-if-changed=src/lib.rs");
+
+    // cpp! マクロを含む Rust ソースは**全部**監視する。
+    //
+    // ここに載っていないファイルの cpp! を書き足すと、build.rs が再実行されず
+    // rust-cpp のメタデータが古いまま残り、
+    //   error: This cpp! macro is not found in the library's rust-cpp metadata
+    // という、書いたコードとは何の関係も無いエラーになる。原因が
+    // 「監視対象の漏れ」だと気付くまで時間を溶かす類の失敗。
+    for entry in std::fs::read_dir("src/api").into_iter().flatten().flatten() {
+        if entry.path().extension().and_then(|e| e.to_str()) == Some("rs") {
+            println!("cargo:rerun-if-changed={}", entry.path().display());
+        }
+    }
     
     println!("cargo:rerun-if-changed=src/occ_core.cpp");
     println!("cargo:rerun-if-changed=src/occ_core.hpp");

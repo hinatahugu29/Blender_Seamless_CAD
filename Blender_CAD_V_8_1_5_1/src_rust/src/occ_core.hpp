@@ -251,6 +251,10 @@ void make_variable_box_mesh(
 // [体積, 表面積, 重心xyz, bbox(xmin,ymin,zmin,xmax,ymax,zmax)]
 bool measure_stack(void* stack_ptr, double* out);
 
+// 選択された辺/面ひとつの寸法。out は4つの double
+// [種別(0=不明,1=辺,2=面), 長さor面積, 半径(無ければ-1), 形状コード]
+bool measure_entity(void* stack_ptr, const char* lineage, bool is_face, double* out);
+
 std::string get_version();
 
 } // namespace occ_core

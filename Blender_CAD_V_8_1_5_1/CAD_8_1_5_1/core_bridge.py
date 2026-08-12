@@ -900,6 +900,9 @@ def send_and_receive(req_dict):
                 return json.loads(res_json)
             elif req_dict.get('action') in {'export_step', 'export_stack_to_step'}:
                 return True
+            elif req_dict.get('action') == 'measure_entity':
+                # f64 が4個 (種別, 長さor面積, 半径, 形状コード)
+                return list(struct.unpack('<4d', recv_exact(32)))
             elif req_dict.get('action') == 'measure_stack':
                 # f64 が 11 個 (体積, 表面積, 重心xyz, bbox 6値)
                 return list(struct.unpack('<11d', recv_exact(88)))
@@ -1090,6 +1093,47 @@ def measure_stack(stack_ptr):
         "bbox_min": (vals[5], vals[6], vals[7]),
         "bbox_max": (vals[8], vals[9], vals[10]),
         "size": (vals[8] - vals[5], vals[9] - vals[6], vals[10] - vals[7]),
+    }
+
+
+# measure_entity が返す形状コードの意味。カーネル側 occ_core.cpp の
+# switch と一対一で対応させること。片方だけ足すと表示だけが古くなる。
+_EDGE_KIND = {0: "Line", 1: "Circle", 2: "Ellipse", 3: "Curve"}
+_FACE_KIND = {0: "Plane", 1: "Cylinder", 2: "Cone", 3: "Sphere", 4: "Torus", 5: "Surface"}
+
+
+def measure_entity(stack_ptr, lineage, is_face):
+    """選択されている辺/面ひとつを測る。
+
+    返り値は dict、通信できなければ None。
+
+    **resolved が False のときは値を表示しないこと。** lineage の照合は
+    トポロジが変わると外れることがあり、そのとき近い別の辺の寸法を出すと
+    「自信満々に間違った数字」になる。数字が出ないほうが害が小さい。
+    """
+    if not stack_ptr or not lineage:
+        return None
+    vals = send_and_receive({
+        "action": "measure_entity",
+        "stack_ptr": stack_ptr,
+        "lineage": lineage,
+        "is_face": bool(is_face),
+    })
+    if not vals or len(vals) != 4:
+        return None
+
+    kind, amount, radius, shape_code = vals
+    if kind == 0.0:
+        return {"resolved": False}
+
+    is_face_result = (kind == 2.0)
+    table = _FACE_KIND if is_face_result else _EDGE_KIND
+    return {
+        "resolved": True,
+        "is_face": is_face_result,
+        "amount": amount,                      # 辺なら長さ、面なら面積
+        "radius": radius if radius > 0.0 else None,
+        "shape": table.get(int(shape_code), "Unknown"),
     }
 
 

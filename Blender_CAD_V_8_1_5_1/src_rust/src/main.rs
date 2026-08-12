@@ -562,6 +562,24 @@ fn handle_client(mut stream: TcpStream, workers: StackWorkers) {
                 }
             }
 
+        } else if action == "measure_entity" {
+            // 応答は measure_stack と同じ形。成功なら 1u8 + f64 4個
+            let stack_ptr = req["stack_ptr"].as_i64().unwrap_or(0) as isize;
+            let lineage   = req["lineage"].as_str().unwrap_or("");
+            let is_face   = req["is_face"].as_bool().unwrap_or(false);
+            match seamless_core::measure_entity(stack_ptr, lineage, is_face) {
+                Ok(vals) => {
+                    stream.write_all(&[1u8]).unwrap();
+                    for v in &vals { stream.write_all(&v.to_le_bytes()).unwrap(); }
+                },
+                Err(e) => {
+                    stream.write_all(&[0u8]).unwrap();
+                    let eb = e.as_bytes();
+                    stream.write_all(&(eb.len() as u32).to_le_bytes()).unwrap();
+                    stream.write_all(eb).unwrap();
+                }
+            }
+
         } else if action == "export_stack_to_step" {
             let filepath  = req["filepath"].as_str().unwrap_or("");
             let stack_ptr = req["stack_ptr"].as_i64().unwrap_or(0) as isize;

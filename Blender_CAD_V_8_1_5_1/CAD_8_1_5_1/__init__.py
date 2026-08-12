@@ -340,6 +340,7 @@ classes = (
     properties.SeamlessProperties,
     operators.SEAMLESS_OT_GetVersion,
     operators.SEAMLESS_OT_MeasurePart,
+    operators.SEAMLESS_OT_MeasureSelected,
     operators.SEAMLESS_OT_AddPrimitive,
     operators.SEAMLESS_OT_AddDynamicLoftHole,
     operators.SEAMLESS_OT_AddCurvePoint,

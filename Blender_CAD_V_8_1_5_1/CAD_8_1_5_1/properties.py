@@ -587,6 +587,17 @@ class SeamlessProperties(bpy.types.PropertyGroup):
     measure_area: bpy.props.FloatProperty(name="Surface Area", default=0.0)
     measure_centre: bpy.props.FloatVectorProperty(name="Centre of Mass", size=3)
     measure_size: bpy.props.FloatVectorProperty(name="Size", size=3)
+
+    # 選択要素の計測結果。パネルの draw から測りに行かないための控えで、
+    # measure_* (Part 全体) と同じ方針。
+    # state は 'NONE'(未計測) / 'UNRESOLVED'(照合できず) / 'EDGE' / 'FACE'。
+    # UNRESOLVED を独立させているのは、**値を出してはいけない状態**を
+    # 「値が 0」と区別するため。
+    measure_sel_state: bpy.props.StringProperty(name="Selection Measure State", default='NONE')
+    measure_sel_amount: bpy.props.FloatProperty(name="Length or Area", default=0.0)
+    measure_sel_radius: bpy.props.FloatProperty(name="Radius", default=-1.0)
+    measure_sel_shape: bpy.props.StringProperty(name="Shape", default="")
+    measure_sel_count: bpy.props.IntProperty(name="Selected Count", default=0)
     is_dragging: bpy.props.BoolProperty(name="Is Dragging", default=False)
     # Interactive placement (Surface Snapping add) is a custom modal, not a
     # Blender transform, so it can't ride is_dragging (the depsgraph handler

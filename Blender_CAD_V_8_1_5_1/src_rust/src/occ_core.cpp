@@ -2088,6 +2088,79 @@ bool measure_stack(void* stack_ptr, double* out) {
     }
 }
 
+// 選択されている辺または面ひとつを測る。
+//
+// out には4つの double を書く:
+//   [0] 種別 : 0 = 解決できなかった / 1 = 辺 / 2 = 面
+//   [1] 量   : 辺なら長さ、面なら面積
+//   [2] 半径 : 一定半径が定義できるときだけ正の値。定義できなければ -1
+//   [3] 形状 : 辺 0=直線 1=円 2=楕円 3=その他
+//              面 0=平面 1=円柱 2=円錐 3=球 4=トーラス 5=その他
+//
+// **半径は Feature Tree ではなく形状から読む。** このアドオンは辺ごとの
+// 可変フィレットを持てるので、ツリーに入っている radius と実際の面の半径は
+// 一致するとは限らない。面が何になったかを見るのが唯一の正解。
+// 面取りは平面、可変フィレットは BSpline になるので、そのときは半径 -1 を
+// 返す。呼び出し側は「一定半径ではない」と表示すること。
+//
+// **解決できないときは 0 を返して黙る。** lineage の照合はトポロジが変わると
+// 外れることがあり(find_*_robust が robust を名乗る理由)、外れたまま近い別の
+// 辺を返すと、自信満々に間違った寸法を表示することになる。それは数字が
+// 出ないことより悪い。
+bool measure_entity(void* stack_ptr, const char* lineage, bool is_face, double* out) {
+    if (!stack_ptr || !lineage || !out) return false;
+    CADStack* stack = static_cast<CADStack*>(stack_ptr);
+    if (stack->current_shape.IsNull()) return false;
+
+    out[0] = 0.0; out[1] = 0.0; out[2] = -1.0; out[3] = -1.0;
+    const std::string lid(lineage);
+    if (lid.empty()) return false;
+
+    try {
+        if (is_face) {
+            TopTools_IndexedMapOfShape fm;
+            TopExp::MapShapes(stack->current_shape, TopAbs_FACE, fm);
+            TopoDS_Face f = find_face_robust(lid, fm);
+            if (f.IsNull()) return true;   // 解決できず。out[0] は 0 のまま
+
+            GProp_GProps gp;
+            BRepGProp::SurfaceProperties(f, gp);
+            out[0] = 2.0;
+            out[1] = gp.Mass();
+
+            BRepAdaptor_Surface surf(f);
+            switch (surf.GetType()) {
+                case GeomAbs_Plane:    out[3] = 0.0; break;
+                case GeomAbs_Cylinder: out[3] = 1.0; out[2] = surf.Cylinder().Radius(); break;
+                case GeomAbs_Cone:     out[3] = 2.0; break;
+                case GeomAbs_Sphere:   out[3] = 3.0; out[2] = surf.Sphere().Radius();   break;
+                // トーラスの小半径が、角を丸めたフィレットの半径そのもの
+                case GeomAbs_Torus:    out[3] = 4.0; out[2] = surf.Torus().MinorRadius(); break;
+                default:               out[3] = 5.0; break;
+            }
+        } else {
+            TopTools_IndexedMapOfShape em;
+            TopExp::MapShapes(stack->current_shape, TopAbs_EDGE, em);
+            TopoDS_Edge e = find_edge_robust(lid, em, nullptr);
+            if (e.IsNull()) return true;
+
+            out[0] = 1.0;
+            out[1] = safe_edge_length(e);
+
+            BRepAdaptor_Curve crv(e);
+            switch (crv.GetType()) {
+                case GeomAbs_Line:    out[3] = 0.0; break;
+                case GeomAbs_Circle:  out[3] = 1.0; out[2] = crv.Circle().Radius(); break;
+                case GeomAbs_Ellipse: out[3] = 2.0; break;
+                default:              out[3] = 3.0; break;
+            }
+        }
+        return true;
+    } catch (...) {
+        return false;
+    }
+}
+
 // カーネルが**どの OCCT で建てられたか**を返す。
 //
 // ここは以前 "V8.1.3.3 (cache instrumentation pass)" というアドオン版数の

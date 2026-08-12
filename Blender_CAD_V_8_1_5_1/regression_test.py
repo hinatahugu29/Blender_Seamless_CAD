@@ -388,6 +388,26 @@ def _capture_edge_lineages(col):
     return captured
 
 
+def _capture_face_lineages(col):
+    """今の結果形状の面識別子(lineage)を集める。
+
+    エッジ側と違い、面の lineage は generate_mesh の応答に face_ids として
+    そのまま入っている。三角形ごとに1つなので重複を落として返す。
+    """
+    import math
+    from CAD_8_1_5_1 import core_bridge
+    core_bridge.update_cad_preview_forced(bpy.context)
+    core = core_bridge.get_core()
+    res = core.generate_mesh(int(col.seamless_cad_stack_ptr), 0.03, math.radians(6.0))
+    if not res:
+        return []
+    seen = []
+    for fid in res[2]:
+        if fid and fid not in seen:
+            seen.append(fid)
+    return seen
+
+
 def _result_vertex_count(col):
     import math
     from CAD_8_1_5_1 import core_bridge
@@ -564,6 +584,57 @@ def t_measure_part():
     # 対称な形なので3軸は一致していなければならない。ここがずれるのは
     # バウンディングボックスがテセレーション由来になっている印
     assert max(m["size"]) - min(m["size"]) < 1e-3,         f"a sphere must measure the same on every axis, got {tuple(round(v,4) for v in m['size'])}"
+
+
+def t_measure_entity():
+    """選択した辺/面の寸法。既知の箱で値が合うこと。
+
+    2x2x2 の箱なら、辺はどれも長さ 2、面はどれも面積 4、面種は Plane。
+    「何か返ってきた」ではなく「正しい」を見られる数字を選んでいる。
+    """
+    from CAD_8_1_5_1 import core_bridge
+
+    col, props = _fresh_part()
+    bpy.ops.seamless.add_primitive(type='BOX')
+    props = utils_props()
+    props.primitives[-1].size = (2.0, 2.0, 2.0)
+    core_bridge.update_cad_preview_forced(bpy.context)
+    stack_ptr = int(col.seamless_cad_stack_ptr)
+
+    lineages = _capture_edge_lineages(col)
+    assert lineages, "the box reported no edges to measure"
+
+    m = core_bridge.measure_entity(stack_ptr, lineages[0], False)
+    assert m is not None, "measure_entity returned nothing"
+    assert m["resolved"], f"the edge lineage should resolve: {lineages[0]}"
+    assert not m["is_face"], "an edge lineage must report as an edge"
+    assert abs(m["amount"] - 2.0) < 1e-3,         f"every edge of a 2x2x2 box is 2.0 long, got {m['amount']}"
+    assert m["shape"] == "Line", f"a box edge is a straight line, got {m['shape']}"
+    assert m["radius"] is None, "a straight edge has no radius"
+
+    # **解決できない lineage は黙ること。** ここが一番大事な検査で、
+    # 近い別の辺を返して数字を埋めてしまうと、間違いを自信満々に表示する。
+    bogus = core_bridge.measure_entity(stack_ptr, "Edge:doesnotexist:99", False)
+    assert bogus is not None, "an unresolvable lineage is not a transport error"
+    assert bogus["resolved"] is False,         "an unresolvable lineage must report unresolved, not invent a measurement"
+
+    # 円柱の側面は円柱面として認識され、半径が取れる。フィレット面の半径を
+    # 読むのと同じ経路(面の種類を見て半径を返す)なので、ここで固定しておく
+    col, props = _fresh_part()
+    bpy.ops.seamless.add_primitive(type='CYLINDER')
+    props = utils_props()
+    core_bridge.update_cad_preview_forced(bpy.context)
+    stack_ptr = int(col.seamless_cad_stack_ptr)
+
+    found_cylinder = None
+    for lid in _capture_face_lineages(col):
+        r = core_bridge.measure_entity(stack_ptr, lid, True)
+        if r and r.get("resolved") and r.get("shape") == "Cylinder":
+            found_cylinder = r
+            break
+    assert found_cylinder is not None,         "a cylinder must expose at least one cylindrical face"
+    assert found_cylinder["radius"] is not None and found_cylinder["radius"] > 0.0,         f"a cylindrical face must report its radius, got {found_cylinder['radius']}"
+    assert found_cylinder["amount"] > 0.0, "a face must report a positive area"
 
 
 def t_sketch_solver_constraints():
@@ -1096,6 +1167,7 @@ def main():
     check("FILLET rounds edges", t_fillet_rounds_edges)
     check("CHAMFER cuts edges", t_chamfer_cuts_edges)
     check("measure part", t_measure_part)
+    check("measure selected entity", t_measure_entity)
     check("sketch solver constraints", t_sketch_solver_constraints)
     check("sketch radius constraint", t_sketch_radius_constraint_action)
     check("circle dimension holds centre", t_sketch_circle_distance_holds_centre)
