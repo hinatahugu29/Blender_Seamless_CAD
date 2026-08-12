@@ -692,6 +692,81 @@ def t_measure_during_retargeting():
     assert abs(after["volume"] - filleted["volume"]) < 1e-3,         f"the fillet should come back; {after['volume']} vs {filleted['volume']}"
 
 
+def t_modifier_proxy_is_not_drawn():
+    """対象に効くだけのモディファイアは、ビューポートに形を描かない。
+
+    プロキシは全型が「箱」として作られていたので、FILLET を足すと原点に
+    1x1x1 のワイヤーフレーム立方体が生まれ、モデルと無関係な場所に浮いていた。
+    追加直後は自動でアクティブ選択されてハイライトが付き、選択が移ると
+    地味な線に戻るため「一瞬出て消える」ように見えていた。
+
+    **オブジェクト自体は残すこと。** Feature Tree の行とビューポート選択を
+    結ぶのがプロキシの役目で(チェックリスト A/B)、消すと同期が壊れる。
+    """
+    from CAD_8_1_5_1 import core_bridge, utils
+
+    col, props = _fresh_part()
+    bpy.ops.seamless.add_primitive(type='BOX')
+    props = utils_props()
+    props.primitives[0].size = (2.0, 2.0, 2.0)
+    lineages = _capture_edge_lineages(col)
+
+    bpy.ops.seamless.add_primitive(type='FILLET')
+    props = utils_props()
+    fillet = props.primitives[-1]
+    fillet.target_lineages = "|".join(lineages[:4])
+    fillet.radius = 0.2
+    core_bridge.update_cad_preview_forced(bpy.context)
+
+    proxy = _proxy_for(col, fillet)
+    assert len(proxy.data.vertices) == 0,         f"a FILLET proxy must have nothing to draw, got {len(proxy.data.vertices)} vertices"
+    assert not proxy.show_name,         "with an empty mesh the name label would be the only thing left floating at the origin"
+
+    # 箱のプロキシはこれまでどおり形を持つ
+    box_proxy = _proxy_for(col, props.primitives[0])
+    assert len(box_proxy.data.vertices) == 8,         f"a BOX proxy still needs its shape, got {len(box_proxy.data.vertices)} vertices"
+
+    # 描かなくなっても、行を選べばプロキシがアクティブになる(チェックリスト B)
+    bpy.ops.seamless.set_active_primitive(index=len(props.primitives) - 1)
+    assert bpy.context.view_layer.objects.active == proxy,         "the modifier proxy must still be selectable from the Feature Tree"
+
+    # そしてフィレット自体は効いたまま
+    m = core_bridge.measure_stack(int(col.seamless_cad_stack_ptr))
+    assert m["volume"] < 8.0 - 1e-4,         f"blanking the proxy must not stop the fillet working; volume is {m['volume']}"
+
+
+def t_modifier_transform_is_ignored():
+    """空メッシュ化した型が、本当に自分の transform を使っていないこと。
+
+    これが前提。もしどれかが location / rotation を読むようになったら、
+    ユーザーは「動かせるはずのものが見えない」状態になる。集合を広げる前にも
+    ここで同じ確認をすること。
+    """
+    from CAD_8_1_5_1 import core_bridge, utils
+
+    col, props = _fresh_part()
+    bpy.ops.seamless.add_primitive(type='BOX')
+    props = utils_props()
+    props.primitives[0].size = (2.0, 2.0, 2.0)
+    lineages = _capture_edge_lineages(col)
+
+    bpy.ops.seamless.add_primitive(type='FILLET')
+    props = utils_props()
+    fillet = props.primitives[-1]
+    fillet.target_lineages = "|".join(lineages[:4])
+    fillet.radius = 0.2
+    core_bridge.update_cad_preview_forced(bpy.context)
+    before = core_bridge.measure_stack(int(col.seamless_cad_stack_ptr))["volume"]
+
+    fillet.location = (17.0, -9.0, 5.0)
+    fillet.rotation = (0.7, 0.3, 1.1)
+    core_bridge.update_cad_preview_forced(bpy.context)
+    after = core_bridge.measure_stack(int(col.seamless_cad_stack_ptr))["volume"]
+
+    assert abs(before - after) < 1e-9,         (f"a FILLET must ignore its own transform, but moving it changed the volume "
+         f"{before} -> {after}; the proxy cannot be blanked if this is false")
+
+
 def t_sketch_solver_constraints():
     """2D スケッチの拘束ソルバ(GCS)が実際に解いている。
 
@@ -1224,6 +1299,8 @@ def main():
     check("measure part", t_measure_part)
     check("measure selected entity", t_measure_entity)
     check("measure while retargeting", t_measure_during_retargeting)
+    check("modifier proxy draws nothing", t_modifier_proxy_is_not_drawn)
+    check("modifier ignores its transform", t_modifier_transform_is_ignored)
     check("sketch solver constraints", t_sketch_solver_constraints)
     check("sketch radius constraint", t_sketch_radius_constraint_action)
     check("circle dimension holds centre", t_sketch_circle_distance_holds_centre)

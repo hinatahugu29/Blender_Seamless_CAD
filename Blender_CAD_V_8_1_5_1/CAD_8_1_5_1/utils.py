@@ -304,8 +304,41 @@ def _build_sphere_proxy_mesh(rings=8, segments=16):
                 faces.append((a, b, c, d))
     return verts, faces
 
+# プロキシに空間的な意味が無いモディファイア。
+#
+# これらは「選んだ辺/面に効く」操作で、自分の location / rotation を一切
+# 使わない。2026-08-12 に実測して確認した: モディファイアを適用した状態で
+# location を (17,-9,5)、rotation を (0.7,0.3,1.1) に振っても、結果の体積は
+# 小数点以下まで1ビットも動かない。
+#
+# にもかかわらずプロキシは箱として作られるので、**原点に 1x1x1 の
+# ワイヤーフレーム立方体**が生まれ、モデルと無関係な場所に浮いていた。
+# 追加直後は自動でアクティブ選択されるためハイライト付きで目立ち、
+# 選択が移ると地味な線に戻るので「一瞬出て消える」ように見えていた。
+#
+# **この集合を広げるときは必ず同じ計測をすること。** MIRROR / ARRAY /
+# INSTANCE / GROUP_END は transform に意味がある(あるいは確認できていない)
+# ので入れない。SWEEP / FACE_LOFT / FACE_REVOLVE はプロファイルの用意が要り
+# 未計測なので、確認できるまで保留。
+_TRANSFORMLESS_MODIFIER_TYPES = {
+    'FILLET', 'CHAMFER', 'SHELL', 'CLEANUP', 'DRAFT', 'FACE_OFFSET', 'FACE_INSET',
+}
+
+
+def _build_empty_proxy_mesh():
+    """頂点を持たないプロキシ。
+
+    オブジェクト自体は残す。Feature Tree の行とビューポートの選択を結ぶのが
+    プロキシの役目で(チェックリスト A/B)、消すとその同期が壊れる。
+    描くものが無いだけで、選択・アクティブ化はこれまでどおり効く。
+    """
+    return [], []
+
+
 def _get_proxy_mesh_data(prim):
     prim_type = getattr(prim, "type", "")
+    if prim_type in _TRANSFORMLESS_MODIFIER_TYPES:
+        return _build_empty_proxy_mesh(), prim_type
     if prim_type in {'CYLINDER', 'PIPE'}:
         return _build_cylinder_proxy_mesh(), prim_type
     if prim_type == 'CONE':
@@ -570,7 +603,7 @@ def sync_proxies(context, props=None, collection_name=None, apply_parenting=True
                 
                 # CAD の実体は GPU オーバーレイ側が描くので、プロキシはワイヤー表示にする
                 obj.display_type = 'WIRE'
-                obj.show_name = True
+                obj.show_name = prim.type not in _TRANSFORMLESS_MODIFIER_TYPES
                 obj.show_in_front = True
 
             _sync_proxy_mesh_geometry(obj, prim)
@@ -648,7 +681,10 @@ def sync_proxies(context, props=None, collection_name=None, apply_parenting=True
                 obj.show_name = False
             else:
                 obj.display_type = 'WIRE'
-                obj.show_name = True
+                # メッシュを空にした型は名前も出さない。頂点が無くても
+                # Blender はオブジェクト名を原点に描くので、ラベルだけが
+                # 宙に浮いて残る(立方体を消した意味が無くなる)。
+                obj.show_name = prim.type not in _TRANSFORMLESS_MODIFIER_TYPES
         if apply_parenting and props:
             expected_parent_uuids = _build_expected_parent_uuids(props.primitives, proxy_map)
             _apply_expected_parent_uuids(expected_parent_uuids, proxy_map)
