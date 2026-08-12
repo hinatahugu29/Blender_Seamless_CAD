@@ -138,13 +138,25 @@ PERPENDICULAR / TANGENT / MIDPOINT / ARC
 なお `cargo build` だけでは**テストが読むバイナリは変わらない**（`deploy.py` が要る）。
 これを忘れると、直したはずの失敗が残って別のバグを疑うことになる。
 
-### 残り
+### 状態: 完了（未リリース）
 
-**半径・角度・同長は 8.1.5.5 後に実装済み**（未リリース）。上の型で3つとも通った。
+8.1.5.5 の後に **半径・角度・同長・同心・対称の5種**を実装した。冒頭の表に
+挙げた欠落はすべて埋まっている。
 
-次に足すなら **同心（`PointsCoincident` を中心同士に）** と
-**対称（`Symmetric`）**。どちらも点を直接動かす拘束なので、RADIUS のような
-橋渡しは要らないはず（着手時に `all_variables` で再確認すること）。
+| 追加した拘束 | ezpz | 選択 |
+|---|---|---|
+| Radius | `CircleRadius` + `DistanceVar` | 円/円弧の点 |
+| Angle | `LinesAtAngle` | 線2本 |
+| Equal | `LinesEqualLength` | 線2本 |
+| Concentric | `PointsCoincident` | 2つの円/円弧の点 |
+| Symmetric | `Symmetric` | 軸の線1本 + 点2つ |
+
+**同心は既存の Coincident とは別物**である点に注意。あちらは点IDを付け替えて
+片方を消す破壊的な編集で、円を2つ残したまま中心を揃えることができない。
+
+まだ未使用なのは `ArcLength` `PointsAtAngle` `ArcAngle` `ScalarEqual`
+`PointArcCoincident` `CircleTangentToCircle` `PointLineDistance`
+`HorizontalDistance` `VerticalDistance`。いずれも需要が出てから足せばよい。
 
 ### テストの作り方 — 対称な値だけで確かめない
 
@@ -237,7 +249,18 @@ Extensions プラットフォームに出す判断をするなら前提条件に
 
 ---
 
-## 配布物の掃除 — `bin/` に古いカーネルが同梱されている
+## 配布物の掃除 — 対応済み（2026-08-11）
+
+**この節の内容は実施済み。**`bin/` とルートの重複バイナリ、STEP のテスト
+出力、numpy のコンソールスクリプトを削除し、`core_bridge.py` の探索候補から
+`bin/` を外し、`deploy.py` が `.dll`/`.pyd` を配るのをやめた。
+
+配布 zip は **45.8 MB → 40.9 MB**（非圧縮 130.7 MB → 109.6 MB）。
+回帰テスト 23/23 と PREFLIGHT は通ったまま。
+
+以下は経緯の記録として残す。
+
+### もともと何が入っていたか
 
 機能の穴ではないが、放置すると**追跡不能な不具合の原因になる**ので同じ場所に書いておく。
 8.1.5.5 のリリース検証中に発見（2026-08-11）。**8.1.5.5 はこの状態のまま出荷した** —
