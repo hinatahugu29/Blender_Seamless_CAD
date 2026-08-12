@@ -340,6 +340,122 @@ def action_constraint_distance(op, context, props):
         op.report({'WARNING'}, "Select two points or one line to apply distance constraint.")
 
 
+def _two_selected_lines(props):
+    """選択中の2本の線を (線1, 線2, "s1,e1,s2,e2") で返す。無ければ None。
+
+    ANGLE / EQUAL は PARALLEL / PERPENDICULAR と同じ「線2本」の選択で、
+    Rust 側へ渡す並びも同じ4点。
+    """
+    l1_id = props.sketch_selected_line_id
+    l2_id = props.sketch_selected_line_id_2
+    if l1_id < 0 or l2_id < 0:
+        return None
+    line1 = next((l for l in props.sketch_lines if l.id == l1_id), None)
+    line2 = next((l for l in props.sketch_lines if l.id == l2_id), None)
+    if not line1 or not line2:
+        return None
+    target_str = (f"{line1.start_point_id},{line1.end_point_id},"
+                  f"{line2.start_point_id},{line2.end_point_id}")
+    return (line1, line2, target_str)
+
+
+def _has_two_line_constraint(props, const_type, line1, line2):
+    """同じ2本の線に、同じ種類の拘束が既にあるか。
+
+    どちらの線を先に選んだかで target_ids_str の並びが変わるので、
+    線の組み合わせとして一致するかを見る。ここを素通しすると同じ拘束が
+    二重に積まれ、過拘束でソルバが解を返さなくなる。
+    """
+    pair = {(line1.start_point_id, line1.end_point_id),
+            (line2.start_point_id, line2.end_point_id)}
+    for c in props.sketch_constraints:
+        if c.type != const_type:
+            continue
+        parts = [int(x.strip()) for x in c.target_ids_str.split(",") if x.strip()]
+        if len(parts) != 4:
+            continue
+        if {(parts[0], parts[1]), (parts[2], parts[3])} == pair:
+            return True
+    return False
+
+
+def _line_direction(props, line):
+    p_start = next((p for p in props.sketch_points if p.id == line.start_point_id), None)
+    p_end = next((p for p in props.sketch_points if p.id == line.end_point_id), None)
+    if not p_start or not p_end:
+        return None
+    return (p_end.co[0] - p_start.co[0], p_end.co[1] - p_start.co[1])
+
+
+def action_constraint_angle(op, context, props):
+    """2本の線がなす角を現在値で固定する。あとは数値欄で編集できる。
+
+    角度の測り方は ezpz の LinesAtAngle に合わせる必要がある。あちらの残差は
+    `u × rot(θ)⁻¹ · v` で、**線1の向きから線2の向きへ反時計回り**に測った角が θ。
+    ここで符号や向きを取り違えると、拘束を付けた瞬間に図形が跳ねる。
+    """
+    found = _two_selected_lines(props)
+    if not found:
+        op.report({'WARNING'}, "Select two lines to apply an angle constraint.")
+        return
+    line1, line2, target_str = found
+
+    if _has_two_line_constraint(props, 'ANGLE', line1, line2):
+        op.report({'WARNING'}, "An angle constraint already exists on these two lines.")
+        return
+
+    u = _line_direction(props, line1)
+    v = _line_direction(props, line2)
+    if not u or not v:
+        op.report({'WARNING'}, "Could not resolve the lines' points.")
+        return
+    if math.hypot(*u) < 1e-9 or math.hypot(*v) < 1e-9:
+        op.report({'WARNING'}, "A zero-length line has no direction to measure.")
+        return
+
+    angle_deg = math.degrees(math.atan2(v[1], v[0]) - math.atan2(u[1], u[0]))
+    # (-180, 180] に畳む。畳まないと 350 度のような値が入り、数値欄が読みにくい
+    while angle_deg <= -180.0:
+        angle_deg += 360.0
+    while angle_deg > 180.0:
+        angle_deg -= 360.0
+
+    push_history(props)
+    const = props.sketch_constraints.add()
+    const.id = len(props.sketch_constraints) + 1
+    const.type = 'ANGLE'
+    const.target_ids_str = target_str
+    const.value = angle_deg
+
+    solve_gcs_external(props, context)
+    update_cad_preview(None, context)
+    op.report({'INFO'}, f"Angle constraint ({angle_deg:.2f} deg) added between lines {line1.id} and {line2.id}!")
+
+
+def action_constraint_equal(op, context, props):
+    """2本の線の長さを揃える。値は取らない。"""
+    found = _two_selected_lines(props)
+    if not found:
+        op.report({'WARNING'}, "Select two lines to make them equal in length.")
+        return
+    line1, line2, target_str = found
+
+    if _has_two_line_constraint(props, 'EQUAL', line1, line2):
+        op.report({'WARNING'}, "These two lines are already constrained equal.")
+        return
+
+    push_history(props)
+    const = props.sketch_constraints.add()
+    const.id = len(props.sketch_constraints) + 1
+    const.type = 'EQUAL'
+    const.target_ids_str = target_str
+    const.value = 0.0
+
+    solve_gcs_external(props, context)
+    update_cad_preview(None, context)
+    op.report({'INFO'}, f"Lines {line1.id} and {line2.id} constrained to equal length!")
+
+
 def _find_radius_target(props, selected_pts):
     """選択された点から、半径を拘束できる円/円弧を1つ選ぶ。
 

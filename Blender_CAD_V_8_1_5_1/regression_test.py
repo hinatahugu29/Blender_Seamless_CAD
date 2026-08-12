@@ -562,6 +562,127 @@ def t_sketch_solver_constraints():
     assert abs(r - 1.5) < 1e-3, f"RADIUS should shrink the circle too; radius is {r}"
 
 
+def t_sketch_angle_and_equal():
+    """ANGLE と EQUAL が解けている。
+
+    ANGLE の角度は ezpz の LinesAtAngle に合わせて **線1から線2へ反時計回り**。
+    向きを取り違えると符号が反転し、90度を指定したのに -90 度に落ち着く。
+    """
+    col, props = _fresh_part()
+
+    # ANGLE: 水平な線1に対して、線2を 90 度(反時計回り)にする
+    _sketch_reset(props)
+    _sk_point(props, 1, 0.0, 0.0)
+    _sk_point(props, 2, 3.0, 0.0)   # 線1: +X 向き
+    _sk_point(props, 3, 0.0, 0.0)
+    _sk_point(props, 4, 3.0, 0.4)   # 線2: ほぼ +X 向き(まだ寝ている)
+    _sk_line(props, 1, 1, 2)
+    _sk_line(props, 2, 3, 4)
+    _sk_constraint(props, 1, 'FIXED', [1])
+    _sk_constraint(props, 2, 'FIXED', [2])
+    _sk_constraint(props, 3, 'FIXED', [3])
+    _sk_constraint(props, 4, 'ANGLE', [1, 2, 3, 4], 90.0)
+
+    x, y = _sk_co(props, 4)
+    got = math.degrees(math.atan2(y - 0.0, x - 0.0))
+    assert abs(got - 90.0) < 0.5, \
+        f"ANGLE 90 should stand line 2 up (CCW from line 1); line 2 points at {got:.2f} deg"
+
+    # 別の角度でも効く。90度は対称なので、これを外すと符号の誤りを見逃す
+    _sketch_reset(props)
+    _sk_point(props, 1, 0.0, 0.0)
+    _sk_point(props, 2, 3.0, 0.0)
+    _sk_point(props, 3, 0.0, 0.0)
+    _sk_point(props, 4, 3.0, 0.4)
+    _sk_line(props, 1, 1, 2)
+    _sk_line(props, 2, 3, 4)
+    _sk_constraint(props, 1, 'FIXED', [1])
+    _sk_constraint(props, 2, 'FIXED', [2])
+    _sk_constraint(props, 3, 'FIXED', [3])
+    _sk_constraint(props, 4, 'ANGLE', [1, 2, 3, 4], 30.0)
+    x, y = _sk_co(props, 4)
+    got = math.degrees(math.atan2(y, x))
+    assert abs(got - 30.0) < 0.5, f"ANGLE 30 was not honoured; line 2 points at {got:.2f} deg"
+
+    # EQUAL: 短い線が長い線に揃う(あるいはその逆)。長さが一致すればよい
+    _sketch_reset(props)
+    _sk_point(props, 1, 0.0, 0.0)
+    _sk_point(props, 2, 4.0, 0.0)   # 長さ 4
+    _sk_point(props, 3, 0.0, 2.0)
+    _sk_point(props, 4, 1.0, 2.0)   # 長さ 1
+    _sk_line(props, 1, 1, 2)
+    _sk_line(props, 2, 3, 4)
+    _sk_constraint(props, 1, 'FIXED', [1])
+    _sk_constraint(props, 2, 'FIXED', [2])
+    _sk_constraint(props, 3, 'FIXED', [3])
+    _sk_constraint(props, 4, 'EQUAL', [1, 2, 3, 4])
+
+    x1, y1 = _sk_co(props, 1)
+    x2, y2 = _sk_co(props, 2)
+    x3, y3 = _sk_co(props, 3)
+    x4, y4 = _sk_co(props, 4)
+    len1 = math.hypot(x2 - x1, y2 - y1)
+    len2 = math.hypot(x4 - x3, y4 - y3)
+    assert abs(len1 - len2) < 1e-3, \
+        f"EQUAL should match the two lengths; got {len1:.4f} and {len2:.4f}"
+    # 線1は両端を固定してあるので、動いたのは線2でなければならない
+    assert abs(len1 - 4.0) < 1e-3, f"the pinned line should not have moved; it is {len1:.4f}"
+
+
+def t_sketch_two_line_constraint_actions():
+    """Angle / Equal ボタンの経路。重複拒否と、選択なしの扱い。"""
+    from CAD_8_1_5_1.sketch.actions import constraints as sk_constraints
+
+    col, props = _fresh_part()
+    _sketch_reset(props)
+    _sk_point(props, 1, 0.0, 0.0)
+    _sk_point(props, 2, 3.0, 0.0)
+    _sk_point(props, 3, 0.0, 1.0)
+    _sk_point(props, 4, 3.0, 1.4)
+    _sk_line(props, 1, 1, 2)
+    _sk_line(props, 2, 3, 4)
+
+    # 線が選ばれていなければ何も起きない
+    props.sketch_selected_line_id = -1
+    props.sketch_selected_line_id_2 = -1
+    assert sk_constraints._two_selected_lines(props) is None, \
+        "no lines selected must not resolve to a pair"
+    before = len(props.sketch_constraints)
+    bpy.ops.seamless.sketch_action(action='CONSTRAINT_ANGLE')
+    assert len(props.sketch_constraints) == before, \
+        "ANGLE was added without a selection"
+
+    props.sketch_selected_line_id = 1
+    props.sketch_selected_line_id_2 = 2
+    bpy.ops.seamless.sketch_action(action='CONSTRAINT_ANGLE')
+    added = props.sketch_constraints[-1]
+    assert added.type == 'ANGLE', f"wrong type: {added.type}"
+    assert added.target_ids_str == "1,2,3,4", f"wrong targets: {added.target_ids_str}"
+    # 現在の角度が入っていること。線2は (3,0.4) 方向なので atan2(0.4,3)
+    expected = math.degrees(math.atan2(0.4, 3.0))
+    assert abs(added.value - expected) < 0.5, \
+        f"value should be the current angle {expected:.2f}, got {added.value:.2f}"
+
+    # 二重付けは拒否
+    bpy.ops.seamless.sketch_action(action='CONSTRAINT_ANGLE')
+    assert sum(1 for c in props.sketch_constraints if c.type == 'ANGLE') == 1, \
+        "a second angle constraint was added on the same pair"
+
+    # 線を選ぶ順を入れ替えても同じ組と見なす
+    props.sketch_selected_line_id = 2
+    props.sketch_selected_line_id_2 = 1
+    bpy.ops.seamless.sketch_action(action='CONSTRAINT_ANGLE')
+    assert sum(1 for c in props.sketch_constraints if c.type == 'ANGLE') == 1, \
+        "swapping the selection order let a duplicate angle constraint through"
+
+    # EQUAL は別種なので、同じ組でも足せる
+    bpy.ops.seamless.sketch_action(action='CONSTRAINT_EQUAL')
+    assert sum(1 for c in props.sketch_constraints if c.type == 'EQUAL') == 1, \
+        "EQUAL should be addable alongside ANGLE"
+    assert props.sketch_constraints[-1].target_ids_str == "3,4,1,2", \
+        f"EQUAL should record the current selection order, got {props.sketch_constraints[-1].target_ids_str}"
+
+
 def t_sketch_radius_constraint_action():
     """Radius ボタンの経路。選択から円を見つけて拘束を作れている。
 
@@ -792,6 +913,8 @@ def main():
     check("CHAMFER cuts edges", t_chamfer_cuts_edges)
     check("sketch solver constraints", t_sketch_solver_constraints)
     check("sketch radius constraint", t_sketch_radius_constraint_action)
+    check("sketch angle + equal solve", t_sketch_angle_and_equal)
+    check("sketch angle/equal actions", t_sketch_two_line_constraint_actions)
     check("sketch finalize makes geometry", t_sketch_finalize_makes_geometry)
     check("panels registered", t_panels_registered)
     check("bake to mesh", t_bake_to_mesh)

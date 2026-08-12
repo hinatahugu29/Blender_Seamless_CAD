@@ -82,6 +82,10 @@ class SEAMLESS_OT_SketchAction(bpy.types.Operator):
             constraints.action_constraint_distance(self, context, props)
         elif action == 'CONSTRAINT_RADIUS':
             constraints.action_constraint_radius(self, context, props)
+        elif action == 'CONSTRAINT_ANGLE':
+            constraints.action_constraint_angle(self, context, props)
+        elif action == 'CONSTRAINT_EQUAL':
+            constraints.action_constraint_equal(self, context, props)
         elif action == 'CONSTRAINT_MIDPOINT':
             constraints.action_constraint_midpoint(self, context, props)
         elif action == 'CONSTRAINT_COINCIDENT':

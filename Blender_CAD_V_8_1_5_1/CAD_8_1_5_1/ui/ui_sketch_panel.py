@@ -109,6 +109,21 @@ class SEAMLESS_PT_SketchPanel(bpy.types.Panel):
             icon="CON_ROTLIKE",
         ).action = "CONSTRAINT_PERPENDICULAR"
 
+        # 角度と同長も「線を2本選ぶ」拘束。Parallel / Perpendicular と
+        # 同じ選択状態のときだけ出す
+        if props.sketch_selected_line_id >= 0 and props.sketch_selected_line_id_2 >= 0:
+            row = col_constraints.row(align=True)
+            row.operator(
+                "seamless.sketch_action",
+                text="Angle",
+                icon="DRIVER_ROTATIONAL_DIFFERENCE",
+            ).action = "CONSTRAINT_ANGLE"
+            row.operator(
+                "seamless.sketch_action",
+                text="Equal",
+                icon="CON_SAMEVOL",
+            ).action = "CONSTRAINT_EQUAL"
+
         col_constraints.operator(
             "seamless.sketch_action",
             text="Coincident (Point Merge)",

@@ -513,6 +513,8 @@ class SeamlessSketchConstraint(bpy.types.PropertyGroup):
             ('TANGENT', "Tangent", "Make arc tangent to line"),
             ('MIDPOINT', "Midpoint", "Point is midpoint between two points"),
             ('RADIUS', "Radius", "Fix the radius of a circle or arc"),
+            ('ANGLE', "Angle", "Fix the angle between two lines, in degrees"),
+            ('EQUAL', "Equal", "Make two lines the same length"),
             ('ARC', "Arc", "Constraint for circular arc shape")
         ],
         default='FIXED'

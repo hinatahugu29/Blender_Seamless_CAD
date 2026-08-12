@@ -262,6 +262,76 @@ pub fn solve_sketch(
 
             }
 
+            // 2本の線がなす角を数値で固定する。targets = [線1始点, 線1終点, 線2始点, 線2終点]、
+            // value は **度**。PARALLEL / PERPENDICULAR と同じ並びなので、
+            // 選択の解釈は Python 側でそのまま使い回せる。
+            //
+            // RADIUS と違い、LinesAtAngle は両方の線の全変数を式に出す
+            // (constraints.rs の all_variables)。点に直接繋がっているので
+            // DistanceVar のような橋渡しは要らない。
+            "ANGLE" => {
+
+                if targets.len() >= 4 {
+
+                    if let (Some(p1), Some(p2), Some(p3), Some(p4)) = (
+
+                        point_map.get(&targets[0]),
+
+                        point_map.get(&targets[1]),
+
+                        point_map.get(&targets[2]),
+
+                        point_map.get(&targets[3]),
+
+                    ) {
+
+                        let l1 = DatumLineSegment { p0: *p1, p1: *p2 };
+
+                        let l2 = DatumLineSegment { p0: *p3, p1: *p4 };
+
+                        let angle = ezpz::datatypes::AngleKind::Other(
+
+                            ezpz::datatypes::Angle::from_degrees(*value)
+
+                        );
+
+                        requests.push(ConstraintRequest::highest_priority(Constraint::LinesAtAngle(l1, l2, angle)));
+
+                    }
+
+                }
+
+            }
+
+            // 2本の線の長さを揃える。targets は ANGLE と同じ並び。value は使わない。
+            "EQUAL" => {
+
+                if targets.len() >= 4 {
+
+                    if let (Some(p1), Some(p2), Some(p3), Some(p4)) = (
+
+                        point_map.get(&targets[0]),
+
+                        point_map.get(&targets[1]),
+
+                        point_map.get(&targets[2]),
+
+                        point_map.get(&targets[3]),
+
+                    ) {
+
+                        let l1 = DatumLineSegment { p0: *p1, p1: *p2 };
+
+                        let l2 = DatumLineSegment { p0: *p3, p1: *p4 };
+
+                        requests.push(ConstraintRequest::highest_priority(Constraint::LinesEqualLength(l1, l2)));
+
+                    }
+
+                }
+
+            }
+
             "PARALLEL" => {
 
                 if targets.len() >= 4 {
