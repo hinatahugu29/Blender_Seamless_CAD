@@ -450,7 +450,10 @@ def utils_props():
 
 
 def _sketch_reset(props):
-    for coll in (props.sketch_points, props.sketch_lines, props.sketch_constraints):
+    # 円と円弧も消すこと。ここに入れ忘れると、前のテストで作った円が次の
+    # テストに残り、RADIUS のように「選択から円を探す」処理が別の円を掴む。
+    for coll in (props.sketch_points, props.sketch_lines, props.sketch_constraints,
+                 props.sketch_circles, props.sketch_arcs):
         while len(coll):
             coll.remove(0)
 
@@ -466,6 +469,13 @@ def _sk_line(props, lid, a, b):
     l.id = lid
     l.start_point_id = a
     l.end_point_id = b
+
+
+def _sk_circle(props, cid, center_id, rim_id):
+    c = props.sketch_circles.add()
+    c.id = cid
+    c.center_point_id = center_id
+    c.radius_point_id = rim_id
 
 
 def _sk_constraint(props, cid, ctype, point_ids, value=0.0):
@@ -530,6 +540,94 @@ def t_sketch_solver_constraints():
     _sk_constraint(props, 3, 'MIDPOINT', [1, 2, 3])
     assert _sk_co(props, 3) == (2.0, 0.0), \
         f"MIDPOINT should land halfway, got {_sk_co(props, 3)}"
+
+    # RADIUS: 円の半径が指定値になる。Rust 側では CircleRadius + DistanceVar
+    # の2本に展開される。DistanceVar を落とすと半径変数がどの点にも繋がらず、
+    # 「拘束は受理されるのに円が動かない」という無言の壊れ方をする。
+    _sketch_reset(props)
+    _sk_point(props, 1, 0.0, 0.0)   # 中心
+    _sk_point(props, 2, 2.0, 0.0)   # 円周上
+    _sk_circle(props, 1, 1, 2)
+    _sk_constraint(props, 1, 'FIXED', [1])
+    _sk_constraint(props, 2, 'RADIUS', [1, 2], 5.0)
+    x, y = _sk_co(props, 2)
+    r = math.hypot(x, y)
+    assert abs(r - 5.0) < 1e-3, f"RADIUS 5.0 was not honoured; radius is {r}"
+
+    # 縮める方向も効くこと。増やす側だけ見ていると、初期推定値をそのまま
+    # 返しているだけの実装を見逃す。value の update コールバックが解き直す
+    props.sketch_constraints[1].value = 1.5
+    x, y = _sk_co(props, 2)
+    r = math.hypot(x, y)
+    assert abs(r - 1.5) < 1e-3, f"RADIUS should shrink the circle too; radius is {r}"
+
+
+def t_sketch_radius_constraint_action():
+    """Radius ボタンの経路。選択から円を見つけて拘束を作れている。
+
+    ソルバ本体は t_sketch_solver_constraints が見ているので、ここが守るのは
+    その手前 --- 「どの点が選ばれていたら、どの円の、どの2点を対象にするか」。
+    ここを間違えると、解は正しく出るのに違う円が縮む。
+    """
+    from CAD_8_1_5_1.sketch.actions import constraints as sk_constraints
+
+    col, props = _fresh_part()
+    _sketch_reset(props)
+    _sk_point(props, 1, 0.0, 0.0)
+    _sk_point(props, 2, 2.0, 0.0)
+    _sk_circle(props, 1, 1, 2)
+    # 別の円を混ぜておく。選択と無関係な円を掴んでいないことを確かめるため
+    _sk_point(props, 3, 10.0, 10.0)
+    _sk_point(props, 4, 13.0, 10.0)
+    _sk_circle(props, 2, 3, 4)
+
+    # 円周上の点を選ぶ
+    found = sk_constraints._find_radius_target(props, [2])
+    assert found == (1, 2, "circle 1"), f"rim point should resolve to its own circle, got {found}"
+
+    # 中心点を選んでも同じ円に解決する
+    found = sk_constraints._find_radius_target(props, [1])
+    assert found == (1, 2, "circle 1"), f"center point should resolve to its own circle, got {found}"
+
+    # 2つ目の円の点は2つ目の円に解決する(1つ目に吸われない)
+    found = sk_constraints._find_radius_target(props, [4])
+    assert found == (3, 4, "circle 2"), f"second circle must not resolve to the first, got {found}"
+
+    # 円弧は中心と始点を返す
+    _sk_point(props, 5, 0.0, 5.0)
+    _sk_point(props, 6, 1.0, 5.0)
+    _sk_point(props, 7, 0.5, 5.5)
+    a = props.sketch_arcs.add()
+    a.id = 1
+    a.center_point_id = 5
+    a.start_point_id = 6
+    a.end_point_id = 7
+    a.mid_point_id = 7
+    found = sk_constraints._find_radius_target(props, [6])
+    assert found == (5, 6, "arc 1"), f"arc point should resolve to its arc, got {found}"
+
+    # 円にも円弧にも属さない点は None
+    _sk_point(props, 8, -4.0, -4.0)
+    assert sk_constraints._find_radius_target(props, [8]) is None, \
+        "a loose point must not resolve to any circle"
+
+    # 実際にボタンを押す経路。選択状態を作ってオペレータを呼ぶ
+    props.sketch_selected_points_str = "2"
+    props.sketch_selected_point_id = -1
+    props.sketch_selected_point_id_2 = -1
+    before = len(props.sketch_constraints)
+    bpy.ops.seamless.sketch_action(action='CONSTRAINT_RADIUS')
+    assert len(props.sketch_constraints) == before + 1, \
+        "CONSTRAINT_RADIUS did not add a constraint"
+    added = props.sketch_constraints[-1]
+    assert added.type == 'RADIUS', f"wrong constraint type: {added.type}"
+    assert added.target_ids_str == "1,2", f"wrong targets: {added.target_ids_str}"
+    assert abs(added.value - 2.0) < 1e-6, f"value should be the current radius, got {added.value}"
+
+    # 二重付けは過拘束になるので拒否される
+    bpy.ops.seamless.sketch_action(action='CONSTRAINT_RADIUS')
+    radius_count = sum(1 for c in props.sketch_constraints if c.type == 'RADIUS')
+    assert radius_count == 1, f"a second radius constraint was added on the same circle ({radius_count})"
 
 
 def t_sketch_finalize_makes_geometry():
@@ -693,6 +791,7 @@ def main():
     check("FILLET rounds edges", t_fillet_rounds_edges)
     check("CHAMFER cuts edges", t_chamfer_cuts_edges)
     check("sketch solver constraints", t_sketch_solver_constraints)
+    check("sketch radius constraint", t_sketch_radius_constraint_action)
     check("sketch finalize makes geometry", t_sketch_finalize_makes_geometry)
     check("panels registered", t_panels_registered)
     check("bake to mesh", t_bake_to_mesh)

@@ -76,6 +76,15 @@ class SEAMLESS_PT_SketchPanel(bpy.types.Panel):
                 icon="DRIVER_DISTANCE",
             ).action = "CONSTRAINT_DISTANCE"
 
+        # 半径は円・円弧を選んだときだけ出す。常時出しておくと、直線しか
+        # 選んでいない状態で押して警告が出るだけのボタンになる。
+        if self._selection_has_circular(props):
+            col_constraints.operator(
+                "seamless.sketch_action",
+                text="Radius",
+                icon="MESH_CIRCLE",
+            ).action = "CONSTRAINT_RADIUS"
+
         row = col_constraints.row(align=True)
         row.operator(
             "seamless.sketch_action",
@@ -240,6 +249,28 @@ class SEAMLESS_PT_SketchPanel(bpy.types.Panel):
             text="Cancel",
             icon="CANCEL",
         ).action = "CANCEL"
+
+    @staticmethod
+    def _selection_has_circular(props):
+        """選択中の点が、円または円弧のものかどうか。
+
+        Radius ボタンの表示条件。押せる状況でだけ出したいので、実際に
+        拘束を作る action_constraint_radius と同じ範囲の点を見る。
+        """
+        selected = {int(x) for x in props.sketch_selected_points_str.split(",") if x}
+        for pid in (props.sketch_selected_point_id, props.sketch_selected_point_id_2):
+            if pid >= 0:
+                selected.add(pid)
+        if not selected:
+            return False
+
+        for c in props.sketch_circles:
+            if selected & {c.center_point_id, c.radius_point_id}:
+                return True
+        for a in props.sketch_arcs:
+            if selected & {a.center_point_id, a.start_point_id, a.end_point_id, a.mid_point_id}:
+                return True
+        return False
 
     def _draw_selection_info(self, layout, props, found_dist_const):
         if props.sketch_selected_point_id >= 0 and props.sketch_selected_point_id_2 >= 0:

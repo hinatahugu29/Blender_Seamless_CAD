@@ -340,6 +340,98 @@ def action_constraint_distance(op, context, props):
         op.report({'WARNING'}, "Select two points or one line to apply distance constraint.")
 
 
+def _find_radius_target(props, selected_pts):
+    """選択された点から、半径を拘束できる円/円弧を1つ選ぶ。
+
+    返すのは (中心点ID, 円周上の点ID, 表示名)。見つからなければ None。
+
+    円は中心と円周上の点の2点で持っている(SeamlessSketchCircle)ので、
+    そのどちらか一方が選ばれていればその円を指したと解釈してよい。
+    円弧は始点・終点・中点のどれでも同じ扱いにする。中心点だけは特別で、
+    円と円弧の両方が同じ中心を共有しうるため最後に見る。
+    """
+    for p in selected_pts:
+        c = next((c for c in props.sketch_circles if c.radius_point_id == p), None)
+        if c:
+            return (c.center_point_id, c.radius_point_id, f"circle {c.id}")
+        a = next((a for a in props.sketch_arcs
+                  if p in (a.start_point_id, a.end_point_id, a.mid_point_id)), None)
+        if a:
+            return (a.center_point_id, p, f"arc {a.id}")
+
+    for p in selected_pts:
+        c = next((c for c in props.sketch_circles if c.center_point_id == p), None)
+        if c:
+            return (c.center_point_id, c.radius_point_id, f"circle {c.id}")
+        a = next((a for a in props.sketch_arcs if a.center_point_id == p), None)
+        if a:
+            return (a.center_point_id, a.start_point_id, f"arc {a.id}")
+
+    return None
+
+
+def action_constraint_radius(op, context, props):
+    """円・円弧の半径を現在値で固定する。あとは数値欄で編集できる。
+
+    RADIUS は Rust 側で CircleRadius + DistanceVar に展開される
+    (src_rust/src/api/sketch.rs の "RADIUS" を参照)。Python からは
+    targets = [中心点, 円周上の点] の順で渡す約束になっている。
+    """
+    selected_pts = [int(x) for x in props.sketch_selected_points_str.split(",") if x]
+    for pid in (props.sketch_selected_point_id, props.sketch_selected_point_id_2):
+        if pid >= 0 and pid not in selected_pts:
+            selected_pts.append(pid)
+
+    if not selected_pts:
+        op.report({'WARNING'}, "Select a circle or an arc to apply a radius constraint.")
+        return
+
+    target = _find_radius_target(props, selected_pts)
+    if not target:
+        op.report({'WARNING'}, "The selection does not belong to a circle or an arc.")
+        return
+
+    center_id, rim_id, label = target
+    target_str = f"{center_id},{rim_id}"
+
+    # 同じ円に二重に付けると過拘束になる。中心が同じなら円周上のどの点を
+    # 拾ったかに関わらず同じ半径を指しているので、中心IDだけで重複を見る。
+    for c in props.sketch_constraints:
+        if c.type != 'RADIUS':
+            continue
+        existing = [x.strip() for x in c.target_ids_str.split(",") if x.strip()]
+        if existing and existing[0] == str(center_id):
+            op.report({'WARNING'}, f"A radius constraint already exists on {label}.")
+            return
+
+    pt_c = next((p for p in props.sketch_points if p.id == center_id), None)
+    pt_r = next((p for p in props.sketch_points if p.id == rim_id), None)
+    if not pt_c or not pt_r:
+        op.report({'WARNING'}, "Could not resolve the circle's points.")
+        return
+
+    dx = pt_r.co[0] - pt_c.co[0]
+    dy = pt_r.co[1] - pt_c.co[1]
+    current_radius = math.sqrt(dx * dx + dy * dy)
+
+    # 半径0は解けない(ヤコビ行列が特異になる)。付ける前に弾く。
+    if current_radius < 1e-6:
+        op.report({'WARNING'}, "Radius is zero; nothing to constrain.")
+        return
+
+    push_history(props)
+
+    const = props.sketch_constraints.add()
+    const.id = len(props.sketch_constraints) + 1
+    const.type = 'RADIUS'
+    const.target_ids_str = target_str
+    const.value = current_radius
+
+    solve_gcs_external(props, context)
+    update_cad_preview(None, context)
+    op.report({'INFO'}, f"Radius constraint ({current_radius:.3f}) added to {label}!")
+
+
 def action_constraint_midpoint(op, context, props):
     sel_pts = [int(x) for x in props.sketch_selected_points_str.split(",") if x]
     sel_lines = [int(x) for x in props.sketch_selected_lines_str.split(",") if x]

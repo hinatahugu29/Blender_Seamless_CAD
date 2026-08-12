@@ -108,6 +108,60 @@ pub fn solve_sketch(
 
             }
 
+            // 円・円弧の半径を数値で固定する。targets = [中心点, 円周上の点]。
+            //
+            // ezpz の CircleRadius は「半径変数だけ」を式に出す (constraints.rs の
+            // all_variables を参照)。つまり半径変数を作って固定しただけでは、その
+            // 変数はどの点にも繋がっておらず形状は動かない。DistanceVar で
+            // 中心と円周上の点の距離をその変数に縛って初めて効く。
+            // TANGENT が円を組み立てているのと同じ手順。
+            //
+            // Distance(中心, 円周点, value) 一本でも数値上は同じ結果になるが、
+            // それだと DISTANCE と実装が区別できなくなる。半径として書く。
+            "RADIUS" => {
+
+                if targets.len() >= 2 {
+
+                    let c_id = targets[0];
+
+                    let rim_id = targets[1];
+
+                    if let (Some(c), Some(rim)) = (point_map.get(&c_id), point_map.get(&rim_id)) {
+
+                        let r = DatumDistance::new(ids.next_id());
+
+                        // 初期推定値は現在の半径。ここを value にすると、拘束を
+                        // 付けた瞬間に解が遠くへ飛んでスケッチが暴れる。
+                        let mut r_val = *value;
+
+                        if let (Some(&(_, cx, cy)), Some(&(_, rx, ry))) = (
+
+                            points.iter().find(|(id, _, _)| *id == c_id),
+
+                            points.iter().find(|(id, _, _)| *id == rim_id),
+
+                        ) {
+
+                            let (dx, dy) = (rx - cx, ry - cy);
+
+                            r_val = (dx * dx + dy * dy).sqrt();
+
+                        }
+
+                        initial_guesses.push((r.id, r_val));
+
+                        let circle = DatumCircle { center: *c, radius: r };
+
+                        requests.push(ConstraintRequest::highest_priority(Constraint::CircleRadius(circle, *value)));
+
+                        requests.push(ConstraintRequest::highest_priority(Constraint::DistanceVar(*c, *rim, r)));
+
+                    }
+
+                }
+
+            }
+
             "HORIZONTAL" => {
 
                 if targets.len() >= 2 {
