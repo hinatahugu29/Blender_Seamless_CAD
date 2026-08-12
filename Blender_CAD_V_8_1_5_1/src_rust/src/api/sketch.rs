@@ -134,6 +134,8 @@ pub fn solve_sketch(
                         // 付けた瞬間に解が遠くへ飛んでスケッチが暴れる。
                         let mut r_val = *value;
 
+                        let mut centre_now = None;
+
                         if let (Some(&(_, cx, cy)), Some(&(_, rx, ry))) = (
 
                             points.iter().find(|(id, _, _)| *id == c_id),
@@ -146,6 +148,8 @@ pub fn solve_sketch(
 
                             r_val = (dx * dx + dy * dy).sqrt();
 
+                            centre_now = Some((cx, cy));
+
                         }
 
                         initial_guesses.push((r.id, r_val));
@@ -155,6 +159,26 @@ pub fn solve_sketch(
                         requests.push(ConstraintRequest::highest_priority(Constraint::CircleRadius(circle, *value)));
 
                         requests.push(ConstraintRequest::highest_priority(Constraint::DistanceVar(*c, *rim, r)));
+
+                        // **中心を今の位置に留める。**
+                        //
+                        // これが無いと、半径を変えたときに中心が動く。ソルバは
+                        // 「今の配置から移動量が最小の解」を返すので、中心と円周点の
+                        // どちらも自由なら両方が半分ずつ動き、円が横にずれる。
+                        // ユーザーが期待するのは「中心はそのまま、外周が変わる」。
+                        //
+                        // 優先度 1(最優先の 0 より下)で置くのが要点。ユーザーが
+                        // 中心に FIXED を付けていたり、他の拘束が中心を動かす必要が
+                        // あるときは、そちらが勝ってこの保持は譲る。最優先で
+                        // 入れてしまうと、中心を動かす正当な拘束と衝突して
+                        // 「解けないスケッチ」を作ってしまう。
+                        if let Some((cx, cy)) = centre_now {
+
+                            requests.push(ConstraintRequest::new(Constraint::Fixed(c.id_x(), cx), 1));
+
+                            requests.push(ConstraintRequest::new(Constraint::Fixed(c.id_y(), cy), 1));
+
+                        }
 
                     }
 

@@ -628,6 +628,21 @@ def t_sketch_solver_constraints():
     r = math.hypot(x, y)
     assert abs(r - 1.5) < 1e-3, f"RADIUS should shrink the circle too; radius is {r}"
 
+    # **中心が動かないこと。** 半径を変えたときに中心まで動くと、円が横へ
+    # ずれる。ソルバは「今の配置から移動量が最小の解」を返すので、中心も
+    # 円周点も自由なら両方が半分ずつ動く。中心を低優先で留めて防いでいる。
+    # ここでは中心に FIXED を付けずに確かめる --- FIXED があると、この保持が
+    # 効いていなくても中心が動かず、検査が意味を失う。
+    _sketch_reset(props)
+    _sk_point(props, 1, 3.0, 1.0)   # 中心 (原点から離しておく)
+    _sk_point(props, 2, 5.0, 1.0)   # 円周上 (半径 2)
+    _sk_circle(props, 1, 1, 2)
+    _sk_constraint(props, 1, 'RADIUS', [1, 2], 6.0)
+    cx, cy = _sk_co(props, 1)
+    assert abs(cx - 3.0) < 1e-3 and abs(cy - 1.0) < 1e-3,         f"the centre must stay at (3.0, 1.0) when the radius changes; it moved to ({cx}, {cy})"
+    x, y = _sk_co(props, 2)
+    assert abs(math.hypot(x - cx, y - cy) - 6.0) < 1e-3,         f"the rim should be 6.0 from the centre, got {math.hypot(x - cx, y - cy)}"
+
 
 def t_sketch_angle_and_equal():
     """ANGLE と EQUAL が解けている。
