@@ -823,6 +823,50 @@ def t_sketch_two_line_constraint_actions():
         f"EQUAL should record the current selection order, got {props.sketch_constraints[-1].target_ids_str}"
 
 
+def t_sketch_circle_distance_holds_centre():
+    """円の寸法を DISTANCE で編集しても中心が動かない。
+
+    ユーザー報告そのもの: 円の寸法ラベル(パネルの Edit Dimension)は DISTANCE
+    拘束を編集する経路で、Distance(中心, 円周点) は補正を両方の点に分配する
+    ため中心が横へ流れていた。ソルバーへ送る段で RADIUS に振り替えて直した。
+
+    保存されている拘束は DISTANCE のままであることも併せて確かめる。型ごと
+    書き換えてしまうと、パネルが寸法ラベルを見つけられなくなり編集できなくなる。
+    """
+    col, props = _fresh_part()
+    _sketch_reset(props)
+    _sk_point(props, 1, 4.0, 2.0)   # 中心
+    _sk_point(props, 2, 6.0, 2.0)   # 円周上 (半径 2)
+    _sk_circle(props, 1, 1, 2)
+    _sk_constraint(props, 1, 'DISTANCE', [1, 2], 5.0)
+
+    cx, cy = _sk_co(props, 1)
+    assert abs(cx - 4.0) < 1e-3 and abs(cy - 2.0) < 1e-3,         f"editing a circle's dimension must not move its centre; it went to ({cx}, {cy})"
+    x, y = _sk_co(props, 2)
+    assert abs(math.hypot(x - cx, y - cy) - 5.0) < 1e-3,         f"the rim should end up 5.0 from the centre, got {math.hypot(x - cx, y - cy)}"
+
+    assert props.sketch_constraints[0].type == 'DISTANCE',         "the stored constraint must stay DISTANCE or the dimension label cannot find it"
+
+    # 円周点を先に書いた順序でも同じこと(振り替えで並べ替えている)
+    _sketch_reset(props)
+    _sk_point(props, 1, 4.0, 2.0)
+    _sk_point(props, 2, 6.0, 2.0)
+    _sk_circle(props, 1, 1, 2)
+    _sk_constraint(props, 1, 'DISTANCE', [2, 1], 5.0)
+    cx, cy = _sk_co(props, 1)
+    assert abs(cx - 4.0) < 1e-3 and abs(cy - 2.0) < 1e-3,         f"reversed target order must also hold the centre; it went to ({cx}, {cy})"
+
+    # 円に属さない2点なら従来どおり両方が動いてよい(線の寸法はこの経路)
+    _sketch_reset(props)
+    _sk_point(props, 1, 0.0, 0.0)
+    _sk_point(props, 2, 2.0, 0.0)
+    _sk_line(props, 1, 1, 2)
+    _sk_constraint(props, 1, 'DISTANCE', [1, 2], 6.0)
+    a = _sk_co(props, 1)
+    b = _sk_co(props, 2)
+    assert abs(math.hypot(b[0] - a[0], b[1] - a[1]) - 6.0) < 1e-3,         "a plain distance between two loose points must still be honoured"
+
+
 def t_sketch_radius_constraint_action():
     """Radius ボタンの経路。選択から円を見つけて拘束を作れている。
 
@@ -1054,6 +1098,7 @@ def main():
     check("measure part", t_measure_part)
     check("sketch solver constraints", t_sketch_solver_constraints)
     check("sketch radius constraint", t_sketch_radius_constraint_action)
+    check("circle dimension holds centre", t_sketch_circle_distance_holds_centre)
     check("sketch angle + equal solve", t_sketch_angle_and_equal)
     check("sketch angle/equal actions", t_sketch_two_line_constraint_actions)
     check("sketch concentric + symmetric", t_sketch_concentric_and_symmetric)

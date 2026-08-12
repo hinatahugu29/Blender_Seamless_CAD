@@ -199,13 +199,50 @@ def _solve_gcs_external_impl(props, context, drag_pt_id, mouse_pos, core):
     for pt in props.sketch_points:
         points_list.append((pt.id, float(pt.co[0]), float(pt.co[1])))
 
+    # 円の寸法は、保存上は DISTANCE でもソルバーには RADIUS として渡す。
+    #
+    # Distance(中心, 円周点) は式が1本に対して自由な座標が4つあるので、ソルバーは
+    # 補正を両方の点に分配する。つまり半径を変えると**中心が半分ぶん動いて円が
+    # 横にずれる**。ユーザーから上がってきたのがこの症状で、期待は当然
+    # 「中心はそのまま、外周が変わる」。RADIUS 側は中心を優先度1で留めてあるので、
+    # 振り替えるだけで期待どおりになる。
+    #
+    # 振り替えるのは**ソルバーへ送るペイロードだけ**で、保存されている拘束は
+    # DISTANCE のまま触らない。パネルの寸法ラベル(_find_distance_constraint)は
+    # DISTANCE を探して編集欄を出しているので、型を書き換えると寸法が編集できなく
+    # なる。ここが振り替えを「保存側でやらない」理由。
+    #
+    # **フィレット円弧は除外する。** あちらは中心 O を「T1・T2 から半径 R で
+    # 作図した正しい位置」へソルブ前に置き直す専用処理があり(上の
+    # fillet_radius_by_arc)、中心が動くことが前提になっている。留めると
+    # その処理と正面から衝突する。
+    radius_pairs = {}
+    for c in props.sketch_circles:
+        radius_pairs[frozenset((c.center_point_id, c.radius_point_id))] = c.center_point_id
+    for a in props.sketch_arcs:
+        if getattr(a, "is_fillet", False):
+            continue
+        for rim in (a.start_point_id, a.end_point_id, a.mid_point_id):
+            radius_pairs[frozenset((a.center_point_id, rim))] = a.center_point_id
+
     constraints_list = []
     for const in props.sketch_constraints:
         try:
             target_ids = [int(x.strip()) for x in const.target_ids_str.split(",") if x.strip()]
         except ValueError:
             continue
-        constraints_list.append((const.type, target_ids, float(const.value)))
+
+        c_type = const.type
+        if c_type == 'DISTANCE' and len(target_ids) == 2:
+            centre = radius_pairs.get(frozenset(target_ids))
+            # frozenset は中心と円周点が同一IDだと1要素になる(退化した円)。
+            # その場合は振り替えず、これまでどおり DISTANCE として送る。
+            if centre is not None and target_ids[0] != target_ids[1]:
+                rim = target_ids[1] if target_ids[0] == centre else target_ids[0]
+                c_type = 'RADIUS'
+                target_ids = [centre, rim]   # RADIUS は [中心, 円周点] の順
+
+        constraints_list.append((c_type, target_ids, float(const.value)))
 
     if drag_pt_id is not None and mouse_pos is not None:
         constraints_list = [c for c in constraints_list if not (c[0] == 'FIXED' and c[1] == [drag_pt_id])]
