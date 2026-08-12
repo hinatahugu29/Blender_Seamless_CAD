@@ -637,6 +637,61 @@ def t_measure_entity():
     assert found_cylinder["amount"] > 0.0, "a face must report a positive area"
 
 
+def t_measure_during_retargeting():
+    """モディファイアの対象を選び直している最中の計測は、適用前の形を測る。
+
+    これは不具合ではなく仕様。core_bridge は選択途中の中途半端な対象で
+    モディファイアが適用されないよう、ターゲットを空で送っている
+    (_is_modifier_retargeting)。対象ゼロのフィレットは何もしないので、
+    カーネルの current_shape は本当にフィレット前の形になる。
+
+    **問題は数字ではなく、それを黙って出すこと。** パネルはこの状態を検出して
+    「適用前を測っている」と明示する。ここではその検出条件を固定する ---
+    条件が壊れると、警告が出ないまま間違った体積が表示される。
+    """
+    from CAD_8_1_5_1 import core_bridge
+
+    col, props = _fresh_part()
+    bpy.ops.seamless.add_primitive(type='BOX')
+    props = utils_props()
+    props.primitives[-1].size = (2.0, 2.0, 2.0)
+
+    lineages = _capture_edge_lineages(col)
+    assert len(lineages) >= 4, "the box did not report its edges"
+
+    bpy.ops.seamless.add_primitive(type='FILLET')
+    props = utils_props()
+    fillet = props.primitives[-1]
+    fillet.target_lineages = "|".join(lineages[:4])
+    fillet.radius = 0.2
+    core_bridge.update_cad_preview_forced(bpy.context)
+
+    stack_ptr = int(col.seamless_cad_stack_ptr)
+    filleted = core_bridge.measure_stack(stack_ptr)
+    assert filleted is not None
+    # 角を丸めたぶん体積は 8 より小さい
+    assert filleted["volume"] < 8.0 - 1e-4,         f"the fillet should remove material; volume is {filleted['volume']}"
+
+    # 選択モードに入る = 対象の選び直し
+    props.active_primitive_index = len(props.primitives) - 1
+    props.is_selection_mode = True
+    active = core_bridge._get_active_preview_primitive(props)
+    assert core_bridge._is_modifier_retargeting(props, active),         "entering Selection Mode on a FILLET must count as retargeting (the panel warns on this)"
+
+    core_bridge.update_cad_preview_forced(bpy.context)
+    during = core_bridge.measure_stack(stack_ptr)
+    assert during is not None
+    assert abs(during["volume"] - 8.0) < 1e-3,         (f"while re-picking targets the fillet is sent with none, so the shape is the "
+         f"plain 2x2x2 box; volume should be 8.0, got {during['volume']}")
+
+    # 抜ければ元に戻る
+    props.is_selection_mode = False
+    assert not core_bridge._is_modifier_retargeting(props, active),         "leaving Selection Mode must clear the retargeting state"
+    core_bridge.update_cad_preview_forced(bpy.context)
+    after = core_bridge.measure_stack(stack_ptr)
+    assert abs(after["volume"] - filleted["volume"]) < 1e-3,         f"the fillet should come back; {after['volume']} vs {filleted['volume']}"
+
+
 def t_sketch_solver_constraints():
     """2D スケッチの拘束ソルバ(GCS)が実際に解いている。
 
@@ -1168,6 +1223,7 @@ def main():
     check("CHAMFER cuts edges", t_chamfer_cuts_edges)
     check("measure part", t_measure_part)
     check("measure selected entity", t_measure_entity)
+    check("measure while retargeting", t_measure_during_retargeting)
     check("sketch solver constraints", t_sketch_solver_constraints)
     check("sketch radius constraint", t_sketch_radius_constraint_action)
     check("circle dimension holds centre", t_sketch_circle_distance_holds_centre)

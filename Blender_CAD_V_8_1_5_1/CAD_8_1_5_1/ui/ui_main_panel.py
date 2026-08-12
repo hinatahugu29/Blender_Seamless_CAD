@@ -138,6 +138,24 @@ class SEAMLESS_PT_MeasurePanel(bpy.types.Panel):
         layout = self.layout
         props = utils.get_active_props(context)
 
+        # モディファイアの対象を選び直している最中は、カーネルが計算している
+        # 形状が**そのモディファイアを適用する前**のものになる。
+        # core_bridge が選択途中の中途半端な対象で適用しないよう、ターゲットを
+        # 空で送っているため(_is_modifier_retargeting)。対象ゼロのフィレットは
+        # 何もしないので、結果として素の形が返る。
+        #
+        # そのまま数字を出すと「Measure Active Part」がフィレット前の体積を
+        # 平然と表示することになる。**測っている対象が違うと言うのが先。**
+        retargeting = None
+        active = core_bridge._get_active_preview_primitive(props)
+        if active is not None and core_bridge._is_modifier_retargeting(props, active):
+            retargeting = active.type
+            box_warn = layout.box()
+            box_warn.label(text=f"Picking targets for {retargeting}", icon='INFO')
+            box_warn.label(text="Measurements below describe the shape")
+            box_warn.label(text=f"BEFORE {retargeting} is applied.")
+            box_warn.label(text="Exit Selection Mode for the finished part.")
+
         # --- 選択している辺/面 ---
         #
         # Part 全体より先に置く。選択モードで何かを摘まんでいるときは、
