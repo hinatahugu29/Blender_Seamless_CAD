@@ -545,6 +545,26 @@ def t_measure_part():
     assert abs(props.measure_volume - 16.0) < 1e-3, \
         f"the operator stored {props.measure_volume}, expected 16"
 
+    # **曲面でも寸法が正確であること。** 箱は全面が平面なので、バウンディング
+    # ボックスの求め方を間違えていても正解が出てしまう。実際 BRepBndLib::Add と
+    # AddOptimal(useTriangulation=true) では、半径2の球が 4.109/4.094/4.123 と
+    # 3軸バラバラかつ 3% 大きい値になっていた。箱だけで測っていたので通っていた。
+    col, props = _fresh_part()
+    bpy.ops.seamless.add_primitive(type='SPHERE')
+    props = utils_props()
+    props.primitives[-1].size = (2.0, 2.0, 2.0)
+    core_bridge.update_cad_preview_forced(bpy.context)
+    m = core_bridge.measure_stack(int(col.seamless_cad_stack_ptr))
+    assert m is not None, "measure_stack returned nothing for a sphere"
+
+    # 体積から半径を逆算する: V = 4/3 pi r^3
+    r = (m["volume"] * 3.0 / (4.0 * math.pi)) ** (1.0 / 3.0)
+    for axis, v in zip("xyz", m["size"]):
+        assert abs(v - 2.0 * r) < 1e-3,             f"a sphere of radius {r:.4f} should measure {2*r:.4f} on {axis}, got {v:.4f}"
+    # 対称な形なので3軸は一致していなければならない。ここがずれるのは
+    # バウンディングボックスがテセレーション由来になっている印
+    assert max(m["size"]) - min(m["size"]) < 1e-3,         f"a sphere must measure the same on every axis, got {tuple(round(v,4) for v in m['size'])}"
+
 
 def t_sketch_solver_constraints():
     """2D スケッチの拘束ソルバ(GCS)が実際に解いている。

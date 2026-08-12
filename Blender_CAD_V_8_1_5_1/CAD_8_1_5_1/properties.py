@@ -488,6 +488,15 @@ def update_sketch_constraint_value(self, context):
                         props = scene.seamless_props
                         break
     if props:
+        # RADIUS は 0 以下にできない。CircleRadius は半径変数を value に
+        # 縛り、DistanceVar がそれを |中心-円周点| に等しくするので、負の値は
+        # 「距離が負」という解の無い連立になる。0 はヤコビ行列が特異になる。
+        # 作成時には action_constraint_radius が弾いているが、この機能の主眼は
+        # 「あとから数値で編集する」ことなので、編集経路にも同じ歯止めが要る。
+        if self.type == 'RADIUS' and self.value < 1e-6:
+            self.value = 1e-6   # 再帰的にこのコールバックが走り、下の solve に進む
+            return
+
         from .sketch.sketch_solver import solve_gcs_external
         solve_gcs_external(props, context)
         update_cad_preview(None, context)

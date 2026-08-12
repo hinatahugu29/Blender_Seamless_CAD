@@ -2061,9 +2061,26 @@ bool measure_stack(void* stack_ptr, double* out) {
         out[3] = com.Y();
         out[4] = com.Z();
 
+        // Add ではなく AddOptimal、しかも **useTriangulation = false** で呼ぶこと。
+        // ここは3回測り直して詰めた場所なので、安易に既定値へ戻さないこと。
+        //
+        //   BRepBndLib::Add                     → 半径2の球が 4.1086/4.0940/4.1231
+        //   AddOptimal (既定 useTriangulation=true) → 同上、まったく改善しない
+        //   AddOptimal (useTriangulation=false)  → 4.0/4.0/4.0
+        //
+        // 犯人はテセレーションだった。既定では既存の三角形分割から箱を作り、
+        // そこに deflection ぶんの余裕が乗る。**完全に対称な球なのに3軸の値が
+        // 全部違う**のが目印で、これが出たらこのフラグを疑うこと。
+        // false にすると厳密な幾何から求めるので遅いが、計測はボタンを押した
+        // ときだけ走るので問題にならない。1〜3% ずれた数字を出す計測機能には
+        // 存在価値が無い。
+        //
+        // SetGap(0.0) も要る。Bnd_Box::Get は設定された gap のぶん広げて返すので、
+        // 箱を密着させても gap が残っていれば同じだけ膨らむ。
         Bnd_Box box;
-        BRepBndLib::Add(stack->current_shape, box);
+        BRepBndLib::AddOptimal(stack->current_shape, box, Standard_False, Standard_False);
         if (box.IsVoid()) return false;
+        box.SetGap(0.0);
         box.Get(out[5], out[6], out[7], out[8], out[9], out[10]);
         return true;
     } catch (...) {

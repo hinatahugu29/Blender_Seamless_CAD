@@ -84,11 +84,14 @@ class SEAMLESS_PT_SketchPanel(bpy.types.Panel):
                 text="Radius",
                 icon="MESH_CIRCLE",
             ).action = "CONSTRAINT_RADIUS"
-            col_constraints.operator(
-                "seamless.sketch_action",
-                text="Concentric",
-                icon="ANTIALIASED",
-            ).action = "CONSTRAINT_CONCENTRIC"
+            # 同心は円/円弧が2つ要る。Radius と同じ条件で出すと、円を1つだけ
+            # 選んだ状態で「押すと警告が出るだけのボタン」になる。
+            if self._selection_circular_count(props) >= 2:
+                col_constraints.operator(
+                    "seamless.sketch_action",
+                    text="Concentric",
+                    icon="ANTIALIASED",
+                ).action = "CONSTRAINT_CONCENTRIC"
 
         # 対称は「軸にする線1本 + 点2つ」を選んだとき
         if props.sketch_selected_line_id >= 0 and props.sketch_selected_point_id >= 0 \
@@ -278,6 +281,27 @@ class SEAMLESS_PT_SketchPanel(bpy.types.Panel):
             text="Cancel",
             icon="CANCEL",
         ).action = "CANCEL"
+
+    @staticmethod
+    def _selection_circular_count(props):
+        """選択中の点から解決できる、別々の円/円弧の中心の数。
+
+        同心拘束は2つ以上でないと成立しない。中心IDで数えるのは
+        action_constraint_concentric と同じ基準に揃えるため。
+        """
+        selected = {int(x) for x in props.sketch_selected_points_str.split(",") if x}
+        for pid in (props.sketch_selected_point_id, props.sketch_selected_point_id_2):
+            if pid >= 0:
+                selected.add(pid)
+
+        centres = set()
+        for c in props.sketch_circles:
+            if selected & {c.center_point_id, c.radius_point_id}:
+                centres.add(c.center_point_id)
+        for a in props.sketch_arcs:
+            if selected & {a.center_point_id, a.start_point_id, a.end_point_id, a.mid_point_id}:
+                centres.add(a.center_point_id)
+        return len(centres)
 
     @staticmethod
     def _selection_has_circular(props):

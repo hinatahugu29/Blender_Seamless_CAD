@@ -9,6 +9,23 @@ from ..sketch_finalize import finalize_sketch, calculate_arc_points, calculate_c
 from ...core_bridge import update_cad_preview
 
 
+def _next_constraint_id(props):
+    """未使用の拘束IDを返す。
+
+    以前は `len(props.sketch_constraints) + 1` を add() の**後**に評価していた。
+    追加しかしないうちは一意だが、削除を挟むと破綻する:
+
+        2件追加 -> id 2, 3 / id 2 を削除 -> 残り [id 3], len=1
+        もう1件追加 -> len=2 なので再び id 3 -> **id 3 が2つ**
+
+    こうなると action_delete_constraint は最初に一致した方を消すので、
+    クリックした行ではなく古い拘束が消える。properties.py の
+    update_sketch_constraint_value も id で props を逆引きしているため、
+    値の編集が別のコレクションに当たりうる。最大値+1 なら削除しても衝突しない。
+    """
+    return max((c.id for c in props.sketch_constraints), default=0) + 1
+
+
 def action_delete_constraint(op, context, props):
     if op.constraint_id >= 0:
         push_history(props)
@@ -36,7 +53,7 @@ def action_constraint_fixed(op, context, props):
             dup = any(c.type == 'FIXED' and c.target_ids_str == str(tid) for c in props.sketch_constraints)
             if not dup:
                 const = props.sketch_constraints.add()
-                const.id = len(props.sketch_constraints) + 1
+                const.id = _next_constraint_id(props)
                 const.type = 'FIXED'
                 const.target_ids_str = str(tid)
                 const.value = 0.0
@@ -58,7 +75,7 @@ def action_constraint_horizontal_vertical(op, context, props):
         dup = any(c.type == const_type and (c.target_ids_str == target_str or c.target_ids_str == target_str_rev) for c in props.sketch_constraints)
         if not dup:
             const = props.sketch_constraints.add()
-            const.id = len(props.sketch_constraints) + 1
+            const.id = _next_constraint_id(props)
             const.type = const_type
             const.target_ids_str = target_str
             const.value = 0.0
@@ -85,7 +102,7 @@ def action_constraint_horizontal_vertical(op, context, props):
                 dup = any(c.type == const_type and c.target_ids_str == target_str for c in props.sketch_constraints)
                 if not dup:
                     const = props.sketch_constraints.add()
-                    const.id = len(props.sketch_constraints) + 1
+                    const.id = _next_constraint_id(props)
                     const.type = const_type
                     const.target_ids_str = target_str
                     const.value = 0.0
@@ -128,7 +145,7 @@ def action_constraint_parallel_perpendicular(op, context, props):
             
             if not dup:
                 const = props.sketch_constraints.add()
-                const.id = len(props.sketch_constraints) + 1
+                const.id = _next_constraint_id(props)
                 const.type = const_type
                 const.target_ids_str = target_str
                 const.value = 0.0
@@ -329,7 +346,7 @@ def action_constraint_distance(op, context, props):
                 current_dist = math.sqrt(dx*dx + dy*dy)
                 
                 const = props.sketch_constraints.add()
-                const.id = len(props.sketch_constraints) + 1
+                const.id = _next_constraint_id(props)
                 const.type = 'DISTANCE'
                 const.target_ids_str = target_str
                 const.value = current_dist
@@ -349,6 +366,10 @@ def _two_selected_lines(props):
     l1_id = props.sketch_selected_line_id
     l2_id = props.sketch_selected_line_id_2
     if l1_id < 0 or l2_id < 0:
+        return None
+    if l1_id == l2_id:
+        # 同じ線を2回選んだ状態。角度0や「自分と同じ長さ」は常に満たされる
+        # ので、拘束の行だけが増えて何も効かない。ここで弾く。
         return None
     line1 = next((l for l in props.sketch_lines if l.id == l1_id), None)
     line2 = next((l for l in props.sketch_lines if l.id == l2_id), None)
@@ -422,7 +443,7 @@ def action_constraint_angle(op, context, props):
 
     push_history(props)
     const = props.sketch_constraints.add()
-    const.id = len(props.sketch_constraints) + 1
+    const.id = _next_constraint_id(props)
     const.type = 'ANGLE'
     const.target_ids_str = target_str
     const.value = angle_deg
@@ -446,7 +467,7 @@ def action_constraint_equal(op, context, props):
 
     push_history(props)
     const = props.sketch_constraints.add()
-    const.id = len(props.sketch_constraints) + 1
+    const.id = _next_constraint_id(props)
     const.type = 'EQUAL'
     const.target_ids_str = target_str
     const.value = 0.0
@@ -504,7 +525,7 @@ def action_constraint_concentric(op, context, props):
 
     push_history(props)
     const = props.sketch_constraints.add()
-    const.id = len(props.sketch_constraints) + 1
+    const.id = _next_constraint_id(props)
     const.type = 'CONCENTRIC'
     const.target_ids_str = f"{c1},{c2}"
     const.value = 0.0
@@ -548,13 +569,15 @@ def action_constraint_symmetric(op, context, props):
         if c.type != 'SYMMETRIC':
             continue
         parts = [int(x.strip()) for x in c.target_ids_str.split(",") if x.strip()]
-        if len(parts) == 4 and set(parts[2:]) == pair:
-            op.report({'WARNING'}, "These two points are already constrained symmetric.")
+        # 軸も含めて比較する。点だけで見ると、別の線について対称にしたい
+        # ときに「既にある」と嘘の理由で拒否してしまう。
+        if len(parts) == 4 and set(parts[2:]) == pair and set(parts[:2]) == axis_pts:
+            op.report({'WARNING'}, "These two points are already symmetric about this line.")
             return
 
     push_history(props)
     const = props.sketch_constraints.add()
-    const.id = len(props.sketch_constraints) + 1
+    const.id = _next_constraint_id(props)
     const.type = 'SYMMETRIC'
     const.target_ids_str = f"{axis.start_point_id},{axis.end_point_id},{p1},{p2}"
     const.value = 0.0
@@ -623,8 +646,11 @@ def action_constraint_radius(op, context, props):
     for c in props.sketch_constraints:
         if c.type != 'RADIUS':
             continue
+        # 中心IDだけで見ないこと。Coincident は点を統合するので、円と円弧が
+        # 同じ中心点を共有しうる。その状態で中心だけ比べると、片方に半径を
+        # 付けた時点でもう片方が「既にある」と拒否される。
         existing = [x.strip() for x in c.target_ids_str.split(",") if x.strip()]
-        if existing and existing[0] == str(center_id):
+        if existing[:2] == [str(center_id), str(rim_id)]:
             op.report({'WARNING'}, f"A radius constraint already exists on {label}.")
             return
 
@@ -646,7 +672,7 @@ def action_constraint_radius(op, context, props):
     push_history(props)
 
     const = props.sketch_constraints.add()
-    const.id = len(props.sketch_constraints) + 1
+    const.id = _next_constraint_id(props)
     const.type = 'RADIUS'
     const.target_ids_str = target_str
     const.value = current_radius

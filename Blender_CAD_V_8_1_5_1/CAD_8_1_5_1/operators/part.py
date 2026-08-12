@@ -155,10 +155,12 @@ class SEAMLESS_OT_MeasurePart(bpy.types.Operator):
             self.report({'ERROR'}, "No active Seamless CAD part")
             return {'CANCELLED'}
 
-        col = getattr(props, "id_data", None)
-        stack_ptr = 0
+        # utils.get_active_stack_ptr を使う。props.id_data から自前で辿ると、
+        # 「どれがアクティブな Part か」の判定経路が二重になり、
+        # get_active_collection の優先順位が変わったときに、他の操作と
+        # 違う Part を測るようになる。
         try:
-            stack_ptr = int(getattr(col, "seamless_cad_stack_ptr", "0"))
+            stack_ptr = int(utils.get_active_stack_ptr(context))
         except (TypeError, ValueError):
             stack_ptr = 0
 
