@@ -499,6 +499,53 @@ def _sk_co(props, pid):
     raise AssertionError(f"sketch point {pid} not found")
 
 
+def t_measure_part():
+    """計測が実際の形状を測っている。
+
+    2x2x2 の箱なら体積 8、表面積 24、重心は原点。数字が既知なので、
+    「何か返ってきた」ではなく「正しい値か」を見られる。
+    """
+    from CAD_8_1_5_1 import core_bridge
+
+    col, props = _fresh_part()
+    bpy.ops.seamless.add_primitive(type='BOX')
+    props = utils_props()
+    prim = props.primitives[-1]
+    prim.size = (2.0, 2.0, 2.0)
+    core_bridge.update_cad_preview_forced(bpy.context)
+
+    stack_ptr = int(col.seamless_cad_stack_ptr)
+    assert stack_ptr, "the part has no stack to measure"
+
+    m = core_bridge.measure_stack(stack_ptr)
+    assert m is not None, "measure_stack returned nothing"
+
+    assert abs(m["volume"] - 8.0) < 1e-3, f"a 2x2x2 box should have volume 8, got {m['volume']}"
+    assert abs(m["area"] - 24.0) < 1e-3, f"a 2x2x2 box should have area 24, got {m['area']}"
+    for axis, v in zip("xyz", m["size"]):
+        assert abs(v - 2.0) < 1e-3, f"size {axis} should be 2.0, got {v}"
+    for axis, v in zip("xyz", m["centre_of_mass"]):
+        assert abs(v) < 1e-3, f"centre of mass {axis} should be 0, got {v}"
+
+    # 寸法を変えたら測り直しに追従する。同じ値を返し続けるキャッシュを検出する
+    prim.size = (4.0, 2.0, 2.0)
+    core_bridge.update_cad_preview_forced(bpy.context)
+    m2 = core_bridge.measure_stack(stack_ptr)
+    assert m2 is not None, "measure_stack returned nothing after the edit"
+    assert abs(m2["volume"] - 16.0) < 1e-3, \
+        f"after widening the box the volume should be 16, got {m2['volume']}"
+
+    # 存在しないスタックはエラーであって、ゼロ埋めの成功ではない
+    assert core_bridge.measure_stack(0) is None, \
+        "measuring a null stack must fail rather than report zeroes"
+
+    # オペレータ経由でも同じ値がプロパティに載る
+    bpy.ops.seamless.measure_part()
+    assert props.measure_valid, "the measure operator did not mark the result valid"
+    assert abs(props.measure_volume - 16.0) < 1e-3, \
+        f"the operator stored {props.measure_volume}, expected 16"
+
+
 def t_sketch_solver_constraints():
     """2D スケッチの拘束ソルバ(GCS)が実際に解いている。
 
@@ -969,6 +1016,7 @@ def main():
     check("dispatch signature keeps user precision", t_dispatch_signature_precision)
     check("FILLET rounds edges", t_fillet_rounds_edges)
     check("CHAMFER cuts edges", t_chamfer_cuts_edges)
+    check("measure part", t_measure_part)
     check("sketch solver constraints", t_sketch_solver_constraints)
     check("sketch radius constraint", t_sketch_radius_constraint_action)
     check("sketch angle + equal solve", t_sketch_angle_and_equal)

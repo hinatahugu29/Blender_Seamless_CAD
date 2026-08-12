@@ -114,6 +114,38 @@ pub fn export_step(uuids: Vec<String>, filepath: &str) -> Result<(), String> {
     }
 }
 
+/// スタックの質量特性と外形寸法。
+///
+/// 返るのは 11 個の f64:
+/// `[体積, 表面積, 重心x, 重心y, 重心z, xmin, ymin, zmin, xmax, ymax, zmax]`
+///
+/// 体積 0 は「測れなかった」ではなく「ソリッドではない(閉じていない)」の意味。
+/// 呼び出し側でそう扱うこと。
+pub fn measure_stack(stack_ptr: isize) -> Result<Vec<f64>, String> {
+    if !crate::is_valid_stack_ptr(stack_ptr) {
+        return Err(format!("measure_stack: unknown or already-deleted stack_ptr {}", stack_ptr));
+    }
+
+    // 形状の更新中に読むと、作りかけの TopoDS_Shape を触ることになる。
+    // ピッキングが同じ理由でスタック単位のロックを取っているのに倣う。
+    let lock = crate::get_stack_lock(stack_ptr);
+    let _guard = lock.lock().map_err(|_| "measure_stack: stack lock poisoned".to_string())?;
+
+    let mut out = vec![0.0f64; 11];
+    let out_ptr = out.as_mut_ptr();
+    let ok = unsafe {
+        cpp!([stack_ptr as "void*", out_ptr as "double*"] -> bool as "bool" {
+            return occ_core::measure_stack(stack_ptr, out_ptr);
+        })
+    };
+
+    if ok {
+        Ok(out)
+    } else {
+        Err("measure_stack: the stack has no shape to measure".to_string())
+    }
+}
+
 pub fn export_stack_to_step(stack_ptr: isize, filepath: &str) -> Result<(), String> {
     if !crate::is_valid_stack_ptr(stack_ptr) {
         return Err(format!("export_stack_to_step: unknown or already-deleted stack_ptr {}", stack_ptr));

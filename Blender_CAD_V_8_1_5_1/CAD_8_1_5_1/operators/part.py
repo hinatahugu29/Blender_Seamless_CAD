@@ -4,6 +4,7 @@ import math
 import mathutils
 from bpy_extras import view3d_utils
 from ..core_bridge import get_core, update_cad_preview, update_cad_preview_high_quality, update_cad_preview_fast, is_core_busy, get_or_create_stack_ptr
+from .. import core_bridge
 from ..drawing import get_wireframe_engine
 from .. import utils
 
@@ -140,3 +141,48 @@ class SEAMLESS_OT_GetVersion(bpy.types.Operator):
         self.report({'INFO'}, f"Core Version: {core.get_version()}")
         return {'FINISHED'}
 
+
+
+class SEAMLESS_OT_MeasurePart(bpy.types.Operator):
+    """Measure the active part: volume, surface area, centre of mass and size"""
+    bl_idname = "seamless.measure_part"
+    bl_label = "Measure Part"
+    bl_description = "Measure the active part's volume, surface area, centre of mass and overall size"
+
+    def execute(self, context):
+        props = utils.get_active_props(context)
+        if not props:
+            self.report({'ERROR'}, "No active Seamless CAD part")
+            return {'CANCELLED'}
+
+        col = getattr(props, "id_data", None)
+        stack_ptr = 0
+        try:
+            stack_ptr = int(getattr(col, "seamless_cad_stack_ptr", "0"))
+        except (TypeError, ValueError):
+            stack_ptr = 0
+
+        if not stack_ptr:
+            self.report({'ERROR'}, "This part has no geometry to measure yet")
+            return {'CANCELLED'}
+
+        result = core_bridge.measure_stack(stack_ptr)
+        if not result:
+            props.measure_valid = False
+            self.report({'ERROR'}, "The kernel could not measure this shape")
+            return {'CANCELLED'}
+
+        props.measure_volume = result["volume"]
+        props.measure_area = result["area"]
+        props.measure_centre = result["centre_of_mass"]
+        props.measure_size = result["size"]
+        props.measure_valid = True
+
+        # 体積 0 はソリッドでない(閉じていない)という意味で、失敗ではない。
+        # 黙って 0 を出すとユーザーは測定が壊れたと解釈するので、ここで言う。
+        if result["volume"] <= 1e-12:
+            self.report({'WARNING'},
+                        "Measured, but this shape is not a closed solid, so it has no volume")
+        else:
+            self.report({'INFO'}, f"Volume {result['volume']:.3f}, area {result['area']:.3f}")
+        return {'FINISHED'}

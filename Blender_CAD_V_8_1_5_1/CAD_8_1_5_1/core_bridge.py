@@ -900,6 +900,9 @@ def send_and_receive(req_dict):
                 return json.loads(res_json)
             elif req_dict.get('action') in {'export_step', 'export_stack_to_step'}:
                 return True
+            elif req_dict.get('action') == 'measure_stack':
+                # f64 が 11 個 (体積, 表面積, 重心xyz, bbox 6値)
+                return list(struct.unpack('<11d', recv_exact(88)))
             elif req_dict.get('action') == 'render_viewport':
                 pix_len = struct.unpack('<I', recv_exact(4))[0]
                 pixels = bytes(recv_exact(pix_len))
@@ -1065,6 +1068,30 @@ def export_stack_to_step(stack_ptr, filepath):
         "filepath": filepath
     }
     return send_and_receive(req_dict)
+
+def measure_stack(stack_ptr):
+    """スタックの質量特性を測る。
+
+    返り値は dict、測れなければ None。
+
+    **volume が 0.0 のときは「測定に失敗した」ではなく「ソリッドではない」**
+    という意味。閉じていないシェルの体積は定義できないので、カーネルは 0 を
+    返す。UI 側でそう表示すること。
+    """
+    if not stack_ptr:
+        return None
+    vals = send_and_receive({"action": "measure_stack", "stack_ptr": stack_ptr})
+    if not vals or len(vals) != 11:
+        return None
+    return {
+        "volume": vals[0],
+        "area": vals[1],
+        "centre_of_mass": (vals[2], vals[3], vals[4]),
+        "bbox_min": (vals[5], vals[6], vals[7]),
+        "bbox_max": (vals[8], vals[9], vals[10]),
+        "size": (vals[8] - vals[5], vals[9] - vals[6], vals[10] - vals[7]),
+    }
+
 
 def get_or_create_stack_ptr(scene_or_col):
     if not scene_or_col:

@@ -562,6 +562,22 @@ class SeamlessProperties(bpy.types.PropertyGroup):
     selected_edges_str: bpy.props.StringProperty(name="Selected Edges", default="", update=update_cad_preview)
     selected_faces_str: bpy.props.StringProperty(name="Selected Faces", default="", update=update_cad_preview)
     is_selection_mode: bpy.props.BoolProperty(name="Selection Mode", default=False)
+
+    # 計測結果の控え。
+    #
+    # パネルの draw() から直接カーネルを呼ばないための保持先。draw は
+    # マウスを動かすだけでも走るので、そこで TCP 往復をすると
+    # 「パネルを開いているだけで重い」状態になる。測るのはボタンを
+    # 押したときだけで、ここに置いた値を表示する。
+    #
+    # measure_valid は「一度でも測ったか」。形状を変えても自動では
+    # falseにしていない --- 古い値だと分かるよう、UI 側で測定時からの
+    # 変化を促す文言を出している。
+    measure_valid: bpy.props.BoolProperty(name="Measured", default=False)
+    measure_volume: bpy.props.FloatProperty(name="Volume", default=0.0)
+    measure_area: bpy.props.FloatProperty(name="Surface Area", default=0.0)
+    measure_centre: bpy.props.FloatVectorProperty(name="Centre of Mass", size=3)
+    measure_size: bpy.props.FloatVectorProperty(name="Size", size=3)
     is_dragging: bpy.props.BoolProperty(name="Is Dragging", default=False)
     # Interactive placement (Surface Snapping add) is a custom modal, not a
     # Blender transform, so it can't ride is_dragging (the depsgraph handler

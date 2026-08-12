@@ -115,6 +115,68 @@ class SEAMLESS_PT_QualityBakePanel(bpy.types.Panel):
         row_io.operator("seamless.import_svg", text="Import SVG", icon='IMPORT')
         row_io.operator("seamless.export_step", text="Export STEP", icon='EXPORT')
 
+class SEAMLESS_PT_MeasurePanel(bpy.types.Panel):
+    """アクティブな Part の質量特性を表示する。
+
+    測るのはボタンを押したときだけ。draw() はマウスを動かすだけでも走るので、
+    ここからカーネルを呼ぶと「パネルを開いているだけで重い」ことになる。
+    このアドオンの性能設計は「毎フレーム仕事をしない」で成り立っているので、
+    そこに例外を作らない。
+    """
+    bl_label = "Measure"
+    bl_idname = "SEAMLESS_PT_MeasurePanel"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = 'Seamless'
+    bl_options = {'DEFAULT_CLOSED'}
+
+    @classmethod
+    def poll(cls, context):
+        return poll_main(context)
+
+    def draw(self, context):
+        layout = self.layout
+        props = utils.get_active_props(context)
+
+        layout.operator("seamless.measure_part", text="Measure Active Part", icon='DRIVER_DISTANCE')
+
+        if not props.measure_valid:
+            layout.label(text="Not measured yet.", icon='INFO')
+            return
+
+        col = layout.column(align=True)
+
+        # 体積 0 は測定失敗ではなく「閉じたソリッドではない」。ここで
+        # 言わないと、ユーザーは計測が壊れていると解釈する。
+        if props.measure_volume <= 1e-12:
+            box = col.box()
+            box.label(text="Not a closed solid", icon='ERROR')
+            box.label(text="Volume is undefined for an open shell.")
+        else:
+            col.label(text=f"Volume: {props.measure_volume:.4f}", icon='MESH_CUBE')
+
+        col.label(text=f"Surface area: {props.measure_area:.4f}", icon='MESH_GRID')
+
+        col.separator()
+        col.label(text="Size (X / Y / Z):")
+        row = col.row(align=True)
+        for v in props.measure_size:
+            row.label(text=f"{v:.4f}")
+
+        col.separator()
+        col.label(text="Centre of mass:")
+        row = col.row(align=True)
+        for v in props.measure_centre:
+            row.label(text=f"{v:.4f}")
+
+        col.separator()
+        # 1 Blender unit = 1 mm は STEP 書き出しの前提でもある
+        # (docs/en/limitations.md)。単位を書かずに数字だけ出すと、
+        # 体積が mm^3 なのか m^3 なのか判断できない。
+        col.label(text="1 Blender unit = 1 mm on STEP export.", icon='INFO')
+        col.label(text="Values are stale if you edited since measuring.")
+
+
 class SEAMLESS_PT_SelectionPanel(bpy.types.Panel):
     bl_label = "Selection Mode"
     bl_idname = "SEAMLESS_PT_SelectionPanel"

@@ -247,6 +247,10 @@ void make_variable_box_mesh(
     PushPointFn push_point, PushCountFn push_count
 );
 
+// スタックの質量特性と外形寸法。out は 11 個の double
+// [体積, 表面積, 重心xyz, bbox(xmin,ymin,zmin,xmax,ymax,zmax)]
+bool measure_stack(void* stack_ptr, double* out);
+
 std::string get_version();
 
 } // namespace occ_core

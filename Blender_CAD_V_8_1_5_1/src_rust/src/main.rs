@@ -543,6 +543,25 @@ fn handle_client(mut stream: TcpStream, workers: StackWorkers) {
                 }
             }
 
+        } else if action == "measure_stack" {
+            // 応答: 成功なら 1u8 + f64 を 11 個 (リトルエンディアン)。
+            // 失敗なら 0u8 + エラー長 + エラー文字列。export_stack_to_step と同じ形。
+            let stack_ptr = req["stack_ptr"].as_i64().unwrap_or(0) as isize;
+            match seamless_core::measure_stack(stack_ptr) {
+                Ok(vals) => {
+                    stream.write_all(&[1u8]).unwrap();
+                    for v in &vals {
+                        stream.write_all(&v.to_le_bytes()).unwrap();
+                    }
+                },
+                Err(e) => {
+                    stream.write_all(&[0u8]).unwrap();
+                    let eb = e.as_bytes();
+                    stream.write_all(&(eb.len() as u32).to_le_bytes()).unwrap();
+                    stream.write_all(eb).unwrap();
+                }
+            }
+
         } else if action == "export_stack_to_step" {
             let filepath  = req["filepath"].as_str().unwrap_or("");
             let stack_ptr = req["stack_ptr"].as_i64().unwrap_or(0) as isize;

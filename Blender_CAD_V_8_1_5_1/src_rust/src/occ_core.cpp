@@ -2024,6 +2024,53 @@ void generate_full_edges(void* stack_ptr, double deflection, double angular_defl
 
 
 
+// スタックの現在形状の質量特性と外形寸法を測る。
+//
+// out には 11 個の double を順に書く:
+//   [0]     体積
+//   [1]     表面積
+//   [2..4]  重心 (x, y, z)
+//   [5..10] バウンディングボックス (xmin, ymin, zmin, xmax, ymax, zmax)
+//
+// 体積は VolumeProperties、面積は SurfaceProperties。どちらも既にこのファイル
+// 内で使っている呼び出しで、新しい幾何計算は無い。
+//
+// **面しか無い形状(ソリッドになっていないもの)では体積が 0 になる。** これは
+// 誤りではなく、閉じていないシェルの体積は定義できないため。呼び出し側は
+// 0 を「未計算」ではなく「ソリッドではない」と解釈すること。
+bool measure_stack(void* stack_ptr, double* out) {
+    if (!stack_ptr || !out) return false;
+    CADStack* stack = static_cast<CADStack*>(stack_ptr);
+    if (stack->current_shape.IsNull()) return false;
+
+    try {
+        GProp_GProps vprops;
+        BRepGProp::VolumeProperties(stack->current_shape, vprops);
+        // 面の向きが揃っていない形状では負の体積が返る。表示するのは大きさ
+        // なので絶対値を取る (occ_core.cpp の他の箇所では、負値を検出して
+        // 形状を Reverse する判定に使っている)。
+        out[0] = std::abs(vprops.Mass());
+
+        GProp_GProps sprops;
+        BRepGProp::SurfaceProperties(stack->current_shape, sprops);
+        out[1] = sprops.Mass();
+
+        // 重心は体積基準。体積が無い(シェル)場合は面積基準の重心で代用する
+        gp_Pnt com = (out[0] > 1e-12) ? vprops.CentreOfMass() : sprops.CentreOfMass();
+        out[2] = com.X();
+        out[3] = com.Y();
+        out[4] = com.Z();
+
+        Bnd_Box box;
+        BRepBndLib::Add(stack->current_shape, box);
+        if (box.IsVoid()) return false;
+        box.Get(out[5], out[6], out[7], out[8], out[9], out[10]);
+        return true;
+    } catch (...) {
+        return false;
+    }
+}
+
 // カーネルが**どの OCCT で建てられたか**を返す。
 //
 // ここは以前 "V8.1.3.3 (cache instrumentation pass)" というアドオン版数の
