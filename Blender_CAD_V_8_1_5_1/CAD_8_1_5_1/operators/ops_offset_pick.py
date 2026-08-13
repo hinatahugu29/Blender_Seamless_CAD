@@ -7,6 +7,7 @@ from bpy_extras import view3d_utils
 
 from .. import core_bridge
 from .. import utils
+from ..core.semantic_targets import parse_target_coord
 
 def draw_offset_pick_hud(self, context):
     try:
@@ -144,35 +145,15 @@ def _triangle_normal(verts):
     return None
 
 
-def _split_lineage(lineage):
-    """lineage を (座標部, 法線部) に割る。無い側は None。"""
-    text = str(lineage)
-    if "@" not in text:
-        return None, None
-    rest = text.split("@", 1)[1]
-    if _LINEAGE_NORMAL_TAG in rest:
-        coord_str, normal_str = rest.split(_LINEAGE_NORMAL_TAG, 1)
-    else:
-        coord_str, normal_str = rest, None
-    return coord_str, normal_str
-
-
-def _parse_triple(text):
-    if not text:
-        return None
-    try:
-        parts = [float(x) for x in text.split(";")]
-    except ValueError:
-        return None
-    if len(parts) < 3:
-        return None
-    return Vector(parts[:3])
-
-
 def lineage_hint_point(lineage):
-    """lineage が持つ「選んだ時点の面の中心」。無ければ None。"""
-    coord_str, _ = _split_lineage(lineage)
-    return _parse_triple(coord_str)
+    """lineage が持つ「選んだ時点の面の中心」。無ければ None。
+
+    自前で `@` を割らないこと。`core.semantic_targets.parse_target_coord` が
+    既に正解で、`#N:` も `|` も落とし、Edge / SemLoop で座標の位置が違うのも
+    見ている。ここで書き直した自作版が `#N:` を落とし忘れていたのが、
+    このスポイトの不具合そのものだった。
+    """
+    return parse_target_coord(str(lineage))
 
 
 def lineage_hint_normal(lineage):
@@ -183,9 +164,20 @@ def lineage_hint_normal(lineage):
     実際の報告では、法線 (0,0,1) の面を対象にしていたのに、キャッシュから
     起こした法線は (1,0,0) だった。
     """
-    _, normal_str = _split_lineage(lineage)
-    n = _parse_triple(normal_str)
-    if n is None or n.length < 1e-9:
+    text = str(lineage)
+    if _LINEAGE_NORMAL_TAG not in text:
+        return None
+    tail = text.split(_LINEAGE_NORMAL_TAG, 1)[1]
+    if "|" in tail:
+        tail = tail.split("|")[0]
+    try:
+        parts = [float(x) for x in tail.split(";")]
+    except ValueError:
+        return None
+    if len(parts) < 3:
+        return None
+    n = Vector(parts[:3])
+    if n.length < 1e-9:
         return None
     return n.normalized()
 
