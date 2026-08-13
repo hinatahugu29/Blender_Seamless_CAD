@@ -409,6 +409,17 @@ class SEAMLESS_OT_InteractiveOffsetPick(bpy.types.Operator):
         # (radius / extrude_height) along ref_norm, so subtract it back.
         self._ref_point = ref_pt - ref_norm * self._initial_radius
         self._ref_normal = ref_norm
+
+        # 一時的な調査用ログ。原因が確定したら消すこと。
+        # 「拾った値が狙いと違う」の切り分けには、参照面がどこに決まり、
+        # 既存値の引き戻しがどう効いたかが要る。
+        utils.info_print(
+            f"[OFFSET_PICK/invoke] attr={self.depth_attr} initial={self._initial_radius:.4f} "
+            f"target_lid={target_lid!r} "
+            f"cache_ref_pt={tuple(round(v, 4) for v in ref_pt)} "
+            f"ref_norm={tuple(round(v, 4) for v in ref_norm)} "
+            f"corrected_ref_pt={tuple(round(v, 4) for v in self._ref_point)}"
+        )
         
         self._target_point = None
         self._proj_point = None
@@ -483,6 +494,14 @@ class SEAMLESS_OT_InteractiveOffsetPick(bpy.types.Operator):
                 
         # Confirm
         if event.type == 'LEFTMOUSE' and event.value == 'PRESS':
+            utils.info_print(
+                f"[OFFSET_PICK/confirm] initial={self._initial_radius:.4f} "
+                f"ref_pt={tuple(round(v, 4) for v in self._ref_point)} "
+                f"ref_norm={tuple(round(v, 4) for v in self._ref_normal)} "
+                f"target_pt={tuple(round(v, 4) for v in self._target_point) if self._target_point else None} "
+                f"d={self._current_distance:.4f} "
+                f"written={getattr(props_dbg, self.depth_attr, None) if (props_dbg := utils.get_active_props(context)) else None}"
+            )
             self.finish(context)
             # force=True で正式なOCCT B-repを一度だけ確定計算する
             core_bridge.update_cad_preview_forced(context)
