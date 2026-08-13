@@ -123,6 +123,69 @@ def resolve_depth_attr(prim_type, requested):
     return requested or 'radius'
 
 
+def lineage_hint_point(lineage):
+    """lineage 末尾の `@x;y;z` を座標として取り出す。無ければ None。
+
+    これは対象を選んだ時点での面の位置。モディファイアが適用されると面は
+    そこから法線方向へ移動するので、**現在位置ではなく手がかり**として使う。
+    """
+    if not lineage or "@" not in lineage:
+        return None
+    try:
+        parts = [float(x) for x in lineage.split("@")[1].split(";")]
+    except ValueError:
+        return None
+    if len(parts) < 3:
+        return None
+    return Vector(parts[:3])
+
+
+def choose_reference_face(candidates, target_lineage):
+    """テセレーション結果から、対象 lineage が指す面を選ぶ。
+
+    candidates は [(lid, centroid), ...]。返すのは選んだ添字、無ければ None。
+
+    以前はプレフィックス(`Face:12`)が一致した**最初の**面を採っていた。
+    これがオフセット済みの形状で破綻する: モディファイアを適用すると面の
+    通し番号が振り直されるので、`Face:12` が別の面 --- 実測では反対側の面 ---
+    を指す。参照点も法線も別物になり、法線方向への射影がほぼ 0 になって、
+    スポイトで拾った値が 0.00 になっていた(2 が入るはずの場面で)。
+
+    なので lineage に埋まっている座標を手がかりに、**一番近い面**を選ぶ。
+    面はモディファイアで動くが、動くのは自分の法線方向にオフセット量ぶんで、
+    たいてい他の面より近いままでいる。プレフィックスが一致する候補があれば
+    その中から、無ければ全体から選ぶ --- 番号が変わっても拾えるように。
+    """
+    if not candidates:
+        return None
+
+    # 1. 完全一致があればそれ。番号も座標も同じなら、その面は動いていない
+    for i, (lid, _) in enumerate(candidates):
+        if str(lid) == str(target_lineage):
+            return i
+
+    hint = lineage_hint_point(target_lineage)
+
+    # 2. 座標の手がかりがあるなら、**番号より座標を信じる**。
+    #    番号一致を先に絞ってはいけない --- 振り直しが起きた場面では、
+    #    番号が合うほうが偽物で、本物は別の番号になっている。
+    if hint is not None:
+        best = None
+        best_d = None
+        for i, (_, c) in enumerate(candidates):
+            d = (Vector(c) - hint).length
+            if best_d is None or d < best_d:
+                best, best_d = i, d
+        return best
+
+    # 3. 座標が無い古い lineage は番号で。最初の一致(従来の挙動)
+    prefix = str(target_lineage).split("@")[0]
+    for i, (lid, _) in enumerate(candidates):
+        if str(lid).split("@")[0] == prefix:
+            return i
+    return None
+
+
 class SEAMLESS_OT_InteractiveOffsetPick(bpy.types.Operator):
     bl_idname = "seamless.interactive_offset_pick"
     bl_label = "Interactive Offset Pick"
@@ -161,24 +224,34 @@ class SEAMLESS_OT_InteractiveOffsetPick(bpy.types.Operator):
             len(stack._cache_fids) == 0 or len(stack._cache_verts) == 0):
             return None, None
         
+        # 面ごとの頂点を全部集めてから選ぶ。**最初の番号一致で決めないこと** ---
+        # choose_reference_face の説明を参照。
+        import numpy as np
         offset = 0
-        verts = []
+        face_verts = []
+        candidates = []
         for i, lid in enumerate(stack._cache_fids):
             count = stack._cache_counts[i]
-            lid_str = str(lid).split("@")[0]
-            target_lid_str = str(target_lid).split("@")[0]
-            if lid_str == target_lid_str:
-                start, end = offset, offset + count
-                tris = stack._cache_tris[start : end]
-                import numpy as np
-                if isinstance(tris, np.ndarray): 
-                    tris = tris.tolist()
-                for idx in tris:
-                    v = Vector((stack._cache_verts[idx*3], stack._cache_verts[idx*3+1], stack._cache_verts[idx*3+2]))
-                    verts.append(v)
-                break
+            tris = stack._cache_tris[offset : offset + count]
+            if isinstance(tris, np.ndarray):
+                tris = tris.tolist()
+            vs = [Vector((stack._cache_verts[idx*3], stack._cache_verts[idx*3+1], stack._cache_verts[idx*3+2]))
+                  for idx in tris]
             offset += count
-            
+            if not vs:
+                continue
+            c = Vector((0.0, 0.0, 0.0))
+            for v in vs:
+                c += v
+            c /= len(vs)
+            face_verts.append(vs)
+            candidates.append((lid, c))
+
+        pick = choose_reference_face(candidates, target_lid)
+        if pick is None:
+            return None, None
+        verts = face_verts[pick]
+
         if not verts: 
             return None, None
             

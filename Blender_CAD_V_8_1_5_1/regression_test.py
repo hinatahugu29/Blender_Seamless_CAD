@@ -793,6 +793,64 @@ def t_offset_pick_writes_the_visible_field():
     assert resolve_depth_attr('FACE_INSET', '') == 'radius'
 
 
+def t_offset_pick_reference_face():
+    """スポイトが基準にする面の選び方。
+
+    報告された症状: オフセットに 0.5 が入っている状態でスポイトを使うと、
+    2.0 になるはずのところが 0.00 になる。
+
+    既存値の扱いは元から正しかった(invoke が ref_pt から
+    ref_norm * _initial_radius を引いて、オフセット前の平面へ戻している)。
+    壊れていたのは基準面の探し方で、lineage のプレフィックス(`Face:12`)が
+    一致した**最初の**面を採っていた。モディファイアを適用すると面の通し番号は
+    振り直されるので、これが別の面 --- 実測では反対側の面 --- を指す。
+    参照点も法線も別物になり、法線方向への射影がほぼ 0 になって 0.00 が入る。
+    """
+    from CAD_8_1_5_1.operators.ops_offset_pick import (
+        choose_reference_face, lineage_hint_point,
+    )
+    import mathutils
+
+    V = mathutils.Vector
+
+    # 2^3 の箱。-X 面を対象に選んだ状態(lineage は選んだ時点の座標を持つ)
+    target = "Face:12@-1.000;0.000;0.000"
+    assert lineage_hint_point(target) == V((-1.0, 0.0, 0.0))
+
+    # オフセット 0.5 適用後: 番号が振り直され、Face:12 は +X 面になっている。
+    # 対象の面は -1.5 へ動いているが、手がかりの (-1,0,0) には依然一番近い。
+    candidates = [
+        ("Face:12@1.000;0.000;0.000",  V((1.0, 0.0, 0.0))),    # 別物。番号だけ一致
+        ("Face:3@-1.500;0.000;0.000",  V((-1.5, 0.0, 0.0))),   # 本当の対象(動いた後)
+        ("Face:7@0.000;1.000;0.000",   V((0.0, 1.0, 0.0))),
+    ]
+    pick = choose_reference_face(candidates, target)
+    assert pick == 1,         (f"the reference must be the face nearest the lineage's own coordinates, "
+         f"not the first number match; picked {pick} ({candidates[pick][0]})")
+
+    # 番号が変わっていない通常の場合は、そのまま一致する面が選ばれる
+    candidates = [
+        ("Face:3@0.000;1.000;0.000",   V((0.0, 1.0, 0.0))),
+        ("Face:12@-1.000;0.000;0.000", V((-1.0, 0.0, 0.0))),
+    ]
+    assert choose_reference_face(candidates, target) == 1
+
+    # 同じ番号が複数あるときも、座標が近いほうを採る
+    candidates = [
+        ("Face:12@5.000;0.000;0.000",  V((5.0, 0.0, 0.0))),
+        ("Face:12@-1.100;0.000;0.000", V((-1.1, 0.0, 0.0))),
+    ]
+    assert choose_reference_face(candidates, target) == 1
+
+    # 座標の手がかりが無い古い lineage は、従来どおり番号で選ぶ
+    plain = "Face:12"
+    assert lineage_hint_point(plain) is None
+    candidates = [("Face:3@0;0;0", V((0.0, 0.0, 0.0))), ("Face:12@9;9;9", V((9.0, 9.0, 9.0)))]
+    assert choose_reference_face(candidates, plain) == 1
+
+    assert choose_reference_face([], target) is None
+
+
 def t_sketch_solver_constraints():
     """2D スケッチの拘束ソルバ(GCS)が実際に解いている。
 
@@ -1328,6 +1386,7 @@ def main():
     check("modifier proxy draws nothing", t_modifier_proxy_is_not_drawn)
     check("modifier ignores its transform", t_modifier_transform_is_ignored)
     check("offset pick targets the shown field", t_offset_pick_writes_the_visible_field)
+    check("offset pick reference face", t_offset_pick_reference_face)
     check("sketch solver constraints", t_sketch_solver_constraints)
     check("sketch radius constraint", t_sketch_radius_constraint_action)
     check("circle dimension holds centre", t_sketch_circle_distance_holds_centre)
