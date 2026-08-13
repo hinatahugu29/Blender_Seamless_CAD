@@ -767,6 +767,32 @@ def t_modifier_transform_is_ignored():
          f"{before} -> {after}; the proxy cannot be blanked if this is false")
 
 
+def t_offset_pick_writes_the_visible_field():
+    """Offset のスポイトが、パネルに出ているプロパティへ書くこと。
+
+    FACE_OFFSET の深さは radius ただ1つで、パネルもそれしか描かない。
+    それなのに Offset のボタンだけ depth_attr を渡しておらず、
+    StringProperty の既定値に頼っていた。このオペレータは
+    bl_options に REGISTER/UNDO を持つので前回値が残りうる。先に Inset の
+    スポイト(こちらは extrude_height を明示的に渡す)を使っていると、
+    次の Offset が extrude_height へ書き、**拾った数値がどこにも出ない**。
+
+    型から決め直すようにしたので、何が渡ってきても FACE_OFFSET は radius。
+    """
+    from CAD_8_1_5_1.operators.ops_offset_pick import resolve_depth_attr
+
+    # Inset を先に使った後の持ち越しを再現する
+    assert resolve_depth_attr('FACE_OFFSET', 'extrude_height') == 'radius',         "FACE_OFFSET must always write radius, whatever the operator remembered"
+    assert resolve_depth_attr('FACE_OFFSET', 'radius') == 'radius'
+
+    # FACE_INSET は radius と extrude_height の2つを持つので、指定を尊重する
+    assert resolve_depth_attr('FACE_INSET', 'extrude_height') == 'extrude_height',         "FACE_INSET's Depth eyedropper must still drive extrude_height"
+    assert resolve_depth_attr('FACE_INSET', 'radius') == 'radius',         "FACE_INSET's inset amount is radius; the caller's choice stands"
+
+    # 空文字が来ても radius に落ちる(既定値が消えた場合の保険)
+    assert resolve_depth_attr('FACE_INSET', '') == 'radius'
+
+
 def t_sketch_solver_constraints():
     """2D スケッチの拘束ソルバ(GCS)が実際に解いている。
 
@@ -1301,6 +1327,7 @@ def main():
     check("measure while retargeting", t_measure_during_retargeting)
     check("modifier proxy draws nothing", t_modifier_proxy_is_not_drawn)
     check("modifier ignores its transform", t_modifier_transform_is_ignored)
+    check("offset pick targets the shown field", t_offset_pick_writes_the_visible_field)
     check("sketch solver constraints", t_sketch_solver_constraints)
     check("sketch radius constraint", t_sketch_radius_constraint_action)
     check("circle dimension holds centre", t_sketch_circle_distance_holds_centre)

@@ -511,6 +511,10 @@ class SEAMLESS_PT_PropertyEditorPanel(bpy.types.Panel):
                     row.prop(active_prim, "radius", text=label)
                     op = row.operator("seamless.interactive_offset_pick", text="", icon='EYEDROPPER')
                     op.index = idx
+                    # 明示すること。既定値任せにすると、直前に Inset の
+                    # スポイトを使った後で extrude_height が残り、拾った値が
+                    # このパネルに出ないプロパティへ入る
+                    op.depth_attr = "radius"
                 else:
                     col.prop(active_prim, "radius", text=label)
             

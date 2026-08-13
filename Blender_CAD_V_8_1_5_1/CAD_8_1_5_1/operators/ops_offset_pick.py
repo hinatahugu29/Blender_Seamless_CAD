@@ -102,6 +102,27 @@ def draw_callback(self, context):
     gpu.state.blend_set('NONE')
     gpu.state.depth_test_set('LESS_EQUAL')
 
+def resolve_depth_attr(prim_type, requested):
+    """スポイトが書き込むプロパティ名を、対象の型から決める。
+
+    FACE_OFFSET が持つ深さは `radius` ただ1つ。パネルもそれしか描かない。
+    なのに以前は、FACE_OFFSET のボタンだけ depth_attr を渡しておらず、
+    StringProperty の既定値 "radius" に頼っていた。オペレータは
+    bl_options に REGISTER/UNDO を持つので**前回値が残りうる**。
+    FACE_INSET のスポイト(こちらは "extrude_height" を明示的に渡す)を
+    先に使っていると、次に Offset のスポイトを使ったときに
+    extrude_height へ書き込んでしまう。FACE_OFFSET のパネルは
+    extrude_height を描かないので、**拾った数値がどこにも出ない。**
+
+    呼び出し側の渡し忘れに依存しないよう、ここで型から決め直す。
+    FACE_INSET だけは radius(インセット量)と extrude_height(押し引き)の
+    2つを持つので、渡された値を尊重する。
+    """
+    if prim_type == 'FACE_OFFSET':
+        return 'radius'
+    return requested or 'radius'
+
+
 class SEAMLESS_OT_InteractiveOffsetPick(bpy.types.Operator):
     bl_idname = "seamless.interactive_offset_pick"
     bl_label = "Interactive Offset Pick"
@@ -277,6 +298,7 @@ class SEAMLESS_OT_InteractiveOffsetPick(bpy.types.Operator):
             return {'CANCELLED'}
             
         prim = props.primitives[self.index]
+        self.depth_attr = resolve_depth_attr(prim.type, self.depth_attr)
         self._initial_radius = getattr(prim, self.depth_attr, 0.0)
 
         col = context.scene.active_cad_collection
