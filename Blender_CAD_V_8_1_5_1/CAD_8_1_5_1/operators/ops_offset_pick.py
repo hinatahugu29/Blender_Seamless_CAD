@@ -123,16 +123,45 @@ def resolve_depth_attr(prim_type, requested):
     return requested or 'radius'
 
 
-def lineage_hint_point(lineage):
-    """lineage 末尾の `@x;y;z` を座標として取り出す。無ければ None。
+# 面 lineage の形式は  Face:<番号>@x;y;z#N:nx;ny;nz  (occ_core.cpp:1653)。
+# 座標だけでなく**選んだ時点の法線**が埋まっている。これがこの問題の鍵で、
+# 最初の修正が効かなかったのも、`#N:` を外さずに座標を読もうとして
+# float("-1.500#N:0.0000") で例外になり、手がかり無しと判定していたため。
+_LINEAGE_NORMAL_TAG = "#N:"
 
-    これは対象を選んだ時点での面の位置。モディファイアが適用されると面は
-    そこから法線方向へ移動するので、**現在位置ではなく手がかり**として使う。
-    """
-    if not lineage or "@" not in lineage:
+# カーネル側 find_face_robust (occ_utils.cpp:229) と同じ閾値。法線が揃う面だけを
+# 候補にする。フィレットだらけの形状で、たまたま近くを通る 45 度の帯を掴むのを
+# 防ぐために向こうで導入されたもので、こちらも同じ規則にしておく。
+_NORMAL_ALIGN_MIN = 0.85
+
+
+def _triangle_normal(verts):
+    """三角形の並びから面法線を1つ起こす。取れなければ None。"""
+    for idx in range(0, len(verts) - 2, 3):
+        n = (verts[idx + 1] - verts[idx]).cross(verts[idx + 2] - verts[idx])
+        if n.length > 1e-5:
+            return n.normalized()
+    return None
+
+
+def _split_lineage(lineage):
+    """lineage を (座標部, 法線部) に割る。無い側は None。"""
+    text = str(lineage)
+    if "@" not in text:
+        return None, None
+    rest = text.split("@", 1)[1]
+    if _LINEAGE_NORMAL_TAG in rest:
+        coord_str, normal_str = rest.split(_LINEAGE_NORMAL_TAG, 1)
+    else:
+        coord_str, normal_str = rest, None
+    return coord_str, normal_str
+
+
+def _parse_triple(text):
+    if not text:
         return None
     try:
-        parts = [float(x) for x in lineage.split("@")[1].split(";")]
+        parts = [float(x) for x in text.split(";")]
     except ValueError:
         return None
     if len(parts) < 3:
@@ -140,47 +169,71 @@ def lineage_hint_point(lineage):
     return Vector(parts[:3])
 
 
+def lineage_hint_point(lineage):
+    """lineage が持つ「選んだ時点の面の中心」。無ければ None。"""
+    coord_str, _ = _split_lineage(lineage)
+    return _parse_triple(coord_str)
+
+
+def lineage_hint_normal(lineage):
+    """lineage が持つ「選んだ時点の面の法線」。無ければ None。
+
+    **テセレーションから起こした法線より、こちらを信じること。** 三角形の
+    巻き方向次第で符号が反転しうるし、そもそも別の面を掴んでいれば軸ごと違う。
+    実際の報告では、法線 (0,0,1) の面を対象にしていたのに、キャッシュから
+    起こした法線は (1,0,0) だった。
+    """
+    _, normal_str = _split_lineage(lineage)
+    n = _parse_triple(normal_str)
+    if n is None or n.length < 1e-9:
+        return None
+    return n.normalized()
+
+
 def choose_reference_face(candidates, target_lineage):
     """テセレーション結果から、対象 lineage が指す面を選ぶ。
 
-    candidates は [(lid, centroid), ...]。返すのは選んだ添字、無ければ None。
+    candidates は [(lid, centroid, normal), ...]。返すのは添字、無ければ None。
 
-    以前はプレフィックス(`Face:12`)が一致した**最初の**面を採っていた。
-    これがオフセット済みの形状で破綻する: モディファイアを適用すると面の
-    通し番号が振り直されるので、`Face:12` が別の面 --- 実測では反対側の面 ---
-    を指す。参照点も法線も別物になり、法線方向への射影がほぼ 0 になって、
-    スポイトで拾った値が 0.00 になっていた(2 が入るはずの場面で)。
+    かつては lineage のプレフィックス(`Face:12`)が一致した**最初の**面を採って
+    いた。モディファイアを適用すると面の通し番号は振り直されるので、これが
+    別の面 --- 実測では反対側の面 --- を指す。参照点も法線も別物になり、
+    法線方向への射影がほぼ 0 になって、スポイトの値が壊れていた。
 
-    なので lineage に埋まっている座標を手がかりに、**一番近い面**を選ぶ。
-    面はモディファイアで動くが、動くのは自分の法線方向にオフセット量ぶんで、
-    たいてい他の面より近いままでいる。プレフィックスが一致する候補があれば
-    その中から、無ければ全体から選ぶ --- 番号が変わっても拾えるように。
+    手順はカーネルの find_face_robust に合わせる:
+      1. lineage が完全一致する面(動いていない)
+      2. 法線が揃う面だけに絞り、その中で座標が一番近い面
+      3. 法線の手がかりが無ければ、座標が一番近い面
+      4. 座標も無い古い lineage は、従来どおり番号で
     """
     if not candidates:
         return None
 
-    # 1. 完全一致があればそれ。番号も座標も同じなら、その面は動いていない
-    for i, (lid, _) in enumerate(candidates):
+    for i, (lid, _, _) in enumerate(candidates):
         if str(lid) == str(target_lineage):
             return i
 
     hint = lineage_hint_point(target_lineage)
+    want_n = lineage_hint_normal(target_lineage)
 
-    # 2. 座標の手がかりがあるなら、**番号より座標を信じる**。
-    #    番号一致を先に絞ってはいけない --- 振り直しが起きた場面では、
-    #    番号が合うほうが偽物で、本物は別の番号になっている。
     if hint is not None:
+        pool = range(len(candidates))
+        if want_n is not None:
+            aligned = [i for i in pool
+                       if candidates[i][2] is not None
+                       and abs(Vector(candidates[i][2]).normalized().dot(want_n)) >= _NORMAL_ALIGN_MIN]
+            if aligned:
+                pool = aligned
         best = None
         best_d = None
-        for i, (_, c) in enumerate(candidates):
-            d = (Vector(c) - hint).length
+        for i in pool:
+            d = (Vector(candidates[i][1]) - hint).length
             if best_d is None or d < best_d:
                 best, best_d = i, d
         return best
 
-    # 3. 座標が無い古い lineage は番号で。最初の一致(従来の挙動)
     prefix = str(target_lineage).split("@")[0]
-    for i, (lid, _) in enumerate(candidates):
+    for i, (lid, _, _) in enumerate(candidates):
         if str(lid).split("@")[0] == prefix:
             return i
     return None
@@ -245,7 +298,7 @@ class SEAMLESS_OT_InteractiveOffsetPick(bpy.types.Operator):
                 c += v
             c /= len(vs)
             face_verts.append(vs)
-            candidates.append((lid, c))
+            candidates.append((lid, c, _triangle_normal(vs)))
 
         pick = choose_reference_face(candidates, target_lid)
         if pick is None:
@@ -261,17 +314,12 @@ class SEAMLESS_OT_InteractiveOffsetPick(bpy.types.Operator):
             center += v
         center /= len(verts)
         
-        # Normal
-        normal = Vector((0.0, 0.0, 1.0))
-        if len(verts) >= 3:
-            for idx in range(0, len(verts), 3):
-                v0 = verts[idx]
-                v1 = verts[idx+1]
-                v2 = verts[idx+2]
-                n = (v1 - v0).cross(v2 - v0)
-                if n.length > 1e-5:
-                    normal = n.normalized()
-                    break
+        # 法線は lineage に埋まっているものを優先する。三角形から起こしたものは
+        # 巻き方向で符号が反転しうるし、オフセット量の引き戻しはこの向きに
+        # 沿って行うので、符号を間違えると補正が逆に効く。
+        normal = lineage_hint_normal(target_lid)
+        if normal is None:
+            normal = _triangle_normal(verts) or Vector((0.0, 0.0, 1.0))
         return center, normal
 
     def _get_face_center(self, stack_ptr, target_lid):

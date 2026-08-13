@@ -796,59 +796,66 @@ def t_offset_pick_writes_the_visible_field():
 def t_offset_pick_reference_face():
     """スポイトが基準にする面の選び方。
 
-    報告された症状: オフセットに 0.5 が入っている状態でスポイトを使うと、
-    2.0 になるはずのところが 0.00 になる。
+    実機のログから取った本物の lineage で確かめる:
 
-    既存値の扱いは元から正しかった(invoke が ref_pt から
-    ref_norm * _initial_radius を引いて、オフセット前の平面へ戻している)。
-    壊れていたのは基準面の探し方で、lineage のプレフィックス(`Face:12`)が
-    一致した**最初の**面を採っていた。モディファイアを適用すると面の通し番号は
-    振り直されるので、これが別の面 --- 実測では反対側の面 --- を指す。
-    参照点も法線も別物になり、法線方向への射影がほぼ 0 になって 0.00 が入る。
+        Face:12@0.000;1.587;-1.500#N:0.0000;0.0000;1.0000
+
+    **座標の後ろに法線が付く。** 最初の修正はこれを外さずに `@` 以降を `;` で
+    割っていたので、3個目が "-1.500#N:0.0000" になって float() が例外を投げ、
+    「手がかり無し」と判定して番号一致の旧経路へ落ちていた。つまり一度も
+    発動していなかった。ログの cache_ref_pt=(0.5, 1.5866, -2.0) /
+    ref_norm=(1,0,0) が、法線 (0,0,1) の面とは別物を掴んでいた証拠。
     """
     from CAD_8_1_5_1.operators.ops_offset_pick import (
-        choose_reference_face, lineage_hint_point,
+        choose_reference_face, lineage_hint_point, lineage_hint_normal,
     )
     import mathutils
 
     V = mathutils.Vector
+    real = "Face:12@0.000;1.587;-1.500#N:0.0000;0.0000;1.0000"
 
-    # 2^3 の箱。-X 面を対象に選んだ状態(lineage は選んだ時点の座標を持つ)
-    target = "Face:12@-1.000;0.000;0.000"
-    assert lineage_hint_point(target) == V((-1.0, 0.0, 0.0))
+    hint = lineage_hint_point(real)
+    assert hint is not None, "the #N: suffix must not stop the coordinates parsing"
+    assert (hint - V((0.0, 1.587, -1.5))).length < 1e-6, f"got {hint}"
 
-    # オフセット 0.5 適用後: 番号が振り直され、Face:12 は +X 面になっている。
-    # 対象の面は -1.5 へ動いているが、手がかりの (-1,0,0) には依然一番近い。
+    n = lineage_hint_normal(real)
+    assert n is not None and (n - V((0.0, 0.0, 1.0))).length < 1e-6, f"got {n}"
+
+    # 報告された状況: 番号が一致する面は法線の違う別物(ログの (1,0,0))。
+    # 本当の対象は番号が変わっており、法線が揃っている。
     candidates = [
-        ("Face:12@1.000;0.000;0.000",  V((1.0, 0.0, 0.0))),    # 別物。番号だけ一致
-        ("Face:3@-1.500;0.000;0.000",  V((-1.5, 0.0, 0.0))),   # 本当の対象(動いた後)
-        ("Face:7@0.000;1.000;0.000",   V((0.0, 1.0, 0.0))),
+        ("Face:12@0.500;1.587;-2.000#N:1.0000;0.0000;0.0000", V((0.5, 1.5866, -2.0)), V((1.0, 0.0, 0.0))),
+        ("Face:31@0.000;1.587;-1.000#N:0.0000;0.0000;1.0000", V((0.0, 1.587, -1.0)),  V((0.0, 0.0, 1.0))),
     ]
-    pick = choose_reference_face(candidates, target)
-    assert pick == 1,         (f"the reference must be the face nearest the lineage's own coordinates, "
-         f"not the first number match; picked {pick} ({candidates[pick][0]})")
+    pick = choose_reference_face(candidates, real)
+    assert pick == 1,         (f"the reference must be the face whose normal agrees with the lineage, "
+         f"not the one that merely kept the number; picked {candidates[pick][0]}")
 
-    # 番号が変わっていない通常の場合は、そのまま一致する面が選ばれる
+    # 法線が揃う面が複数あるときは、座標が近いほう
     candidates = [
-        ("Face:3@0.000;1.000;0.000",   V((0.0, 1.0, 0.0))),
-        ("Face:12@-1.000;0.000;0.000", V((-1.0, 0.0, 0.0))),
+        ("Face:5@0.000;1.587;-9.000#N:0.0000;0.0000;1.0000", V((0.0, 1.587, -9.0)), V((0.0, 0.0, 1.0))),
+        ("Face:6@0.000;1.587;-1.400#N:0.0000;0.0000;1.0000", V((0.0, 1.587, -1.4)), V((0.0, 0.0, 1.0))),
     ]
-    assert choose_reference_face(candidates, target) == 1
+    assert choose_reference_face(candidates, real) == 1
 
-    # 同じ番号が複数あるときも、座標が近いほうを採る
+    # 裏返った法線も同じ面として扱う(|dot| で見るため)
     candidates = [
-        ("Face:12@5.000;0.000;0.000",  V((5.0, 0.0, 0.0))),
-        ("Face:12@-1.100;0.000;0.000", V((-1.1, 0.0, 0.0))),
+        ("Face:9@0.000;1.587;-1.400#N:0.0000;0.0000;-1.0000", V((0.0, 1.587, -1.4)), V((0.0, 0.0, -1.0))),
+        ("Face:12@5.000;0.000;0.000#N:1.0000;0.0000;0.0000",  V((5.0, 0.0, 0.0)),    V((1.0, 0.0, 0.0))),
     ]
-    assert choose_reference_face(candidates, target) == 1
+    assert choose_reference_face(candidates, real) == 0,         "a face pointing the opposite way is still the same face"
 
-    # 座標の手がかりが無い古い lineage は、従来どおり番号で選ぶ
+    # 完全一致は無条件で勝つ
+    same = ("Face:12@0.000;1.587;-1.500#N:0.0000;0.0000;1.0000", V((0.0, 1.587, -1.5)), V((0.0, 0.0, 1.0)))
+    assert choose_reference_face([("Face:1@0;0;0#N:0;0;1", V((0.0, 0.0, 0.0)), V((0.0, 0.0, 1.0))), same], real) == 1
+
+    # 法線も座標も無い古い lineage は番号で
     plain = "Face:12"
-    assert lineage_hint_point(plain) is None
-    candidates = [("Face:3@0;0;0", V((0.0, 0.0, 0.0))), ("Face:12@9;9;9", V((9.0, 9.0, 9.0)))]
-    assert choose_reference_face(candidates, plain) == 1
+    assert lineage_hint_point(plain) is None and lineage_hint_normal(plain) is None
+    old = [("Face:3@0;0;0", V((0.0, 0.0, 0.0)), None), ("Face:12@9;9;9", V((9.0, 9.0, 9.0)), None)]
+    assert choose_reference_face(old, plain) == 1
 
-    assert choose_reference_face([], target) is None
+    assert choose_reference_face([], real) is None
 
 
 def t_sketch_solver_constraints():
