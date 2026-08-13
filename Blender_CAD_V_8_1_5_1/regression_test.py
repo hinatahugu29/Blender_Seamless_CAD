@@ -883,48 +883,76 @@ def t_offset_pick_reference_face():
     assert choose_reference_face([], real) is None
 
 
-def t_offset_face_moves_unpredictably():
-    """オフセット面は「指定量ぶん法線方向へ動く」わけではない。
+def t_offset_face_becomes_unidentifiable():
+    """オフセットした面は、動くほど身元が分からなくなる。
 
-    スポイトはかつて、現在の面から `法線 x 既存値` を引いて元の平面へ戻して
-    いた。実測ではその前提が崩れる: 法線 (0,0,1) の面に 3.5483 を指定しても、
-    面は 1.0 しか動いていなかった。引き算は元の平面と無関係な点を指す。
+    **面は指定量ぶんきちんと動く。** radius=1.0 なら移動もちょうど 1.0。
+    (このテストを最初に書いたときは「動かない」と書いていたが、それは
+    面をプレフィックス一致で探していたための誤りだった --- 別の面を測っていた。)
 
-    いまは測る前に深さを 0 に戻すので、この前提は要らない。ここで固定するのは
-    **前提が成り立たないこと自体**で、もし将来「動いた量 = 指定値」に変わった
-    としても、それは引き算方式へ戻す理由にはならない --- 気付けるように残す。
+    壊れるのはその手前、動いた後の面を lineage から見つける部分。手がかりは
+    選んだ時点の座標しかないので、面が離れるほど当てにならなくなる。
+    2 ユニットの箱では radius=2.0 で本物と反対側の面が手がかりから等距離になり、
+    法線でゲートしても平行な面は両方通るので選び分けられない。
+
+    **これがスポイトが測る前に深さを 0 に戻す理由。** 0 なら面は手がかりの
+    座標そのものに居るので、特定が曖昧になりようがない。
     """
     from CAD_8_1_5_1 import core_bridge
+    from CAD_8_1_5_1.operators.ops_offset_pick import choose_reference_face, _triangle_normal
 
     col, props = _fresh_part()
     bpy.ops.seamless.add_primitive(type='BOX')
     props = utils_props()
     props.primitives[0].size = (2.0, 2.0, 2.0)
-    faces = _capture_face_lineages(col)
-    assert faces, "the box reported no faces"
-    target = faces[0]
+    core_bridge.update_cad_preview_forced(bpy.context)
+
+    def faces():
+        import math as _m
+        core = core_bridge.get_core()
+        v, t, fids, counts = core.generate_mesh(int(col.seamless_cad_stack_ptr), 0.03, _m.radians(6.0))
+        out, off = [], 0
+        for i, lid in enumerate(fids):
+            n = counts[i]
+            idxs = list(t[off:off + n]); off += n
+            if not idxs:
+                continue
+            vs = [mathutils.Vector((float(v[k*3]), float(v[k*3+1]), float(v[k*3+2]))) for k in idxs]
+            c = mathutils.Vector((0.0, 0.0, 0.0))
+            for q in vs:
+                c += q
+            c /= len(vs)
+            out.append((lid, c, _triangle_normal(vs)))
+        return out
+
+    base = faces()[0]
+    # 実際のピックが作るトークンと同じ形(法線付き)にする
+    n = base[2]
+    target = f"{base[0]}#N:{n.x:.4f};{n.y:.4f};{n.z:.4f}"
 
     bpy.ops.seamless.add_primitive(type='FACE_OFFSET')
     props = utils_props()
     ofs = props.primitives[-1]
     ofs.target_lineages = target
 
-    def centroid():
-        core_bridge.update_cad_preview_forced(bpy.context)
-        return _face_centroid(col, target)
+    # 小さいオフセットなら、まだ正しく見つかり、移動量は指定どおり
+    ofs.radius = 1.0
+    core_bridge.update_cad_preview_forced(bpy.context)
+    cs = faces()
+    i = choose_reference_face(cs, target)
+    assert i is not None, "the face should still be found at a small offset"
+    travelled = (cs[i][1] - base[1]).dot(base[2])
+    assert abs(travelled - 1.0) < 1e-3,         f"the face does move by the requested amount; got {travelled} for 1.0"
 
-    ofs.radius = 0.0
-    base = centroid()
-    assert base is not None, "the target face vanished at radius 0"
-
+    # 大きくすると、反対側の平行面のほうが手がかりに近くなり、選び分けられない
     ofs.radius = 3.0
-    moved = centroid()
-    assert moved is not None, "the target face vanished once offset"
-
-    travelled = (mathutils.Vector(moved) - mathutils.Vector(base)).length
-    # ここで travelled == 3.0 を期待してはいけない。等しくないことが前提。
-    assert abs(travelled - 3.0) > 1e-3,         (f"the face moved exactly the requested amount ({travelled}); if that is now "
-         f"always true the zeroing could be simplified, but check every shape first")
+    core_bridge.update_cad_preview_forced(bpy.context)
+    cs = faces()
+    i = choose_reference_face(cs, target)
+    assert i is not None
+    travelled = (cs[i][1] - base[1]).dot(base[2])
+    assert abs(travelled - 3.0) > 1e-3,         ("identification survived a large offset. If that is now reliable the "
+         "zeroing could be revisited, but verify on more than a box first")
 
 
 def t_offset_pick_zero_reference():
@@ -1494,7 +1522,7 @@ def main():
     check("modifier ignores its transform", t_modifier_transform_is_ignored)
     check("offset pick targets the shown field", t_offset_pick_writes_the_visible_field)
     check("offset pick reference face", t_offset_pick_reference_face)
-    check("offset face travel is not the value", t_offset_face_moves_unpredictably)
+    check("offset face gets hard to identify", t_offset_face_becomes_unidentifiable)
     check("offset pick zero reference", t_offset_pick_zero_reference)
     check("sketch solver constraints", t_sketch_solver_constraints)
     check("sketch radius constraint", t_sketch_radius_constraint_action)
