@@ -427,8 +427,25 @@ class SEAMLESS_OT_InteractiveOffsetPick(bpy.types.Operator):
             return {'CANCELLED'}
             
         target_lid = prim.target_lineages.split("|")[0]
-        
-        # キャッシュからFace Centerと法線を取得
+
+        # **測る前に、この深さを 0 に戻す。**
+        #
+        # 以前は現在の面の位置から `法線 x 既存値` を引いて元の平面へ戻していた。
+        # それは「面は指定量ぶん法線方向へ動く」という前提だが、実測すると
+        # 成り立たない: radius=3.5483 のとき、法線 (0,0,1) の面は z=-1.5 から
+        # -2.5 へ、つまり 1.0 しか動いていなかった。引き算は -6.0483 という
+        # 元の平面と無関係な点を基準にしてしまう。
+        #
+        # 動いた量を推定するのをやめて、**動いていない状態を作ってから測る**。
+        # 0 にすれば、そこからの距離がそのまま絶対値になる。前提が要らない。
+        #
+        # 代償は invoke 時の再計算1回。確定時とキャンセル時には元から
+        # update_cad_preview_forced を呼んでいるので、増えるのは1回だけ。
+        if abs(self._initial_radius) > 1e-9:
+            setattr(prim, self.depth_attr, 0.0)
+            core_bridge.update_cad_preview_forced(context)
+
+        # キャッシュからFace Centerと法線を取得(この時点で深さは 0)
         ref_pt, ref_norm = self._get_face_center_and_normal(stack_ptr, target_lid)
         
         # フォールバック処理: キャッシュにない場合は lineage 文字列から座標を復元
@@ -444,11 +461,12 @@ class SEAMLESS_OT_InteractiveOffsetPick(bpy.types.Operator):
                 ref_pt = Vector(prim.location) # 最終フォールバック
             ref_norm = Vector((0.0, 0.0, 1.0))
             
-        # VERY IMPORTANT: Subtract the current depth to get the original un-offset
-        # reference plane. ref_pt is currently displaced by the driven depth
-        # (radius / extrude_height) along ref_norm, so subtract it back.
-        self._ref_point = ref_pt - ref_norm * self._initial_radius
+        # 深さを 0 にしてから測っているので、引き戻しは要らない。
+        self._ref_point = ref_pt
         self._ref_normal = ref_norm
+        # スナップ点を一度も掴まないまま確定された場合に、元の値へ戻すための印。
+        # 0 にした状態で誤ってクリックしても、設定していた値を壊さない。
+        self._picked_any = False
 
         # 一時的な調査用ログ。原因が確定したら消すこと。
         # 「拾った値が狙いと違う」の切り分けには、参照面がどこに決まり、
@@ -464,7 +482,7 @@ class SEAMLESS_OT_InteractiveOffsetPick(bpy.types.Operator):
         self._target_point = None
         self._proj_point = None
         self._snap_mode = 'FACE'
-        self._current_distance = self._initial_radius
+        self._current_distance = 0.0
         
         self._is_drawing = True
         args = (self, context)
@@ -504,6 +522,7 @@ class SEAMLESS_OT_InteractiveOffsetPick(bpy.types.Operator):
             pt = self.get_snap_point(context, event)
             if pt:
                 self._target_point = pt.copy()
+                self._picked_any = True
                 
                 # Project onto normal vector from ref_point
                 to_target = self._target_point - self._ref_point
@@ -542,6 +561,15 @@ class SEAMLESS_OT_InteractiveOffsetPick(bpy.types.Operator):
                 f"d={self._current_distance:.4f} "
                 f"written={getattr(props_dbg, self.depth_attr, None) if (props_dbg := utils.get_active_props(context)) else None}"
             )
+            if not getattr(self, "_picked_any", False):
+                # スナップ点を掴まずに確定された。0 にしたままにはしない。
+                props_r = utils.get_active_props(context)
+                if props_r and 0 <= self.index < len(props_r.primitives):
+                    setattr(props_r.primitives[self.index], self.depth_attr, self._initial_radius)
+                self.finish(context)
+                core_bridge.update_cad_preview_forced(context)
+                self.report({'INFO'}, "Offset Pick: nothing snapped, value restored")
+                return {'CANCELLED'}
             self.finish(context)
             # force=True で正式なOCCT B-repを一度だけ確定計算する
             core_bridge.update_cad_preview_forced(context)

@@ -388,6 +388,31 @@ def _capture_edge_lineages(col):
     return captured
 
 
+def _face_centroid(col, target_lineage):
+    """結果形状のうち、指定 lineage の面の重心。無ければ None。"""
+    import math
+    from CAD_8_1_5_1 import core_bridge
+    core = core_bridge.get_core()
+    res = core.generate_mesh(int(col.seamless_cad_stack_ptr), 0.03, math.radians(6.0))
+    if not res:
+        return None
+    verts, tris, fids, counts = res
+    prefix = str(target_lineage).split("@")[0]
+    off = 0
+    for i, lid in enumerate(fids):
+        n = counts[i]
+        if str(lid).split("@")[0] == prefix:
+            idxs = list(tris[off:off + n])
+            if not idxs:
+                return None
+            xs = [verts[k * 3] for k in idxs]
+            ys = [verts[k * 3 + 1] for k in idxs]
+            zs = [verts[k * 3 + 2] for k in idxs]
+            return (sum(xs) / len(xs), sum(ys) / len(ys), sum(zs) / len(zs))
+        off += n
+    return None
+
+
 def _capture_face_lineages(col):
     """今の結果形状の面識別子(lineage)を集める。
 
@@ -856,6 +881,81 @@ def t_offset_pick_reference_face():
     assert choose_reference_face(old, plain) == 1
 
     assert choose_reference_face([], real) is None
+
+
+def t_offset_face_moves_unpredictably():
+    """オフセット面は「指定量ぶん法線方向へ動く」わけではない。
+
+    スポイトはかつて、現在の面から `法線 x 既存値` を引いて元の平面へ戻して
+    いた。実測ではその前提が崩れる: 法線 (0,0,1) の面に 3.5483 を指定しても、
+    面は 1.0 しか動いていなかった。引き算は元の平面と無関係な点を指す。
+
+    いまは測る前に深さを 0 に戻すので、この前提は要らない。ここで固定するのは
+    **前提が成り立たないこと自体**で、もし将来「動いた量 = 指定値」に変わった
+    としても、それは引き算方式へ戻す理由にはならない --- 気付けるように残す。
+    """
+    from CAD_8_1_5_1 import core_bridge
+
+    col, props = _fresh_part()
+    bpy.ops.seamless.add_primitive(type='BOX')
+    props = utils_props()
+    props.primitives[0].size = (2.0, 2.0, 2.0)
+    faces = _capture_face_lineages(col)
+    assert faces, "the box reported no faces"
+    target = faces[0]
+
+    bpy.ops.seamless.add_primitive(type='FACE_OFFSET')
+    props = utils_props()
+    ofs = props.primitives[-1]
+    ofs.target_lineages = target
+
+    def centroid():
+        core_bridge.update_cad_preview_forced(bpy.context)
+        return _face_centroid(col, target)
+
+    ofs.radius = 0.0
+    base = centroid()
+    assert base is not None, "the target face vanished at radius 0"
+
+    ofs.radius = 3.0
+    moved = centroid()
+    assert moved is not None, "the target face vanished once offset"
+
+    travelled = (mathutils.Vector(moved) - mathutils.Vector(base)).length
+    # ここで travelled == 3.0 を期待してはいけない。等しくないことが前提。
+    assert abs(travelled - 3.0) > 1e-3,         (f"the face moved exactly the requested amount ({travelled}); if that is now "
+         f"always true the zeroing could be simplified, but check every shape first")
+
+
+def t_offset_pick_zero_reference():
+    """深さ 0 のとき、対象面は lineage が記録した座標にいること。
+
+    スポイトが深さを 0 に戻してから測る、その拠り所。ここが崩れると
+    基準面の選択(座標の近さで選ぶ)も外れる。
+    """
+    from CAD_8_1_5_1 import core_bridge
+    from CAD_8_1_5_1.operators.ops_offset_pick import lineage_hint_point
+
+    col, props = _fresh_part()
+    bpy.ops.seamless.add_primitive(type='BOX')
+    props = utils_props()
+    props.primitives[0].size = (2.0, 2.0, 2.0)
+    faces = _capture_face_lineages(col)
+    target = faces[0]
+
+    hint = lineage_hint_point(target)
+    assert hint is not None, f"the lineage should carry coordinates: {target}"
+
+    bpy.ops.seamless.add_primitive(type='FACE_OFFSET')
+    props = utils_props()
+    ofs = props.primitives[-1]
+    ofs.target_lineages = target
+    ofs.radius = 0.0
+    core_bridge.update_cad_preview_forced(bpy.context)
+
+    c = _face_centroid(col, target)
+    assert c is not None, "the target face must exist at depth 0"
+    assert (mathutils.Vector(c) - hint).length < 1e-2,         f"at depth 0 the face should sit where the lineage says: {c} vs {tuple(hint)}"
 
 
 def t_sketch_solver_constraints():
@@ -1394,6 +1494,8 @@ def main():
     check("modifier ignores its transform", t_modifier_transform_is_ignored)
     check("offset pick targets the shown field", t_offset_pick_writes_the_visible_field)
     check("offset pick reference face", t_offset_pick_reference_face)
+    check("offset face travel is not the value", t_offset_face_moves_unpredictably)
+    check("offset pick zero reference", t_offset_pick_zero_reference)
     check("sketch solver constraints", t_sketch_solver_constraints)
     check("sketch radius constraint", t_sketch_radius_constraint_action)
     check("circle dimension holds centre", t_sketch_circle_distance_holds_centre)
