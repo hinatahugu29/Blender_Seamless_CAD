@@ -57,10 +57,14 @@ geometry is exact B-Rep in AP214 IS, but everything around it is absent.
 If your recipient needs a named, coloured, structured assembly, this export will
 not meet that need yet.
 
-## STEP export scale is fixed
+## STEP export units
 
-**1 Blender unit is written as 1 mm**, and there is no option to change it.
-Import has a scale option; export does not. Build at millimetre scale.
+**One Blender unit is written as 1 mm by default.** The export dialog has a
+*Scale (1 unit = N mm)* field if you work at another scale: 1000 if a unit is a
+metre, 10 if it is a centimetre. It means the same thing as Import's Scale, so
+a file brought in at 10 goes back out unchanged at 10.
+
+Leaving it at 1.0 keeps the behaviour of every earlier version.
 
 ## Cleanup (Unify) is destructive to references
 

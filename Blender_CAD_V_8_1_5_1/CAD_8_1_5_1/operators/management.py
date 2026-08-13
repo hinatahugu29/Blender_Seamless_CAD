@@ -623,6 +623,18 @@ class SEAMLESS_OT_ExportStep(bpy.types.Operator, ExportHelper):
     filename_ext = ".stp"
     filter_glob: bpy.props.StringProperty(default="*.stp;*.step", options={'HIDDEN'})
 
+    # 1 Blender 単位を何 mm として書き出すか。既定 1.0 は従来の挙動
+    # (1 単位 = 1 mm)。メートルで作っているなら 1000、cm なら 10。
+    # インポート側の Scale と同じ意味なので、取り込みと同じ値を入れれば戻る。
+    scale: bpy.props.FloatProperty(
+        name="Scale (1 unit = N mm)",
+        description="How many millimetres one Blender unit becomes in the file. "
+                    "1.0 keeps the previous behaviour",
+        default=1.0,
+        min=1e-6,
+        soft_max=1000.0,
+    )
+
     def execute(self, context):
         props = utils.get_active_props(context)
         if not props:
@@ -633,9 +645,10 @@ class SEAMLESS_OT_ExportStep(bpy.types.Operator, ExportHelper):
         col = utils.get_active_collection(context)
         stack_ptr = get_or_create_stack_ptr(col)
         
-        success = export_stack_to_step(stack_ptr, self.filepath)
+        success = export_stack_to_step(stack_ptr, self.filepath, self.scale)
         if success:
-            self.report({'INFO'}, f"Successfully exported to {self.filepath}")
+            self.report({'INFO'},
+                        f"Successfully exported to {self.filepath} (1 unit = {self.scale:g} mm)")
             return {'FINISHED'}
         else:
             self.report({'ERROR'}, "Failed to export STEP file.")

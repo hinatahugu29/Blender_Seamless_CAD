@@ -175,7 +175,11 @@ pub fn measure_entity(stack_ptr: isize, lineage: &str, is_face: bool) -> Result<
     if ok { Ok(out) } else { Err("measure_entity: the stack has no shape to measure".to_string()) }
 }
 
-pub fn export_stack_to_step(stack_ptr: isize, filepath: &str) -> Result<(), String> {
+/// STEP 書き出し。`scale` は「1 Blender 単位を何 mm として出すか」。
+///
+/// 既定の 1.0 は従来どおり 1 単位 = 1 mm。メートルで作っているモデルなら
+/// 1000.0 を渡す。インポート側の scale と同じ意味・同じ扱いにしてある。
+pub fn export_stack_to_step(stack_ptr: isize, filepath: &str, scale: f64) -> Result<(), String> {
     if !crate::is_valid_stack_ptr(stack_ptr) {
         return Err(format!("export_stack_to_step: unknown or already-deleted stack_ptr {}", stack_ptr));
     }
@@ -183,8 +187,8 @@ pub fn export_stack_to_step(stack_ptr: isize, filepath: &str) -> Result<(), Stri
     let filepath_ptr = filepath_c.as_ptr();
     
     unsafe {
-        let success = cpp!([stack_ptr as "void*", filepath_ptr as "const char*"] -> bool as "bool" {
-            return occ::export_stack_to_step(stack_ptr, filepath_ptr);
+        let success = cpp!([stack_ptr as "void*", filepath_ptr as "const char*", scale as "double"] -> bool as "bool" {
+            return occ::export_stack_to_step(stack_ptr, filepath_ptr, scale);
         });
         
         if success {

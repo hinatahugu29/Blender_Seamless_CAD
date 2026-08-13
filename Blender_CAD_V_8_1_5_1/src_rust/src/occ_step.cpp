@@ -118,14 +118,38 @@ bool export_step(const std::vector<std::string>& uuids, const std::string& filep
     return true;
 }
 
-bool export_stack_to_step(void* stack_ptr, const std::string& filepath) {
+bool export_stack_to_step(void* stack_ptr, const std::string& filepath, double scale) {
     if (!stack_ptr) return false;
     occ_core::CADStack* stack = static_cast<occ_core::CADStack*>(stack_ptr);
     if (stack->current_shape.IsNull()) return false;
-    
+
+    // 書き出し倍率。STEP 側の単位は MM のままで、**形状を拡大縮小する**。
+    //
+    // `write.step.unit` をいじる手もあるが、あれは「同じ大きさに別の単位名を
+    // 付ける」だけで、物理的な寸法は変わらない。ここで要るのは「1 Blender
+    // 単位を何 mm として出すか」なので、形状側を掛ける。インポートが
+    // import_step の safe_scale で行っているのと同じ扱いに揃えてある。
+    const double safe_scale = std::max(scale, 1e-6);
+    TopoDS_Shape out_shape = stack->current_shape;
+    if (std::abs(safe_scale - 1.0) > 1e-9) {
+        try {
+            gp_GTrsf gt_scale;
+            gt_scale.SetVectorialPart(gp_Mat(
+                safe_scale, 0, 0,
+                0, safe_scale, 0,
+                0, 0, safe_scale
+            ));
+            out_shape = BRepBuilderAPI_GTransform(stack->current_shape, gt_scale, true).Shape();
+        } catch (...) {
+            occ_core::log_debug("export_stack_to_step: scaling failed; writing at 1:1");
+            out_shape = stack->current_shape;
+        }
+    }
+    if (out_shape.IsNull()) return false;
+
     STEPControl_Writer writer;
     Interface_Static::SetIVal("write.step.schema", 4);
-    writer.Transfer(stack->current_shape, STEPControl_AsIs);
+    writer.Transfer(out_shape, STEPControl_AsIs);
     IFSelect_ReturnStatus status = writer.Write(filepath.c_str());
     return status == IFSelect_RetDone;
 }

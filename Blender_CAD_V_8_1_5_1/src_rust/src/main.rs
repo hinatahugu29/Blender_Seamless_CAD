@@ -583,7 +583,9 @@ fn handle_client(mut stream: TcpStream, workers: StackWorkers) {
         } else if action == "export_stack_to_step" {
             let filepath  = req["filepath"].as_str().unwrap_or("");
             let stack_ptr = req["stack_ptr"].as_i64().unwrap_or(0) as isize;
-            match seamless_core::export_stack_to_step(stack_ptr, filepath) {
+            // 未指定なら 1.0 = 従来どおり 1 Blender 単位 1 mm
+            let scale     = req["scale"].as_f64().unwrap_or(1.0);
+            match seamless_core::export_stack_to_step(stack_ptr, filepath, scale) {
                 Ok(_) => { stream.write_all(&[1u8]).unwrap(); },
                 Err(e) => {
                     stream.write_all(&[0u8]).unwrap();

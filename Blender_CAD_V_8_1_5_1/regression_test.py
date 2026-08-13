@@ -986,6 +986,54 @@ def t_offset_pick_zero_reference():
     assert (mathutils.Vector(c) - hint).length < 1e-2,         f"at depth 0 the face should sit where the lineage says: {c} vs {tuple(hint)}"
 
 
+def t_step_export_scale():
+    """STEP 書き出しのスケール。1 Blender 単位を何 mm にするか選べること。
+
+    以前は 1 単位 = 1 mm 固定で、ミリ単位で作ることを強制していた
+    (docs/en/limitations.md の "STEP export scale is fixed")。
+
+    検証は往復で行う。倍率 s で書き出したものを倍率 1 で読み戻すと、
+    体積は s^3 倍になっていなければならない。ファイルの中身を読むより、
+    「相手が受け取る寸法」を直接見るほうが意味がある。
+    """
+    import tempfile, os
+    from CAD_8_1_5_1 import core_bridge
+
+    col, props = _fresh_part()
+    bpy.ops.seamless.add_primitive(type='BOX')
+    props = utils_props()
+    props.primitives[0].size = (2.0, 2.0, 2.0)
+    core_bridge.update_cad_preview_forced(bpy.context)
+    stack_ptr = int(col.seamless_cad_stack_ptr)
+
+    src = core_bridge.measure_stack(stack_ptr)
+    assert src and abs(src["volume"] - 8.0) < 1e-3, f"expected a volume of 8, got {src}"
+
+    def roundtrip(scale):
+        path = os.path.join(tempfile.gettempdir(), f"seamless_scale_{scale:g}.stp")
+        assert core_bridge.export_stack_to_step(stack_ptr, path, scale),             f"export at scale {scale} failed"
+        assert os.path.exists(path), f"no file written for scale {scale}"
+
+        # 読み戻しはオペレータ経由。プリミティブの組み立て方(target_uuid /
+        # step_scale / size)を検証側で真似すると、そこがズレたときに
+        # 「スケールの不具合」に見えてしまう。
+        col2, props2 = _fresh_part()
+        res = bpy.ops.seamless.import_step(filepath=path, import_scale=1.0)
+        assert 'FINISHED' in res, f"the file written at scale {scale} could not be read back"
+        core_bridge.update_cad_preview_forced(bpy.context)
+        got = core_bridge.measure_stack(int(col2.seamless_cad_stack_ptr))
+        os.remove(path)
+        return got
+
+    # 既定(1.0)は従来どおり。ここが変わると既存ユーザーのファイルが崩れる
+    same = roundtrip(1.0)
+    assert same and abs(same["volume"] - 8.0) < 1e-2,         f"scale 1.0 must keep the previous behaviour; got {same}"
+
+    # 2 倍で出すと、受け取り側では体積が 8 倍(2^3)
+    bigger = roundtrip(2.0)
+    assert bigger and abs(bigger["volume"] - 64.0) < 1e-1,         f"exporting at 2.0 should give a volume of 64 on the other side; got {bigger}"
+
+
 def t_sketch_solver_constraints():
     """2D スケッチの拘束ソルバ(GCS)が実際に解いている。
 
@@ -1534,6 +1582,7 @@ def main():
     check("panels registered", t_panels_registered)
     check("bake to mesh", t_bake_to_mesh)
     check("STEP export", t_step_export)
+    check("STEP export scale", t_step_export_scale)
     # シーンを丸ごと開き直すので、他のテストを汚さないよう最後に回す
     check("save + reload keeps CAD live", t_save_reload_keeps_cad_live)
 

@@ -39,9 +39,13 @@ no effect on it.
 
 ### Scale
 
-**1 Blender unit is written as 1 mm.** A 10-unit box opens as a 10 mm box in
-FreeCAD, Fusion or SolidWorks. There is no export scale option — set your
-dimensions with this in mind from the start.
+**One Blender unit is written as 1 mm by default.** A 10-unit box opens as a
+10 mm box in FreeCAD, Fusion or SolidWorks.
+
+Set *Scale (1 unit = N mm)* in the export dialog if you work at another scale —
+1000 if a unit is a metre, 10 if it is a centimetre. It is the same quantity as
+Import's Scale, so a file brought in at 10 goes back out unchanged at 10.
+Leaving it at 1.0 matches every earlier version.
 
 ### What is not in the file
 

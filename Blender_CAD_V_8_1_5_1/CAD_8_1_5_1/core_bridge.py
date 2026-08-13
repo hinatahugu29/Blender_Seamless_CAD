@@ -1064,11 +1064,19 @@ def export_step(uuids, filepath):
     }
     return send_and_receive(req_dict)
 
-def export_stack_to_step(stack_ptr, filepath):
+def export_stack_to_step(stack_ptr, filepath, scale=1.0):
+    """STEP 書き出し。scale は「1 Blender 単位を何 mm として出すか」。
+
+    既定 1.0 は従来どおり 1 単位 = 1 mm。以前はこれが固定で、
+    ミリ単位で作ることを強制していた(docs/en/limitations.md)。
+    インポート側の scale と同じ意味なので、10 で取り込んだものは
+    10 で書き出せば元に戻る。
+    """
     req_dict = {
         "action": "export_stack_to_step",
         "stack_ptr": stack_ptr,
-        "filepath": filepath
+        "filepath": filepath,
+        "scale": float(scale)
     }
     return send_and_receive(req_dict)
 

@@ -12,7 +12,8 @@ namespace occ {
     bool export_step(const std::vector<std::string>& uuids, const std::string& filepath);
     
     // Export the result of a CADStack to a STEP file.
-    bool export_stack_to_step(void* stack_ptr, const std::string& filepath);
+    // scale は「1 Blender 単位を何 mm として書き出すか」。1.0 で従来どおり。
+    bool export_stack_to_step(void* stack_ptr, const std::string& filepath, double scale = 1.0);
     
     // Get a cached STEP shape by UUID
     TopoDS_Shape get_step_shape(const std::string& uuid);
