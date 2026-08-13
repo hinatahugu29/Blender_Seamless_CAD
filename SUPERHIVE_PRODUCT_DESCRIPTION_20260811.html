@@ -4,7 +4,7 @@
     </div>
         <div style="background-color:#fff3cd;border-left:6px solid #ffc107;padding:14px 18px;margin-bottom:24px;border-radius:4px;color:#664d03;">        <strong>⚠️ Please read before buying — this is a Beta release, Windows only.</strong><br>        Seamless CAD is under active development and is priced to reflect that.        The version you buy runs on <strong>Windows 10 / 11 (64-bit) only</strong> — there is no macOS or Linux build for sale. (Free, untested macOS and Linux builds are available below if you want to help test them.)        Expect rough edges, and expect things to change between updates.        If you need a finished, cross-platform product today, this is not it yet.    </div>
 <div style="background-color:#fff3cd;border-left:6px solid #ffc107;padding:14px 18px;margin-bottom:24px;border-radius:4px;color:#664d03;"><p>❗️We are currently working on test builds for MAC and LINUX. Since these have not been tested on actual devices, we are looking for people to test them and provide feedback. You can download them for free from the Gumroad link below. You should be able to tell which ones are for MAC and LINUX by the file names, which include _MAC and _LINUX.</p>
-<p><strong>Please note that the macOS and Linux builds are version 8.1.5.4, not 8.1.5.5.</strong> They were built against OpenCASCADE 8.0.0, so they do not contain the kernel fixes listed under "Latest update" below. Windows is the main platform and is where new versions land first. These builds are rebuilt when a tester actually needs them — if you are testing on macOS or Linux and want the current version, say so and it will be built for you.</p>
+<p><strong>Please note that the macOS and Linux builds are version 8.1.5.4.</strong> They were built against OpenCASCADE 8.0.0, so they contain none of the changes listed under "Latest update" below. Windows is the main platform and is where new versions land first. These builds are rebuilt when a tester actually needs them — if you are testing on macOS or Linux and want the current version, say so and it will be built for you.</p>
 <br><a href="https://hinatahugu.gumroad.com/l/seamlessCAD" target="_blank">https://hinatahugu.gumroad.com/l/seamlessCAD</a><br><br><p>For macOS Users</p>
 <p></p>
 <p>Since this build has not been notarized by Apple, macOS security features may prevent it from running. (On the other hand, since Blender unpacks the ZIP file on its own, it may run without any issues.) We would appreciate it if you could let us know which scenario you encounter.</p>
@@ -39,7 +39,45 @@
 <p><br></p>
 <p>We sincerely appreciate your cooperation.</p>
 <br><br></div>
-        <div style="background-color:#e7f5ef;border-left:6px solid #2e9e6b;padding:14px 18px;margin-bottom:24px;border-radius:4px;color:#14532d;">        <strong>🔄 Latest update — version 8.1.5.5 (August 2026)</strong><br>        <strong>The geometry kernel is now OpenCASCADE 8.0.1.</strong> The add-on had been built        against 8.0.0; the 8.0.1 release fixes three faults upstream that sit directly on code this        add-on uses, and they cost you nothing to pick up:        <ul style="margin:8px 0 0 0;">            <li>An <strong>infinite loop in boolean section</strong> — union, difference and intersection are the core of the add-on, and a hang is worse than a crash because Blender has to be killed.</li>            <li>A <strong>crash in Loft</strong> when the profiles being lofted had mismatched vertex counts.</li>            <li>A <strong>crash when picking an edge or a face</strong> on shapes containing edges with no underlying 3D curve — the same selection you make before applying a fillet or chamfer.</li>        </ul>        <p style="margin:8px 0 0 0;">            Modelling behaviour is otherwise unchanged, and nothing in your saved files is affected.            Housekeeping: ten unused kernel libraries left over from an older OpenCASCADE are no longer            shipped. If you report a problem, the server log now names the kernel version it is running.        </p>        <p style="margin:12px 0 4px 0;"><strong>Previously, in 8.1.5.4</strong> — the manual. Users writing in English, Japanese, Russian and Chinese all asked for documentation, and until then there genuinely was none. It is online and free to read whether or not you own the add-on: <a href="https://hinatahugu29.github.io/Blender_Seamless_CAD/">hinatahugu29.github.io/Blender_Seamless_CAD</a>, with a <em>Documentation</em> button added in preferences.</p>
+        <div style="background-color:#e7f5ef;border-left:6px solid #2e9e6b;padding:14px 18px;margin-bottom:24px;border-radius:4px;color:#14532d;">        <strong>🔄 Latest update — version 8.1.5.6 (August 2026)</strong><br>
+        <strong>Sketch constraints you can put a number on.</strong> Until now a circle's size was
+        whatever you happened to drag it to. Five constraints are new:
+        <ul style="margin:8px 0 0 0;">
+            <li><strong>Radius</strong> — fix a circle or arc, then type the value. The centre stays put; the rim moves.</li>
+            <li><strong>Angle</strong> — fix the angle between two lines, in degrees.</li>
+            <li><strong>Equal</strong> — make two lines the same length without dimensioning both.</li>
+            <li><strong>Concentric</strong> — share a centre between two circles or arcs. Unlike Coincident, which merges the points, this keeps both and can be undone by removing the constraint.</li>
+            <li><strong>Symmetric</strong> — mirror two points across a line.</li>
+        </ul>
+        <p style="margin:8px 0 0 0;">Editing a circle's dimension no longer slides its centre sideways, whichever route you use.</p>
+
+        <p style="margin:12px 0 4px 0;"><strong>Measure.</strong> A new panel reports the active part's
+        volume, surface area, centre of mass and overall size. Pick an edge or a face in Selection Mode
+        and it reports that instead — an edge's length, a face's area, and the radius of a cylindrical
+        or filleted face. The radius is read from the shape rather than the Feature Tree, so it is right
+        even where you have overridden a fillet per edge. If a selection no longer matches the current
+        shape it says so rather than showing a number for something else.</p>
+
+        <p style="margin:12px 0 4px 0;"><strong>STEP export is no longer tied to millimetres.</strong>
+        The export dialog takes a scale — 1000 if one Blender unit is a metre, 10 if it is a centimetre.
+        It means the same thing as Import's scale, so a file brought in at 10 goes back out unchanged at
+        10. Leaving it at 1.0 produces exactly what previous versions did.</p>
+
+        <p style="margin:12px 0 4px 0;"><strong>Fixes.</strong></p>
+        <ul style="margin:4px 0 0 0;">
+            <li><strong>The Offset eyedropper works from a value that is already set.</strong> It picked the wrong reference and wrote the distance into a field the panel does not show, so the number appeared not to arrive, or arrived as the sum of the old and new values.</li>
+            <li><strong>No more stray cube at the origin.</strong> Adding a fillet, chamfer, shell, draft, offset, inset or cleanup drew a wireframe box there. Those operations act on faces and edges you pick; they have no shape of their own, and now draw nothing.</li>
+            <li><strong>Measurements say when they describe the shape before a modifier.</strong> While you are picking a fillet's edges the fillet is not applied, so what is measured is the shape without it. The panel now tells you instead of quietly reporting the wrong volume.</li>
+            <li><strong>Smaller download.</strong> 45.8 MB to 40.9 MB. A duplicate copy of the geometry kernel and some unused libraries had been shipping since long before this release.</li>
+        </ul>
+
+        <p style="margin:12px 0 4px 0;"><strong>Previously, in 8.1.5.5</strong> — the geometry kernel moved to
+        OpenCASCADE 8.0.1, picking up upstream fixes for an infinite loop in boolean section, a crash in Loft
+        with mismatched profiles, and a crash when picking an edge or face on certain shapes.</p>
+
+        <p style="margin:12px 0 4px 0;"><strong>And in 8.1.5.4</strong> — the manual, online and free to read
+        whether or not you own the add-on: <a href="https://hinatahugu29.github.io/Blender_Seamless_CAD/">hinatahugu29.github.io/Blender_Seamless_CAD</a>.</p>
+
         <p style="margin:12px 0 4px 0;"><strong>And in 8.1.5.3</strong> — a stability pass driven by user reports:</p>
         <ul style="margin:4px 0 0 0;">
             <li><strong>Sketches can be finalised again.</strong> Depending on where Blender was started from, finalising a sketch — or picking a face to sketch on — could fail immediately with a permission error, with nothing the user could do about it. Reinstalling or resetting to factory settings did not help, because the fault was in the add-on. Fixed.</li>
