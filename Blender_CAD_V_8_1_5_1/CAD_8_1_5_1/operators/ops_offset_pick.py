@@ -478,12 +478,18 @@ class SEAMLESS_OT_InteractiveOffsetPick(bpy.types.Operator):
         # 一時的な調査用ログ。原因が確定したら消すこと。
         # 「拾った値が狙いと違う」の切り分けには、参照面がどこに決まり、
         # 既存値の引き戻しがどう効いたかが要る。
+        # lineage が記録している座標。深さを 0 に戻したのだから、cache_ref_pt は
+        # これと一致していなければならない。ずれていればゼロ化が効いていない
+        # (プロパティは 0 でも、読んでいるキャッシュが古い)。
+        _hint = lineage_hint_point(target_lid)
         utils.info_print(
             f"[OFFSET_PICK/invoke] attr={self.depth_attr} initial={self._initial_radius:.4f} "
             f"target_lid={target_lid!r} "
+            f"hint={tuple(round(v, 4) for v in _hint) if _hint else None} "
             f"cache_ref_pt={tuple(round(v, 4) for v in ref_pt)} "
+            f"zeroed_ok={(_hint is not None and (ref_pt - _hint).length < 1e-3)} "
             f"ref_norm={tuple(round(v, 4) for v in ref_norm)} "
-            f"corrected_ref_pt={tuple(round(v, 4) for v in self._ref_point)}"
+            f"value_now={getattr(prim, self.depth_attr, None)}"
         )
         
         self._target_point = None
