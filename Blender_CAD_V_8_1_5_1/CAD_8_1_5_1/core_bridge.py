@@ -1344,6 +1344,19 @@ def update_cad_preview(self, context):
 def update_cad_preview_forced(context):
     _update_cad_preview_internal(context, force=True)
 
+def update_cad_preview_forced_sync(context):
+    """強制更新を、**戻ってきた時点で結果が反映されている**形で行う。
+
+    update_cad_preview_forced は非同期。投げて即座に返り、結果は
+    poll_async_results が後から適用する。直後に描画キャッシュや形状を
+    読む処理は、**更新前のものを読む**。
+
+    厄介なのは、背景実行では `not bpy.app.background` の条件で同期パスへ
+    落ちるため、**ヘッドレスのテストではこの違いが現れない**こと。GUI で
+    しか出ない差なので、読み戻しが要る場面ではこちらを明示的に使う。
+    """
+    _update_cad_preview_internal(context, force=True, sync=True)
+
 def update_cad_preview_high_quality(context, deflection_override=None, angular_override=None):
     _update_cad_preview_internal(context, fast_preview=False, override_deflection=deflection_override, override_angular=angular_override, sync=True)
 

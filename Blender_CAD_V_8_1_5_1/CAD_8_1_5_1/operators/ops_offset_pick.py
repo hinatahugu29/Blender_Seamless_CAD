@@ -448,9 +448,13 @@ class SEAMLESS_OT_InteractiveOffsetPick(bpy.types.Operator):
         #
         # 代償は invoke 時の再計算1回。確定時とキャンセル時には元から
         # update_cad_preview_forced を呼んでいるので、増えるのは1回だけ。
+        # **同期版であること。** update_cad_preview_forced は非同期で、
+        # 投げて即座に返る。直後に面の位置を読むと更新前のキャッシュを見るので、
+        # プロパティは 0 になっているのに基準面は動く前のまま、という状態になる
+        # (value_now=0.0 なのに zeroed_ok=False)。
         if abs(self._initial_radius) > 1e-9:
             setattr(prim, self.depth_attr, 0.0)
-            core_bridge.update_cad_preview_forced(context)
+            core_bridge.update_cad_preview_forced_sync(context)
 
         # キャッシュからFace Centerと法線を取得(この時点で深さは 0)
         ref_pt, ref_norm = self._get_face_center_and_normal(stack_ptr, target_lid)
