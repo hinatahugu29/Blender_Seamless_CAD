@@ -4,7 +4,7 @@
     </div>
         <div style="background-color:#fff3cd;border-left:6px solid #ffc107;padding:14px 18px;margin-bottom:24px;border-radius:4px;color:#664d03;">        <strong>⚠️ Please read before buying — this is a Beta release, Windows only.</strong><br>        Seamless CAD is under active development and is priced to reflect that.        The version you buy runs on <strong>Windows 10 / 11 (64-bit) only</strong> — there is no macOS or Linux build for sale. (Free, untested macOS and Linux builds are available below if you want to help test them.)        Expect rough edges, and expect things to change between updates.        If you need a finished, cross-platform product today, this is not it yet.    </div>
 <div style="background-color:#fff3cd;border-left:6px solid #ffc107;padding:14px 18px;margin-bottom:24px;border-radius:4px;color:#664d03;"><p>❗️We are currently working on test builds for MAC and LINUX. Since these have not been tested on actual devices, we are looking for people to test them and provide feedback. You can download them for free from the Gumroad link below. You should be able to tell which ones are for MAC and LINUX by the file names, which include _MAC and _LINUX.</p>
-<p><strong>The macOS and Linux builds are 8.1.5.6 — the same version as Windows.</strong> They are rebuilt with each release, so everything under "Latest update" below applies to them too. What has not changed is that nobody has yet run either of them inside Blender on real hardware: they compile, bundle their libraries and start up on the build machines, and that is the whole of what is known. Windows remains the platform that is actually tested.</p>
+<p><strong>The macOS and Linux builds are 8.1.5.7 — the same version as Windows.</strong> They are rebuilt with each release, so everything under "Latest update" below applies to them too. What has not changed is that nobody has yet run either of them inside Blender on real hardware: they compile, bundle their libraries and start up on the build machines, and that is the whole of what is known. Windows remains the platform that is actually tested.</p>
 <br><a href="https://hinatahugu.gumroad.com/l/seamlessCAD" target="_blank">https://hinatahugu.gumroad.com/l/seamlessCAD</a><br><br><p>For macOS Users</p>
 <p></p>
 <p>Since this build has not been notarized by Apple, macOS security features may prevent it from running. (On the other hand, since Blender unpacks the ZIP file on its own, it may run without any issues.) We would appreciate it if you could let us know which scenario you encounter.</p>
@@ -39,37 +39,24 @@
 <p><br></p>
 <p>We sincerely appreciate your cooperation.</p>
 <br><br></div>
-        <div style="background-color:#e7f5ef;border-left:6px solid #2e9e6b;padding:14px 18px;margin-bottom:24px;border-radius:4px;color:#14532d;">        <strong>🔄 Latest update — version 8.1.5.6 (August 2026)</strong><br>
-        <strong>Sketch constraints you can put a number on.</strong> Until now a circle's size was
-        whatever you happened to drag it to. Five constraints are new:
-        <ul style="margin:8px 0 0 0;">
-            <li><strong>Radius</strong> — fix a circle or arc, then type the value. The centre stays put; the rim moves.</li>
-            <li><strong>Angle</strong> — fix the angle between two lines, in degrees.</li>
-            <li><strong>Equal</strong> — make two lines the same length without dimensioning both.</li>
-            <li><strong>Concentric</strong> — share a centre between two circles or arcs. Unlike Coincident, which merges the points, this keeps both and can be undone by removing the constraint.</li>
-            <li><strong>Symmetric</strong> — mirror two points across a line.</li>
-        </ul>
-        <p style="margin:8px 0 0 0;">Editing a circle's dimension no longer slides its centre sideways, whichever route you use.</p>
+        <div style="background-color:#e7f5ef;border-left:6px solid #2e9e6b;padding:14px 18px;margin-bottom:24px;border-radius:4px;color:#14532d;">        <strong>🔄 Latest update — version 8.1.5.7 (August 2026)</strong><br>
+        <strong>Deleting a row now clears the shape straight away.</strong> Removing rows from the
+        Feature Tree could leave the last shape on screen until you switched workspaces — its
+        wireframe vanished while the shaded surface stayed. Deleting a row also deletes the proxy
+        object that went with it, and the recompute that followed was reading that object a moment
+        after it ceased to exist; the resulting error was caught, logged where nobody looks, and the
+        geometry was simply never rebuilt. Reported by a macOS user, and not specific to macOS.
 
-        <p style="margin:12px 0 4px 0;"><strong>Measure.</strong> A new panel reports the active part's
-        volume, surface area, centre of mass and overall size. Pick an edge or a face in Selection Mode
-        and it reports that instead — an edge's length, a face's area, and the radius of a cylindrical
-        or filleted face. The radius is read from the shape rather than the Feature Tree, so it is right
-        even where you have overridden a fillet per edge. If a selection no longer matches the current
-        shape it says so rather than showing a number for something else.</p>
+        <p style="margin:8px 0 0 0;"><strong>Inset now says that it needs a flat face.</strong> On the
+        curved side of a cylinder or a cone it does nothing, because the offset it performs assumes a
+        plane. That was always true; what is new is that the panel tells you, rather than leaving you
+        to wonder whether you did something wrong. Flat ends and box faces are unaffected, and curved
+        faces are on the list.</p>
 
-        <p style="margin:12px 0 4px 0;"><strong>STEP export is no longer tied to millimetres.</strong>
-        The export dialog takes a scale — 1000 if one Blender unit is a metre, 10 if it is a centimetre.
-        It means the same thing as Import's scale, so a file brought in at 10 goes back out unchanged at
-        10. Leaving it at 1.0 produces exactly what previous versions did.</p>
-
-        <p style="margin:12px 0 4px 0;"><strong>Fixes.</strong></p>
-        <ul style="margin:4px 0 0 0;">
-            <li><strong>The Offset eyedropper works from a value that is already set.</strong> It picked the wrong reference and wrote the distance into a field the panel does not show, so the number appeared not to arrive, or arrived as the sum of the old and new values.</li>
-            <li><strong>No more stray cube at the origin.</strong> Adding a fillet, chamfer, shell, draft, offset, inset or cleanup drew a wireframe box there. Those operations act on faces and edges you pick; they have no shape of their own, and now draw nothing.</li>
-            <li><strong>Measurements say when they describe the shape before a modifier.</strong> While you are picking a fillet's edges the fillet is not applied, so what is measured is the shape without it. The panel now tells you instead of quietly reporting the wrong volume.</li>
-            <li><strong>Smaller download.</strong> 45.8 MB to 40.9 MB. A duplicate copy of the geometry kernel and some unused libraries had been shipping since long before this release.</li>
-        </ul>
+        <p style="margin:12px 0 4px 0;"><strong>Previously, in 8.1.5.6</strong> — five sketch
+        constraints that take a number (radius, angle, equal length, concentric, symmetric), a Measure
+        panel reporting the part or a picked edge or face, and a scale option for STEP export so
+        millimetres are no longer compulsory.</p>
 
         <p style="margin:12px 0 4px 0;"><strong>Previously, in 8.1.5.5</strong> — the geometry kernel moved to
         OpenCASCADE 8.0.1, picking up upstream fixes for an infinite loop in boolean section, a crash in Loft

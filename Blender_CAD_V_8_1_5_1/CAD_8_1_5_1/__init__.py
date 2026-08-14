@@ -72,7 +72,7 @@
 bl_info = {
     "name": "Seamless CAD",
     "author": "hinata_hugu",
-    "version": (8, 1, 5, 6),
+    "version": (8, 1, 5, 7),
     "blender": (4, 2, 0),
     "location": "View3D > Sidebar > Seamless",
     "description": "Non-destructive parametric CAD modelling with a real B-Rep kernel. Edit the feature tree at any time, export STEP",
