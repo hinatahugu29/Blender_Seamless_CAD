@@ -5,7 +5,7 @@ import mathutils
 import os
 import copy
 from bpy_extras import view3d_utils
-from ..core_bridge import get_core, update_cad_preview, update_cad_preview_high_quality, update_cad_preview_fast, is_core_busy, get_or_create_stack_ptr
+from ..core_bridge import get_core, update_cad_preview, update_cad_preview_high_quality, update_cad_preview_fast, is_core_busy, get_or_create_stack_ptr, update_cad_preview_forced
 from ..drawing import get_wireframe_engine
 from .. import utils
 
@@ -238,7 +238,10 @@ class SEAMLESS_OT_RemovePrimitive(bpy.types.Operator):
         props.primitives.remove(self.index)
         if props.active_primitive_index >= len(props.primitives):
             props.active_primitive_index = max(0, len(props.primitives) - 1)
-        update_cad_preview(None, context)
+        # 削除は force で。上の hidden_primitive_uuids はワイヤーを見た目から
+        # 消すだけで、面のキャッシュは本物の再計算でしか更新されない。ここが
+        # throttle に捨てられると、消したはずの形がシェーディングされたまま残る。
+        update_cad_preview_forced(context)
         return {'FINISHED'}
 
 class SEAMLESS_OT_SetActivePrimitive(bpy.types.Operator):

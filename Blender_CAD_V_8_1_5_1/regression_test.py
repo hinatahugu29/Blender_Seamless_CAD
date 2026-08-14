@@ -1034,6 +1034,55 @@ def t_step_export_scale():
     assert bigger and abs(bigger["volume"] - 64.0) < 1e-1,         f"exporting at 2.0 should give a volume of 64 on the other side; got {bigger}"
 
 
+def t_delete_updates_the_shape_at_once():
+    """削除したら、その場で形状が消えること。
+
+    利用者報告(2026-08-14, macOS): Feature Tree を全部消しても最後の1つが
+    画面に残り、Workspace を移動すると消える。
+
+    削除には2つの経路がある。ひとつは hidden_primitive_uuids へ入れて
+    ワイヤーを見た目から即座に消すもの(management.py)。もうひとつが本物の
+    再計算で、面のキャッシュを更新できるのはこちらだけ。後者が
+    core_bridge の throttle(直前の更新から 60ms 以内なら debounce へ回して
+    return)に捨てられると、ワイヤーだけ消えてシェーディングされた面が残る。
+
+    throttle が force を見ていなかったのが原因。削除は連続した更新の直後に
+    走るので、この間隔に収まりやすい。
+
+    ここでは**連続して**消す。1つずつ間を空けると throttle に掛からず、
+    修正の有無に関わらず通ってしまう。
+    """
+    from CAD_8_1_5_1 import core_bridge
+
+    col, props = _fresh_part()
+    for t in ('BOX', 'CYLINDER', 'SPHERE'):
+        bpy.ops.seamless.add_primitive(type=t)
+    core_bridge.update_cad_preview_forced(bpy.context)
+    assert _result_vertex_count(col) > 0, "the three primitives produced no geometry"
+
+    # 間を空けずに全部消す
+    while len(utils_props().primitives):
+        props = utils_props()
+        bpy.ops.seamless.remove_primitive(index=len(props.primitives) - 1)
+
+    assert len(utils_props().primitives) == 0, "the tree should be empty"
+
+    # 見るのは**描画エンジンに渡ったデータ**。利用者が見ているのはそれ。
+    # generate_mesh はカーネルの current_shape を読むので別物で、そちらは
+    # ツリーが空でも直前の形を保持したままになる(下の注記を参照)。
+    from CAD_8_1_5_1 import drawing
+    stack = drawing.get_wireframe_engine().get_stack(int(col.seamless_cad_stack_ptr))
+    verts = len(stack._cache_verts) if getattr(stack, "_cache_verts", None) is not None else 0
+    edges = len(stack.coords) if getattr(stack, "coords", None) is not None else 0
+    assert verts == 0 and edges == 0,         (f"deleting every row must leave nothing to draw, but the engine still holds "
+         f"{verts} face vertices and {edges} edge coords — that is the shape staying "
+         f"on screen until something else forces a recompute")
+
+    # 既知の別件: ツリーが空になってもカーネルの current_shape は直前の形を
+    # 保持する。画面には出ないが、その状態で測ると消したはずの体積が返る。
+    # 表示の不具合とは別なので、ここでは固定しない。
+
+
 def t_sketch_solver_constraints():
     """2D スケッチの拘束ソルバ(GCS)が実際に解いている。
 
@@ -1556,6 +1605,7 @@ def main():
     check("B: feature tree -> viewport", t_b_feature_tree_to_viewport)
     check("A: viewport -> feature tree", t_a_viewport_to_feature_tree)
     check("F: delete sync", t_f_delete_sync)
+    check("delete updates the shape at once", t_delete_updates_the_shape_at_once)
     check("E: numeric edit is not a drag", t_e_single_edit_is_not_a_drag)
     check("settle drops the drag flags", t_settle_contract)
     check("settle is a no-op mid-drag", t_settle_is_a_noop_when_nothing_ended)

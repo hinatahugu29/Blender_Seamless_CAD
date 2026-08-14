@@ -192,12 +192,43 @@ def _build_expected_parent_uuids(primitives, proxies):
 
     return expected_parent_uuids
 
+def _is_live(obj):
+    """その Object 参照がまだ生きているか。
+
+    bpy.data.objects.remove() で消したオブジェクトを Python 側が掴んだままだと、
+    属性に触れた瞬間に ReferenceError("StructRNA of type Object has been
+    removed") が飛ぶ。`obj is None` では判定できない --- 参照は残っている。
+    """
+    if obj is None:
+        return False
+    try:
+        obj.name
+        return True
+    except ReferenceError:
+        return False
+
+
 def _apply_expected_parent_uuids(expected_parent_uuids, proxies):
     global _is_updating_proxies
 
     for child_uuid, obj in proxies.items():
+        # **消えたプロキシを飛ばす。**
+        #
+        # sync_proxies は同じ処理の中で、不要になったプロキシを
+        # bpy.data.objects.remove() で消してから、ここへ来る。proxy_map は
+        # その前に作られているので、消えた分の参照が残っている。obj.parent に
+        # 触れた瞬間に ReferenceError が飛び、それが sync_proxies を抜けて
+        # 更新処理全体を中断させていた。
+        #
+        # 中断された更新は握りつぶされるので、**削除しても形状が再計算されない**。
+        # ワイヤーは hidden_primitive_uuids で消えるのに面が残る、という
+        # 利用者報告(2026-08-14, macOS)の正体がこれ。
+        if not _is_live(obj):
+            continue
         expected_parent_uuid = expected_parent_uuids.get(child_uuid, "")
         expected_parent = proxies.get(expected_parent_uuid) if expected_parent_uuid else None
+        if expected_parent is not None and not _is_live(expected_parent):
+            expected_parent = None
 
         if expected_parent:
             if obj.parent != expected_parent:

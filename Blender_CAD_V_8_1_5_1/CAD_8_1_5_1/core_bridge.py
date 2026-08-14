@@ -1625,7 +1625,22 @@ def _update_cad_preview_internal_for_col(col, context, fast_preview=False, overr
         now = time.time()
         min_request_gap = 0.16 if heavy_boolean_preview else 0.06
         debounce_delay = 0.2 if heavy_boolean_preview else 0.1
-        if now - _last_request_time < min_request_gap:
+        # **force のときは間隔で捨てないこと。**
+        #
+        # ここは連続入力(ドラッグ・数値の連打)を間引くための throttle で、
+        # 捨てた分は debounce タイマーへ回される。ところが force まで対象に
+        # していたため、「必ず反映されなければならない更新」も直前の更新から
+        # 60ms 以内なら後回しになっていた。
+        #
+        # 実害が出ていたのが削除で、Feature Tree を空にしても最後の1つが
+        # 画面に残る(利用者報告 2026-08-14)。削除は直前に別の更新を伴うので
+        # この間隔に収まりやすく、本来の再計算が捨てられて、ワイヤーだけが
+        # hidden_primitive_uuids で消え、シェーディングされた面が残っていた。
+        #
+        # force を投げているのは確定・キャンセル・削除といった離散的な操作
+        # だけで(毎フレーム呼ぶ経路は fast / throttled 系を使う)、素通しに
+        # しても連打にはならない。
+        if not force and now - _last_request_time < min_request_gap:
             _queue_debounced_preview_update(col.name, interactive_preview, override_deflection, override_angular, debounce_delay)
             return
             
