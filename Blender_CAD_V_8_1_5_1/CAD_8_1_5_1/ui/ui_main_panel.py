@@ -519,21 +519,31 @@ class SEAMLESS_PT_PropertyEditorPanel(bpy.types.Panel):
                     col.prop(active_prim, "radius", text=label)
             
             if active_prim.type == 'FACE_INSET':
-                # Inset は平らな面が要る。内側へのオフセットに平面ワイヤーの
-                # 処理を使っており(occ_modifiers.cpp の BRepOffsetAPI_MakeOffset)、
-                # 円柱面や円錐面では成立せず**何も起きずに終わる**。
-                # エラーも出ないので「効かない」としか見えず、利用者に
-                # 自分の操作を疑わせる(2026-08-14 報告)。ここで先に言う。
-                box_note = col.box()
-                box_note.label(text="Needs a flat face", icon='INFO')
-                box_note.label(text="On curved faces (cylinder, cone)")
-                box_note.label(text="Inset has no effect.")
-
                 row = col.row(align=True)
                 row.prop(active_prim, "extrude_height", text="Depth (Push/Pull)")
                 op = row.operator("seamless.interactive_offset_pick", text="", icon='EYEDROPPER')
                 op.index = idx
                 op.depth_attr = "extrude_height"
+
+                # Inset は平らな面が要る。内側へのオフセットに平面ワイヤーの
+                # 処理を使っており(occ_modifiers.cpp の BRepOffsetAPI_MakeOffset)、
+                # 円柱面や円錐面では成立せず**何も起きずに終わる**。エラーも
+                # 出ないので「効かない」としか見えない(2026-08-14 報告)。
+                #
+                # **見出し行そのものを事実にしてある。** 詳細だけを畳むのが要点で、
+                # 全部を畳むと必要な人に届かない --- 「押したのに何も起きない」と
+                # 思っている人が、その前に注意書きを開くことはまずない。
+                row_note = col.row(align=True)
+                row_note.prop(
+                    props, "show_inset_note",
+                    icon='TRIA_DOWN' if props.show_inset_note else 'TRIA_RIGHT',
+                    text="Needs a flat face", emboss=False,
+                )
+                if props.show_inset_note:
+                    box_note = col.box()
+                    box_note.label(text="On the curved side of a cylinder or")
+                    box_note.label(text="cone, Inset has no effect at all.")
+                    box_note.label(text="Flat ends and box faces are fine.")
                 
             if active_prim.type == 'DRAFT':
                 box_mod = col.column(align=True)

@@ -593,6 +593,10 @@ class SeamlessProperties(bpy.types.PropertyGroup):
     # state は 'NONE'(未計測) / 'UNRESOLVED'(照合できず) / 'EDGE' / 'FACE'。
     # UNRESOLVED を独立させているのは、**値を出してはいけない状態**を
     # 「値が 0」と区別するため。
+    # Inset の注意書きを開いているか。既定は閉じ --- 見出し行だけで事実は
+    # 伝わるので、詳細を常時出す必要はない。
+    show_inset_note: bpy.props.BoolProperty(name="Why?", default=False)
+
     measure_sel_state: bpy.props.StringProperty(name="Selection Measure State", default='NONE')
     measure_sel_amount: bpy.props.FloatProperty(name="Length or Area", default=0.0)
     measure_sel_radius: bpy.props.FloatProperty(name="Radius", default=-1.0)
