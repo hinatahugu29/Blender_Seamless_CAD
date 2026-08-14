@@ -53,6 +53,15 @@
         to wonder whether you did something wrong. Flat ends and box faces are unaffected, and curved
         faces are on the list.</p>
 
+        <p style="margin:8px 0 0 0;"><strong>The eyedropper now measures the face itself.</strong>
+        Lining two faces up with the Offset or Inset eyedropper and then running Cleanup merged them
+        only some of the time. The eyedropper was reading its reference from the drawn wireframe,
+        which is stored at single precision, so the result landed within about a millionth of the
+        face rather than on it — and a millionth is exactly the tolerance Cleanup uses to decide
+        whether two faces are the same plane. It now asks the kernel for the face's exact centre and
+        normal. Files saved before this update keep the values they were given; pick the face again
+        to get the exact one.</p>
+
         <p style="margin:12px 0 4px 0;"><strong>Previously, in 8.1.5.6</strong> — five sketch
         constraints that take a number (radius, angle, equal length, concentric, symmetric), a Measure
         panel reporting the part or a picked edge or face, and a scale option for STEP export so
