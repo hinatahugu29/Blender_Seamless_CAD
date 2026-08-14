@@ -2090,12 +2090,14 @@ bool measure_stack(void* stack_ptr, double* out) {
 
 // 選択されている辺または面ひとつを測る。
 //
-// out には4つの double を書く:
+// out には10個の double を書く:
 //   [0] 種別 : 0 = 解決できなかった / 1 = 辺 / 2 = 面
 //   [1] 量   : 辺なら長さ、面なら面積
 //   [2] 半径 : 一定半径が定義できるときだけ正の値。定義できなければ -1
 //   [3] 形状 : 辺 0=直線 1=円 2=楕円 3=その他
 //              面 0=平面 1=円柱 2=円錐 3=球 4=トーラス 5=その他
+//   [4..6] 中心 : 面なら面積重心、辺なら中点(いずれも厳密・倍精度)
+//   [7..9] 法線 : 平面のときだけ。それ以外は 0,0,0
 //
 // **半径は Feature Tree ではなく形状から読む。** このアドオンは辺ごとの
 // 可変フィレットを持てるので、ツリーに入っている radius と実際の面の半径は
@@ -2112,7 +2114,8 @@ bool measure_entity(void* stack_ptr, const char* lineage, bool is_face, double* 
     CADStack* stack = static_cast<CADStack*>(stack_ptr);
     if (stack->current_shape.IsNull()) return false;
 
-    out[0] = 0.0; out[1] = 0.0; out[2] = -1.0; out[3] = -1.0;
+    for (int k = 0; k < 10; ++k) out[k] = 0.0;
+    out[2] = -1.0; out[3] = -1.0;
     const std::string lid(lineage);
     if (lid.empty()) return false;
 
@@ -2128,7 +2131,23 @@ bool measure_entity(void* stack_ptr, const char* lineage, bool is_face, double* 
             out[0] = 2.0;
             out[1] = gp.Mass();
 
+            // **厳密な面中心。** 面積積分の重心なので、平面ならその平面上に乗る。
+            // スポイトはこれまでテセレーション結果(float32)の頂点平均を基準に
+            // していて、精度の床が約 1e-6 だった。CLEANUP の許容値も 1e-6 なので
+            // 「揃えたのに統合されたりされなかったり」の境界に乗っていた。
+            gp_Pnt com = gp.CentreOfMass();
+            out[4] = com.X(); out[5] = com.Y(); out[6] = com.Z();
+
             BRepAdaptor_Surface surf(f);
+            // 平面なら法線も厳密に取れる。面の向き(REVERSED)を反映しないと
+            // オフセットの符号が逆になる。
+            if (surf.GetType() == GeomAbs_Plane) {
+                gp_Dir n = surf.Plane().Axis().Direction();
+                if (f.Orientation() == TopAbs_REVERSED) n.Reverse();
+                out[7] = n.X(); out[8] = n.Y(); out[9] = n.Z();
+            }
+            // 平面以外は 0 のまま返す = 「厳密な法線は無い」。呼び出し側は
+            // lineage 側の法線へ退避する。
             switch (surf.GetType()) {
                 case GeomAbs_Plane:    out[3] = 0.0; break;
                 case GeomAbs_Cylinder: out[3] = 1.0; out[2] = surf.Cylinder().Radius(); break;
@@ -2146,6 +2165,8 @@ bool measure_entity(void* stack_ptr, const char* lineage, bool is_face, double* 
 
             out[0] = 1.0;
             out[1] = safe_edge_length(e);
+            gp_Pnt mid = safe_edge_midpoint(e);
+            out[4] = mid.X(); out[5] = mid.Y(); out[6] = mid.Z();
 
             BRepAdaptor_Curve crv(e);
             switch (crv.GetType()) {

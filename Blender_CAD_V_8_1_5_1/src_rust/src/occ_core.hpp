@@ -252,7 +252,7 @@ void make_variable_box_mesh(
 bool measure_stack(void* stack_ptr, double* out);
 
 // 選択された辺/面ひとつの寸法。out は4つの double
-// [種別(0=不明,1=辺,2=面), 長さor面積, 半径(無ければ-1), 形状コード]
+// [種別, 長さor面積, 半径, 形状コード, 中心xyz, 法線xyz(平面のみ)] = 10 個
 bool measure_entity(void* stack_ptr, const char* lineage, bool is_face, double* out);
 
 std::string get_version();

@@ -1133,6 +1133,128 @@ def t_inset_needs_a_flat_face():
          "the note in the Inset panel and the entry in limitations.md")
 
 
+def t_offset_pick_reference_is_exact():
+    """スポイトの基準が、テセレーションではなくカーネルの厳密な幾何から来ること。
+
+    利用者報告(2026-08-14): スポイトで面を揃えてから CLEANUP しても、統合される
+    ときとされないときがある。保存ファイルを開いて測ると、全体高さが 1.0 に対し
+    1.9864e-6 高く、上下の offset 2本も絶対値が 9.5e-7 食い違っていた。
+
+    基準点をテセレーション結果(numpy float32)の頂点平均から取っていたのが原因で、
+    精度の床が 1e-6 前後。CLEANUP の SetLinearTolerance も 1e-6 なので、誤差が
+    ちょうど境界に乗り、条件次第で統合されたりされなかったりしていた。
+
+    許容値を緩めるのではなく、床のほうを消してある。
+    """
+    from CAD_8_1_5_1 import core_bridge
+    from CAD_8_1_5_1.operators.ops_offset_pick import SEAMLESS_OT_InteractiveOffsetPick as OP
+    import types
+
+    col, props = _fresh_part()
+    bpy.ops.seamless.add_primitive(type='BOX')
+    props = utils_props()
+    props.primitives[0].size = (1.0, 1.0, 1.0)
+    # 半端な位置に置く。きりの良い座標だと float32 でも誤差が出ず、検査にならない
+    props.primitives[0].location = (0.0, 0.0, 0.3172819)
+    core_bridge.update_cad_preview_forced(bpy.context)
+    stack_ptr = int(col.seamless_cad_stack_ptr)
+
+    class _Shim:
+        pass
+    op = _Shim()
+    op._get_face_center_and_normal = types.MethodType(OP._get_face_center_and_normal, op)
+
+    checked = 0
+    for lid in _capture_face_lineages(col):
+        info = core_bridge.measure_entity(stack_ptr, lid, True)
+        if not info or not info.get("resolved") or not info.get("normal"):
+            continue
+        pt, nrm = op._get_face_center_and_normal(stack_ptr, lid)
+        assert pt is not None, f"the reference for {lid} could not be resolved"
+        gap = (mathutils.Vector(info["centre"]) - pt).length
+        assert gap < 1e-12,             (f"the eyedropper reference must be the kernel's exact face centre, "
+             f"but it is {gap:.3e} away for {lid}. A float32 tessellation average "
+             f"lands around 1e-6, which is exactly CLEANUP's linear tolerance")
+        n_gap = (mathutils.Vector(info["normal"]).normalized() - nrm).length
+        assert n_gap < 1e-12, f"the normal should be the exact plane normal; off by {n_gap:.3e}"
+        checked += 1
+
+    assert checked >= 6, f"a box should offer six planar faces to check, got {checked}"
+
+
+def t_offset_pick_then_cleanup_merges():
+    """スポイトで揃えた面が CLEANUP で本当に統合されること。
+
+    t_offset_pick_reference_is_exact が基準点の精度を見るのに対し、こちらは
+    結果側を見る。統合が丸ごと壊れたら気づけるようにするためのもので、
+    **精度の改善を証明するものではない**。破壊試験で確かめたところ、基準を
+    float32 のテセレーションキャッシュに戻してもこの規模では通ってしまう
+    (残差 3e-8、CLEANUP の許容 1e-6 に対して十分小さい)。
+
+    座標を 40 倍にすると、基準を厳密にしても統合されなくなる。これは
+    テセレーションではなく `radius` が Blender の FloatProperty = float32 で
+    あることの床で、値が 32 付近だと 1ulp が 2e-6、許容 1e-6 を超えるため。
+    別の問題として残っている。
+    """
+    from CAD_8_1_5_1 import core_bridge
+    from CAD_8_1_5_1.operators.ops_offset_pick import SEAMLESS_OT_InteractiveOffsetPick as OP
+    import types
+
+    col, props = _fresh_part()
+    bpy.ops.seamless.add_primitive(type='BOX')
+    props = utils_props()
+    props.primitives[0].size = (1.0, 1.0, 1.0)
+    props.primitives[0].location = (0.0, 0.0, 0.0)
+    bpy.ops.seamless.add_primitive(type='BOX')
+    props = utils_props()
+    # 隣に置き、天面だけ半端な高さにずらす。ここを揃えて統合させる
+    props.primitives[1].size = (1.0, 1.0, 0.6172819)
+    props.primitives[1].location = (1.0, 0.0, -0.1913590)
+    props.primitives[1].operation = 'ADD'
+    core_bridge.update_cad_preview_forced(bpy.context)
+    stack_ptr = int(col.seamless_cad_stack_ptr)
+
+    class _Shim:
+        pass
+    op = _Shim()
+    op._get_face_center_and_normal = types.MethodType(OP._get_face_center_and_normal, op)
+
+    # 天面(+Z)を2つ拾い、低いほうを高いほうへ揃える距離を、スポイトと同じ式で出す
+    tops = []
+    for lid in _capture_face_lineages(col):
+        info = core_bridge.measure_entity(stack_ptr, lid, True)
+        if not info or not info.get("normal"):
+            continue
+        if abs(info["normal"][2] - 1.0) > 1e-6:
+            continue
+        tops.append((lid, info["centre"]))
+    assert len(tops) == 2, f"two upward faces expected, got {len(tops)}"
+    tops.sort(key=lambda t: t[1][2])
+    low_lid, _ = tops[0]
+    _, high_c = tops[1]
+
+    ref_pt, ref_n = op._get_face_center_and_normal(stack_ptr, low_lid)
+    assert ref_pt is not None
+    d = (mathutils.Vector(high_c) - ref_pt).dot(ref_n)
+
+    bpy.ops.seamless.add_primitive(type='FACE_OFFSET')
+    props = utils_props()
+    mod = props.primitives[-1]
+    mod.target_lineage = low_lid
+    mod.radius = d
+    core_bridge.update_cad_preview_forced(bpy.context)
+
+    before = len(_capture_face_lineages(col))
+    bpy.ops.seamless.add_primitive(type='CLEANUP')
+    core_bridge.update_cad_preview_forced(bpy.context)
+    after = len(_capture_face_lineages(col))
+
+    assert after < before,         (f"CLEANUP left {after} faces from {before}: the two top faces are meant to be "
+         f"coplanar after the pick and should merge. If the reference came from the "
+         f"float32 tessellation cache the residual is ~1e-6, which is exactly "
+         f"CLEANUP's SetLinearTolerance, so merging becomes a coin toss")
+
+
 def t_sketch_solver_constraints():
     """2D スケッチの拘束ソルバ(GCS)が実際に解いている。
 
@@ -1671,6 +1793,8 @@ def main():
     check("modifier ignores its transform", t_modifier_transform_is_ignored)
     check("offset pick targets the shown field", t_offset_pick_writes_the_visible_field)
     check("offset pick reference face", t_offset_pick_reference_face)
+    check("offset pick reference is exact", t_offset_pick_reference_is_exact)
+    check("offset pick then cleanup merges", t_offset_pick_then_cleanup_merges)
     check("offset face gets hard to identify", t_offset_face_becomes_unidentifiable)
     check("offset pick zero reference", t_offset_pick_zero_reference)
     check("sketch solver constraints", t_sketch_solver_constraints)

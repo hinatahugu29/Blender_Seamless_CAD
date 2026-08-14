@@ -901,8 +901,8 @@ def send_and_receive(req_dict):
             elif req_dict.get('action') in {'export_step', 'export_stack_to_step'}:
                 return True
             elif req_dict.get('action') == 'measure_entity':
-                # f64 が4個 (種別, 長さor面積, 半径, 形状コード)
-                return list(struct.unpack('<4d', recv_exact(32)))
+                # f64 が10個 (種別, 長さor面積, 半径, 形状コード, 中心xyz, 法線xyz)
+                return list(struct.unpack('<10d', recv_exact(80)))
             elif req_dict.get('action') == 'measure_stack':
                 # f64 が 11 個 (体積, 表面積, 重心xyz, bbox 6値)
                 return list(struct.unpack('<11d', recv_exact(88)))
@@ -1127,10 +1127,12 @@ def measure_entity(stack_ptr, lineage, is_face):
         "lineage": lineage,
         "is_face": bool(is_face),
     })
-    if not vals or len(vals) != 4:
+    if not vals or len(vals) != 10:
         return None
 
-    kind, amount, radius, shape_code = vals
+    kind, amount, radius, shape_code = vals[:4]
+    centre = tuple(vals[4:7])
+    normal = tuple(vals[7:10])
     if kind == 0.0:
         return {"resolved": False}
 
@@ -1142,6 +1144,10 @@ def measure_entity(stack_ptr, lineage, is_face):
         "amount": amount,                      # 辺なら長さ、面なら面積
         "radius": radius if radius > 0.0 else None,
         "shape": table.get(int(shape_code), "Unknown"),
+        # 厳密な幾何(倍精度)。面なら面積重心、辺なら中点。
+        "centre": centre,
+        # 平面のときだけ。(0,0,0) は「厳密な法線は無い」の意味。
+        "normal": normal if any(abs(v) > 1e-12 for v in normal) else None,
     }
 
 

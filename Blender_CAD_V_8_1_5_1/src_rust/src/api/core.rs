@@ -148,7 +148,13 @@ pub fn measure_stack(stack_ptr: isize) -> Result<Vec<f64>, String> {
 
 /// 選択されている辺/面ひとつの寸法。
 ///
-/// 返るのは4つの f64: `[種別, 長さor面積, 半径, 形状コード]`
+/// 返るのは10個の f64:
+/// `[種別, 長さor面積, 半径, 形状コード, 中心xyz, 法線xyz]`
+///
+/// 中心と法線は**カーネルの厳密な幾何から**取る。面なら面積重心と平面法線で、
+/// どちらも倍精度。テセレーション結果(float32)を平均する経路とは精度が3桁違い、
+/// スポイトで面を揃えたときに 1e-6 級のずれが残らない。
+/// 法線が (0,0,0) のときは「平面ではないので厳密な法線は無い」の意味。
 /// 種別 0 は「lineage を解決できなかった」で、エラーではない。トポロジが
 /// 変わって照合が外れるのは正常に起こりうるので、UI 側で「取得できません」と
 /// 出すこと。**近い別の辺を返して数字を埋めるより、出さないほうがよい。**
@@ -164,7 +170,7 @@ pub fn measure_entity(stack_ptr: isize, lineage: &str, is_face: bool) -> Result<
     let lock = crate::get_stack_lock(stack_ptr);
     let _guard = lock.lock().map_err(|_| "measure_entity: stack lock poisoned".to_string())?;
 
-    let mut out = vec![0.0f64; 4];
+    let mut out = vec![0.0f64; 10];
     let out_ptr = out.as_mut_ptr();
     let ok = unsafe {
         cpp!([stack_ptr as "void*", lineage_ptr as "const char*", is_face as "bool", out_ptr as "double*"] -> bool as "bool" {

@@ -261,6 +261,19 @@ class SEAMLESS_OT_InteractiveOffsetPick(bpy.types.Operator):
         return context.area.type == 'VIEW_3D'
 
     def _get_face_center_and_normal(self, stack_ptr, target_lid):
+        # まずカーネルの厳密な幾何に訊く。ワイヤフレームの頂点キャッシュは
+        # テセレーション結果を float32 で持っているので、平均を取っても 1e-6 前後
+        # までしか合わない。CLEANUP の線形トレランスがちょうど 1e-6 なので、
+        # スポイトで揃えた面が統合されたりされなかったりする原因になっていた。
+        # (利用者報告 2026-08-14 / 20260814-test-1.blend で全高が 1.9864e-6 過大)
+        try:
+            info = core_bridge.measure_entity(stack_ptr, str(target_lid), True)
+        except Exception:
+            info = None
+        if info and info.get("resolved") and info.get("normal"):
+            return Vector(info["centre"]), Vector(info["normal"]).normalized()
+
+        # 平面でない、または lineage を解決できなかった場合だけ従来の経路へ落ちる。
         from ..drawing import get_wireframe_engine
         wireframe = get_wireframe_engine()
         stack = wireframe.get_stack(stack_ptr)
