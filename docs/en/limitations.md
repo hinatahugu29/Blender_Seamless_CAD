@@ -66,6 +66,15 @@ a file brought in at 10 goes back out unchanged at 10.
 
 Leaving it at 1.0 keeps the behaviour of every earlier version.
 
+## Inset needs a flat face
+
+**Inset does nothing on a curved face** — the side of a cylinder or a cone. It
+offsets the face's boundary inwards using an operation that assumes a plane, and
+on a curved surface that operation simply does not produce a result. Nothing
+happens and nothing is reported.
+
+The flat ends of a cylinder or cone are fine, as is every face of a box.
+
 ## Cleanup (Unify) is destructive to references
 
 Merging coplanar faces destroys the face identities that Fillet, Chamfer, Offset,

@@ -1083,6 +1083,56 @@ def t_delete_updates_the_shape_at_once():
     # 表示の不具合とは別なので、ここでは固定しない。
 
 
+def t_inset_needs_a_flat_face():
+    """Inset が曲面で効かないことを、既知の制限として固定する。
+
+    利用者報告(2026-08-14, macOS): 「Inset が cylinder や円錐で動作しません」。
+    正確には「円柱・円錐だから」ではなく**曲面だから**で、平らな上面・底面や
+    箱の6面では動く。内側オフセットに平面ワイヤーの処理を使っているため
+    (occ_modifiers.cpp の BRepOffsetAPI_MakeOffset)。
+
+    これは「こうあるべき」ではなく「今こうである」を書き留めるテスト。
+    曲面に対応したらここが赤くなるので、そのとき制限の記述(limitations.md)と
+    パネルの注記も一緒に消すこと。
+    """
+    from CAD_8_1_5_1 import core_bridge
+
+    col, props = _fresh_part()
+    bpy.ops.seamless.add_primitive(type='CYLINDER')
+    core_bridge.update_cad_preview_forced(bpy.context)
+    stack_ptr = int(col.seamless_cad_stack_ptr)
+    base = core_bridge.measure_stack(stack_ptr)["volume"]
+
+    curved = None
+    flat = None
+    for lid in _capture_face_lineages(col):
+        info = core_bridge.measure_entity(stack_ptr, lid, True)
+        if not info or not info.get("resolved"):
+            continue
+        if info["shape"] == "Cylinder" and curved is None:
+            curved = lid
+        elif info["shape"] == "Plane" and flat is None:
+            flat = lid
+    assert curved and flat, "a cylinder should expose both a curved side and flat ends"
+
+    def inset_on(target):
+        bpy.ops.seamless.add_primitive(type='FACE_INSET')
+        p = utils_props().primitives[-1]
+        p.target_lineages = target
+        p.radius = 0.15
+        p.extrude_height = 0.2
+        core_bridge.update_cad_preview_forced(bpy.context)
+        v = core_bridge.measure_stack(stack_ptr)["volume"]
+        props_now = utils_props()
+        props_now.primitives.remove(len(props_now.primitives) - 1)
+        core_bridge.update_cad_preview_forced(bpy.context)
+        return v
+
+    assert abs(inset_on(flat) - base) > 1e-6,         "Inset must work on the flat end of a cylinder"
+    assert abs(inset_on(curved) - base) < 1e-9,         ("Inset now changes a curved face. If that is intended, remove this test, "
+         "the note in the Inset panel and the entry in limitations.md")
+
+
 def t_sketch_solver_constraints():
     """2D スケッチの拘束ソルバ(GCS)が実際に解いている。
 
@@ -1606,6 +1656,7 @@ def main():
     check("A: viewport -> feature tree", t_a_viewport_to_feature_tree)
     check("F: delete sync", t_f_delete_sync)
     check("delete updates the shape at once", t_delete_updates_the_shape_at_once)
+    check("inset needs a flat face", t_inset_needs_a_flat_face)
     check("E: numeric edit is not a drag", t_e_single_edit_is_not_a_drag)
     check("settle drops the drag flags", t_settle_contract)
     check("settle is a no-op mid-drag", t_settle_is_a_noop_when_nothing_ended)
