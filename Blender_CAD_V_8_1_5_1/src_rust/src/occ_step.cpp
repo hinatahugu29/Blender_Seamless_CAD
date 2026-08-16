@@ -154,4 +154,94 @@ bool export_stack_to_step(void* stack_ptr, const std::string& filepath, double s
     return status == IFSelect_RetDone;
 }
 
+bool export_stack_to_stl(void* stack_ptr, const std::string& filepath, double scale,
+                         double linear_deflection, double angular_deflection,
+                         bool ascii_mode) {
+    if (!stack_ptr) return false;
+    occ_core::CADStack* stack = static_cast<occ_core::CADStack*>(stack_ptr);
+    if (stack->current_shape.IsNull()) return false;
+
+    // 倍率の扱いは export_stack_to_step と同一。STL には単位の概念が無いので、
+    // 「1 Blender 単位を何 mm として出すか」は形状を掛けるしかない。
+    //
+    // **必ずコピーを作ること。** 下で三角形分割を捨てるので、生の
+    // current_shape を渡すと**プレビューの描画用メッシュを壊す**。
+    const double safe_scale = std::max(scale, 1e-6);
+    TopoDS_Shape out_shape;
+    try {
+        if (std::abs(safe_scale - 1.0) > 1e-9) {
+            gp_GTrsf gt_scale;
+            gt_scale.SetVectorialPart(gp_Mat(
+                safe_scale, 0, 0,
+                0, safe_scale, 0,
+                0, 0, safe_scale
+            ));
+            out_shape = BRepBuilderAPI_GTransform(stack->current_shape, gt_scale, true).Shape();
+        } else {
+            // 等倍でもコピーする。ここを「そのまま使う」にすると、等倍のときだけ
+            // 生の形状を掴むことになり、Clean がプレビューを巻き込む。
+            out_shape = BRepBuilderAPI_Copy(stack->current_shape).Shape();
+        }
+    } catch (...) {
+        occ_core::log_debug("export_stack_to_stl: could not copy the shape");
+        return false;
+    }
+    if (out_shape.IsNull()) return false;
+
+    // **既存の三角形分割を必ず捨ててから切り直す。**
+    //
+    // BRepMesh_IncrementalMesh は「既にあるメッシュが要求精度を満たしていれば
+    // その面を作り直さない」。current_shape にはプレビューが作った分割が載って
+    // いるので、Clean しないと**指定した品質が黙って無視され、画面用の粗さで
+    // STL が出る**。Bake 経路を通さない利点そのものが消える。
+    //
+    // 2026-08-17 のサボタージュ検証で発覚した。メッシュ生成を丸ごと削っても
+    // テストが緑のままで、それは三角形がプレビュー由来だったため。
+    BRepTools::Clean(out_shape);
+
+    // たわみ量にも同じ倍率を掛ける。scale を変えてもメッシュの相対的な粗さは
+    // 変わらない (10倍で出したから10倍粗くなる、ということが起きない)。
+    //
+    // angular_deflection は**ラジアン**で受ける。UI 側は度で持っているので、
+    // 変換は呼び出し側の責任。ベイク経路 (operators/bake.py) と同じ約束。
+    const double lin = std::max(linear_deflection, 1e-6) * safe_scale;
+    const double ang = std::max(angular_deflection, 1e-6);
+    try {
+        OCC_CATCH_SIGNALS
+        BRepMesh_IncrementalMesh mesh(out_shape, lin, Standard_False, ang, Standard_True);
+        (void)mesh;
+    } catch (Standard_Failure const& e) {
+        occ_core::log_debug(std::string("export_stack_to_stl: meshing failed: ") + e.GetMessageString());
+        return false;
+    } catch (...) {
+        occ_core::log_debug("export_stack_to_stl: meshing failed (unknown exception)");
+        return false;
+    }
+
+    // 三角形が1枚も無いまま書くと、**開けるが中身が空**の STL ができる。
+    // 一番たちの悪い失敗方なので、書く前に落とす。StlAPI_Writer は
+    // 自分でメッシュを切らないため、この確認をしないと静かに空になる。
+    int n_triangles = 0;
+    for (TopExp_Explorer exp(out_shape, TopAbs_FACE); exp.More(); exp.Next()) {
+        TopLoc_Location loc;
+        Handle(Poly_Triangulation) tri = BRep_Tool::Triangulation(TopoDS::Face(exp.Current()), loc);
+        if (!tri.IsNull()) n_triangles += tri->NbTriangles();
+    }
+    if (n_triangles == 0) {
+        occ_core::log_debug("export_stack_to_stl: no triangles after meshing; refusing to write an empty file");
+        return false;
+    }
+
+    StlAPI_Writer writer;
+    writer.ASCIIMode() = ascii_mode ? Standard_True : Standard_False;
+    const bool ok = writer.Write(out_shape, filepath.c_str()) == Standard_True;
+    if (!ok) {
+        occ_core::log_debug("export_stack_to_stl: StlAPI_Writer failed for " + filepath);
+    } else {
+        occ_core::log_debug("export_stack_to_stl: wrote " + std::to_string(n_triangles) +
+                            " triangles to " + filepath);
+    }
+    return ok;
+}
+
 } // namespace occ

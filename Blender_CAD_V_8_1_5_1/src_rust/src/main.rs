@@ -595,6 +595,26 @@ fn handle_client(mut stream: TcpStream, workers: StackWorkers) {
                 }
             }
 
+        } else if action == "export_stack_to_stl" {
+            // 応答は export_stack_to_step と同じ形 (成功 1u8 / 失敗 0u8 + 長さ + 文字列)。
+            let filepath  = req["filepath"].as_str().unwrap_or("");
+            let stack_ptr = req["stack_ptr"].as_i64().unwrap_or(0) as isize;
+            let scale     = req["scale"].as_f64().unwrap_or(1.0);
+            // たわみ量の既定は「指定が来なかったとき」の保険。実際の値は
+            // アドオン側の品質設定から必ず送られてくる。角度は**ラジアン**。
+            let lin       = req["linear_deflection"].as_f64().unwrap_or(0.1);
+            let ang       = req["angular_deflection"].as_f64().unwrap_or(0.5);
+            let ascii     = req["ascii"].as_bool().unwrap_or(false);
+            match seamless_core::export_stack_to_stl(stack_ptr, filepath, scale, lin, ang, ascii) {
+                Ok(_) => { stream.write_all(&[1u8]).unwrap(); },
+                Err(e) => {
+                    stream.write_all(&[0u8]).unwrap();
+                    let eb = e.as_bytes();
+                    stream.write_all(&(eb.len() as u32).to_le_bytes()).unwrap();
+                    stream.write_all(eb).unwrap();
+                }
+            }
+
         } else if action == "render_viewport" {
             let width  = req["width"].as_u64().unwrap_or(256) as u32;
             let height = req["height"].as_u64().unwrap_or(256) as u32;

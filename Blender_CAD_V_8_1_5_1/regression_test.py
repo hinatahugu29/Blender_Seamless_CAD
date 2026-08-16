@@ -1710,6 +1710,122 @@ def t_step_export():
     assert "ISO-10303" in head, f"file does not look like STEP; starts with: {head[:60]!r}"
 
 
+def t_stl_export():
+    """STL を書き出せる。カーネルから直接で、Bake を経由しない。
+
+    見るのは「ファイルが出来たか」ではなく **三角形が入っているか**。
+    StlAPI_Writer は自分でメッシュを切らないので、テセレーションを忘れると
+    ヘッダだけの 84 バイトが出来る。**開けるが中身が空**という一番たちの悪い
+    壊れ方をするため、三角形数まで数える。
+    """
+    import struct
+    import tempfile
+    col, props = _fresh_part()
+    bpy.ops.seamless.add_primitive(type='BOX')
+
+    out = os.path.join(tempfile.gettempdir(), "seamless_cad_regression.stl")
+    if os.path.exists(out):
+        os.remove(out)
+
+    res = bpy.ops.seamless.export_stl(filepath=out)
+    assert res == {'FINISHED'}, f"export_stl returned {res}"
+    assert os.path.exists(out), "export_stl reported success but wrote no file"
+
+    # バイナリ STL: 80 バイトのヘッダ + 三角形数 (uint32) + 50 バイト x N
+    size = os.path.getsize(out)
+    assert size > 84, f"STL is header-only ({size} bytes); tessellation produced nothing"
+    with open(out, "rb") as f:
+        f.seek(80)
+        n_tri = struct.unpack("<I", f.read(4))[0]
+    assert n_tri > 0, "STL header claims 0 triangles"
+    assert size == 84 + n_tri * 50, \
+        f"STL size {size} does not match {n_tri} triangles (expected {84 + n_tri * 50})"
+
+    # 箱は 6 面 x 2 = 12 三角形。これを下回るなら面が落ちている。
+    assert n_tri >= 12, f"a box should be at least 12 triangles, got {n_tri}"
+
+
+def t_stl_export_scale():
+    """STL の scale が実際に大きさを変える。
+
+    STEP と同じ意味の引数なので、同じように効かないと片方だけ嘘になる。
+    三角形の座標を読んで、10倍で出したら 10 倍になっていることを見る。
+    **三角形数は変わってはいけない** — 倍率に合わせてたわみ量も掛けているので、
+    メッシュの粗さは相対的に同じになる、という設計をここで固定する。
+    """
+    import struct
+    import tempfile
+    col, props = _fresh_part()
+    bpy.ops.seamless.add_primitive(type='BOX')
+
+    def _write_and_read(scale):
+        path = os.path.join(tempfile.gettempdir(), f"seamless_cad_regression_s{scale:g}.stl")
+        if os.path.exists(path):
+            os.remove(path)
+        res = bpy.ops.seamless.export_stl(filepath=path, scale=scale)
+        assert res == {'FINISHED'}, f"export_stl at scale {scale} returned {res}"
+        with open(path, "rb") as f:
+            f.seek(80)
+            n_tri = struct.unpack("<I", f.read(4))[0]
+            extent = 0.0
+            for _ in range(n_tri):
+                data = f.read(50)
+                # 12 バイトの法線を飛ばし、頂点 9 個の float を読む
+                coords = struct.unpack("<9f", data[12:48])
+                extent = max(extent, max(abs(c) for c in coords))
+        return n_tri, extent
+
+    n1, e1 = _write_and_read(1.0)
+    n10, e10 = _write_and_read(10.0)
+
+    assert e1 > 0.0, "unit-scale STL has all-zero coordinates"
+    ratio = e10 / e1
+    assert 9.9 < ratio < 10.1, f"scale=10 should be 10x larger, got {ratio:.3f}x"
+    assert n1 == n10, \
+        f"scale must not change mesh density: {n1} triangles at 1.0 vs {n10} at 10.0"
+
+
+def t_stl_export_honours_quality():
+    """STL のテセレーションが品質設定に従う。
+
+    **これが効かないと STL を直接書き出す意味そのものが消える** (画面用の
+    粗いメッシュがそのまま出るだけになり、Bake 経由と変わらない)。
+
+    2026-08-17 に実際に壊れていた: current_shape にはプレビューが作った
+    三角形分割が載っており、BRepMesh_IncrementalMesh は要求精度を満たす面を
+    作り直さないため、指定した品質が黙って無視されていた。
+    書き出し用のコピーに対して BRepTools::Clean してから切り直すことで解決。
+
+    球で見る。箱は精度をいくら上げても12三角形のままなので**この誤りを
+    検出できない** — 曲面が要る。
+    """
+    import struct
+    import tempfile
+    col, props = _fresh_part()
+    bpy.ops.seamless.add_primitive(type='SPHERE')
+
+    def _tri_count(deflection, tag):
+        props.use_high_quality_bake = False
+        props.mesh_quality = deflection
+        path = os.path.join(tempfile.gettempdir(), f"seamless_cad_regression_q{tag}.stl")
+        if os.path.exists(path):
+            os.remove(path)
+        res = bpy.ops.seamless.export_stl(filepath=path)
+        assert res == {'FINISHED'}, f"export_stl at deflection {deflection} returned {res}"
+        with open(path, "rb") as f:
+            f.seek(80)
+            return struct.unpack("<I", f.read(4))[0]
+
+    coarse = _tri_count(0.5, "coarse")
+    fine = _tri_count(0.01, "fine")
+
+    assert fine > coarse, (
+        f"tightening the deflection did not add triangles ({coarse} -> {fine}); "
+        "the quality setting is being ignored, probably because an existing "
+        "triangulation was reused"
+    )
+
+
 def t_one_undo_is_one_step():
     """Ctrl+Z 1回で1つ戻る(2回押さないと戻らない、が起きない)。
 
@@ -1808,6 +1924,9 @@ def main():
     check("bake to mesh", t_bake_to_mesh)
     check("STEP export", t_step_export)
     check("STEP export scale", t_step_export_scale)
+    check("STL export", t_stl_export)
+    check("STL export scale", t_stl_export_scale)
+    check("STL export honours quality", t_stl_export_honours_quality)
     # シーンを丸ごと開き直すので、他のテストを汚さないよう最後に回す
     check("save + reload keeps CAD live", t_save_reload_keeps_cad_live)
 

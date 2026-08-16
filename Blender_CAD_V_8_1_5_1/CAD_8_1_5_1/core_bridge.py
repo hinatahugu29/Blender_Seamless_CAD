@@ -898,7 +898,8 @@ def send_and_receive(req_dict):
                 data = recv_exact(res_len)
                 res_json = data.decode('utf-8')
                 return json.loads(res_json)
-            elif req_dict.get('action') in {'export_step', 'export_stack_to_step'}:
+            elif req_dict.get('action') in {'export_step', 'export_stack_to_step',
+                                            'export_stack_to_stl'}:
                 return True
             elif req_dict.get('action') == 'measure_entity':
                 # f64 が10個 (種別, 長さor面積, 半径, 形状コード, 中心xyz, 法線xyz)
@@ -1077,6 +1078,33 @@ def export_stack_to_step(stack_ptr, filepath, scale=1.0):
         "stack_ptr": stack_ptr,
         "filepath": filepath,
         "scale": float(scale)
+    }
+    return send_and_receive(req_dict)
+
+def export_stack_to_stl(stack_ptr, filepath, scale=1.0,
+                        linear_deflection=0.1, angular_deflection_deg=0.5,
+                        ascii_mode=False):
+    """STL 書き出し。scale の意味は export_stack_to_step と同じ。
+
+    **angular_deflection_deg は度で受け取り、ここでラジアンへ直して送る。**
+    アドオンのプロパティ (mesh_angular_quality / bake_angular_quality) が度で
+    持っているためで、operators/bake.py が generate_mesh を呼ぶときと同じ約束。
+
+    Bake してから Blender の STL エクスポータに通す経路と違い、テセレーションを
+    ベイク品質の設定で直接指定できる。
+
+    三角形が1枚も出なければサーバー側が**書かずに**失敗を返す。
+    「開けるが中身が空」の STL を成功として返さないため。
+    """
+    import math
+    req_dict = {
+        "action": "export_stack_to_stl",
+        "stack_ptr": stack_ptr,
+        "filepath": filepath,
+        "scale": float(scale),
+        "linear_deflection": float(linear_deflection),
+        "angular_deflection": math.radians(float(angular_deflection_deg)),
+        "ascii": bool(ascii_mode),
     }
     return send_and_receive(req_dict)
 

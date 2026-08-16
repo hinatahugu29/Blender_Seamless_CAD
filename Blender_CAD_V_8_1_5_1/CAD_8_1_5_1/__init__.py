@@ -354,6 +354,7 @@ classes = (
     operators.SEAMLESS_OT_ImportStep,
     operators.SEAMLESS_OT_ImportSvg,
     operators.SEAMLESS_OT_ExportStep,
+    operators.SEAMLESS_OT_ExportStl,
     operators.SEAMLESS_OT_SeparateByBase,
     operators.SEAMLESS_OT_SetRollbackIndex,
     operators.SEAMLESS_OT_ToggleFilletEdgeDefault,

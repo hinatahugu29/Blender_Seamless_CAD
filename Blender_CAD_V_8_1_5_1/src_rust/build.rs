@@ -123,7 +123,9 @@ fn main() {
         "TKernel", "TKMath", "TKG2d", "TKG3d", "TKGeomBase", "TKBRep",
         "TKGeomAlgo", "TKTopAlgo", "TKPrim", "TKBO", "TKMesh", 
         "TKShHealing", "TKFillet", "TKOffset", "TKFeat",
-        "TKDESTEP", "TKXSBase"
+        // TKDESTL は StlAPI_Writer (occ_step.cpp の export_stack_to_stl) 用。
+        // DLL は以前から配布物に同梱されていたが、リンクはしていなかった。
+        "TKDESTEP", "TKDESTL", "TKXSBase"
     ];
 
     for lib in libs {

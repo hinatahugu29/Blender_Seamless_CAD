@@ -657,6 +657,70 @@ class SEAMLESS_OT_ExportStep(bpy.types.Operator, ExportHelper):
             self.report({'ERROR'}, "Failed to export STEP file.")
             return {'CANCELLED'}
 
+class SEAMLESS_OT_ExportStl(bpy.types.Operator, ExportHelper):
+    """カーネルから直接 STL を書き出す。
+
+    Bake → Blender メッシュ → Blender の STL エクスポータ、という往復を通さない。
+    往復を避ける利点は手数ではなく**精度**で、テセレーションをベイク品質の設定で
+    直接指定できる (Bake 経路は一度 Blender のメッシュ精度に落ちる)。
+    """
+    bl_idname = "seamless.export_stl"
+    bl_label = "Export STL (.stl)"
+    bl_description = ("Write the exact kernel shape straight to STL. "
+                      "Tessellation uses the quality settings above")
+    filename_ext = ".stl"
+    filter_glob: bpy.props.StringProperty(default="*.stl", options={'HIDDEN'})
+
+    # STEP 側と同じ意味。取り込みと同じ値を入れれば元に戻る。
+    scale: bpy.props.FloatProperty(
+        name="Scale (1 unit = N mm)",
+        description="How many millimetres one Blender unit becomes in the file. "
+                    "1.0 keeps the same numbers as STEP export",
+        default=1.0,
+        min=1e-6,
+        soft_max=1000.0,
+    )
+
+    use_ascii: bpy.props.BoolProperty(
+        name="ASCII",
+        description="Write a text STL instead of binary. Much larger; only useful for inspection",
+        default=False,
+    )
+
+    def execute(self, context):
+        props = utils.get_active_props(context)
+        if not props:
+            self.report({'WARNING'}, "No active Seamless CAD collection.")
+            return {'CANCELLED'}
+
+        from ..core_bridge import export_stack_to_stl, get_or_create_stack_ptr
+
+        # ベイクと同じ選び方。High Quality Bake が入っていればそちらを使う。
+        # 3Dプリント用に書き出すときに、画面のドラフト精度で出てしまうのを避ける。
+        deflection = props.mesh_quality
+        angular_deg = props.mesh_angular_quality
+        if props.use_high_quality_bake:
+            deflection = props.bake_quality
+            angular_deg = props.bake_angular_quality
+
+        col = utils.get_active_collection(context)
+        stack_ptr = get_or_create_stack_ptr(col)
+
+        success = export_stack_to_stl(stack_ptr, self.filepath, self.scale,
+                                      deflection, angular_deg, self.use_ascii)
+        if success:
+            quality = "bake" if props.use_high_quality_bake else "preview"
+            self.report({'INFO'},
+                        f"Exported STL to {self.filepath} "
+                        f"(1 unit = {self.scale:g} mm, {quality} quality)")
+            return {'FINISHED'}
+
+        # ここに来るのは「形が無い」「メッシュが切れなかった」「三角形が0枚」。
+        # サーバー側が空ファイルを書かずに失敗を返すので、成功と誤解させない。
+        self.report({'ERROR'},
+                    "Failed to export STL. The part may be empty, or tessellation failed.")
+        return {'CANCELLED'}
+
 class SEAMLESS_OT_SeparateByBase(bpy.types.Operator):
     bl_idname = "seamless.separate_by_base"
     bl_label = "Separate Previous to New Part"

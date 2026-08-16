@@ -110,10 +110,15 @@ class SEAMLESS_PT_QualityBakePanel(bpy.types.Panel):
         
         layout.operator("seamless.bake_mesh", text="Bake to Mesh", icon='MESH_DATA')
         
-        row_io = layout.row(align=True)
-        row_io.operator("seamless.import_step", text="Import STEP", icon='IMPORT')
-        row_io.operator("seamless.import_svg", text="Import SVG", icon='IMPORT')
-        row_io.operator("seamless.export_step", text="Export STEP", icon='EXPORT')
+        # 取り込みと書き出しを別の行に分ける。1行に4つ並べるとラベルが
+        # 潰れて "Impo.." "Expo.." になり、どれがどちらか読めなくなる。
+        row_in = layout.row(align=True)
+        row_in.operator("seamless.import_step", text="Import STEP", icon='IMPORT')
+        row_in.operator("seamless.import_svg", text="Import SVG", icon='IMPORT')
+
+        row_out = layout.row(align=True)
+        row_out.operator("seamless.export_step", text="Export STEP", icon='EXPORT')
+        row_out.operator("seamless.export_stl", text="Export STL", icon='EXPORT')
 
 class SEAMLESS_PT_MeasurePanel(bpy.types.Panel):
     """アクティブな Part の質量特性を表示する。

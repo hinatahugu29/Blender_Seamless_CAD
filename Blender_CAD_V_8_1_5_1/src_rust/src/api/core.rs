@@ -196,11 +196,52 @@ pub fn export_stack_to_step(stack_ptr: isize, filepath: &str, scale: f64) -> Res
         let success = cpp!([stack_ptr as "void*", filepath_ptr as "const char*", scale as "double"] -> bool as "bool" {
             return occ::export_stack_to_step(stack_ptr, filepath_ptr, scale);
         });
-        
+
         if success {
             Ok(())
         } else {
             Err("Failed to export stack to STEP".to_string())
+        }
+    }
+}
+
+/// STL 書き出し。`scale` の意味は `export_stack_to_step` と同じ。
+///
+/// `angular_deflection` は**ラジアン**で渡すこと。アドオン側のプロパティは
+/// 度で持っているので、変換は呼び出し側の責任 (`operators/bake.py` と同じ約束)。
+///
+/// Bake してから Blender の STL エクスポータを通す経路と違い、テセレーションを
+/// ベイク品質の設定で直接指定できる。`ascii_mode` の既定はバイナリ。
+///
+/// 三角形が1枚も出なかった場合は**書かずに** Err を返す。「開けるが空」の
+/// STL が一番たちの悪い失敗方なので、成功として返さない。
+pub fn export_stack_to_stl(stack_ptr: isize, filepath: &str, scale: f64,
+                           linear_deflection: f64, angular_deflection: f64,
+                           ascii_mode: bool) -> Result<(), String> {
+    if !crate::is_valid_stack_ptr(stack_ptr) {
+        return Err(format!("export_stack_to_stl: unknown or already-deleted stack_ptr {}", stack_ptr));
+    }
+    let filepath_c = std::ffi::CString::new(filepath).map_err(|_| "Invalid filepath")?;
+    let filepath_ptr = filepath_c.as_ptr();
+
+    // measure_stack と同じ理由でスタックのロックを取る。書き出しは
+    // current_shape を読むだけだが、更新中に読むと作りかけの形状を
+    // メッシュに落とすことになる。
+    let lock = crate::get_stack_lock(stack_ptr);
+    let _guard = lock.lock().map_err(|_| "export_stack_to_stl: stack lock poisoned".to_string())?;
+
+    unsafe {
+        let success = cpp!([stack_ptr as "void*", filepath_ptr as "const char*", scale as "double",
+                            linear_deflection as "double", angular_deflection as "double",
+                            ascii_mode as "bool"] -> bool as "bool" {
+            return occ::export_stack_to_stl(stack_ptr, filepath_ptr, scale,
+                                            linear_deflection, angular_deflection, ascii_mode);
+        });
+
+        if success {
+            Ok(())
+        } else {
+            Err("export_stack_to_stl: nothing was written (no shape, meshing failed, or no triangles)".to_string())
         }
     }
 }
