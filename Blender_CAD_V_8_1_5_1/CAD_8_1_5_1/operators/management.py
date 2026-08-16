@@ -621,6 +621,15 @@ class SEAMLESS_OT_ImportSvg(bpy.types.Operator, ImportHelper):
         return {'FINISHED'}
 
 class SEAMLESS_OT_ExportStep(bpy.types.Operator, ExportHelper):
+    """STEP を書き出す。Part 名が製品名として入る。
+
+    2026-08-17 から XCAF 経由 (export_parts_to_step) になっている。
+    それ以前は STEPControl_Writer に直接渡していたため、受け取った側では
+    **名前の無い塊がひとつ**見えるだけだった。
+
+    色は載せていない。**アドオン側に色という概念がまだ無い**ため、
+    書き出す元データが存在しない (properties.py に色プロパティは1つも無い)。
+    """
     bl_idname = "seamless.export_step"
     bl_label = "Export STEP (.stp)"
     filename_ext = ".stp"
@@ -638,24 +647,58 @@ class SEAMLESS_OT_ExportStep(bpy.types.Operator, ExportHelper):
         soft_max=1000.0,
     )
 
+    # 複数 Part を1つの STEP に、アセンブリ構造として出す。
+    # 既定 OFF: 「今見ている Part を出す」が素直な期待で、部品庫まで
+    # 勝手に付いてくると驚かれる。
+    all_parts: bpy.props.BoolProperty(
+        name="All Parts as Assembly",
+        description="Write every CAD Part into one file as a named assembly, "
+                    "instead of just the active Part",
+        default=False,
+    )
+
+    assembly_name: bpy.props.StringProperty(
+        name="Assembly Name",
+        description="Name of the top-level assembly. Only used when writing all Parts",
+        default="Assembly",
+    )
+
     def execute(self, context):
         props = utils.get_active_props(context)
         if not props:
             self.report({'WARNING'}, "No active Seamless CAD collection.")
             return {'CANCELLED'}
-            
-        from ..core_bridge import export_stack_to_step, get_or_create_stack_ptr
-        col = utils.get_active_collection(context)
-        stack_ptr = get_or_create_stack_ptr(col)
-        
-        success = export_stack_to_step(stack_ptr, self.filepath, self.scale)
-        if success:
-            self.report({'INFO'},
-                        f"Successfully exported to {self.filepath} (1 unit = {self.scale:g} mm)")
-            return {'FINISHED'}
+
+        from ..core_bridge import export_parts_to_step, get_or_create_stack_ptr
+
+        if self.all_parts:
+            # レジストリ経由ではなく直接走査する。Part を足した直後などに
+            # レジストリが追いついていないことがあり、書き出しは一発勝負なので
+            # そこを当てにしない。名前順で並べて、出力を再現可能にする。
+            cols = sorted(
+                (c for c in bpy.data.collections if utils._is_live_cad_collection(c)),
+                key=lambda c: c.name,
+            )
         else:
-            self.report({'ERROR'}, "Failed to export STEP file.")
+            cols = [utils.get_active_collection(context)]
+
+        parts = [(get_or_create_stack_ptr(c), c.name) for c in cols if c]
+        if not parts:
+            self.report({'ERROR'}, "No CAD Part to export.")
             return {'CANCELLED'}
+
+        success = export_parts_to_step(parts, self.filepath, self.scale, self.assembly_name)
+        if success:
+            what = f"{len(parts)} parts" if len(parts) > 1 else f"'{parts[0][1]}'"
+            self.report({'INFO'},
+                        f"Exported {what} to {self.filepath} (1 unit = {self.scale:g} mm)")
+            return {'FINISHED'}
+
+        # 空の Part はサーバー側が読み飛ばすので、ここに来るのは
+        # 「全部空」か書き込み自体の失敗。
+        self.report({'ERROR'},
+                    "Failed to export STEP. Every selected Part may be empty.")
+        return {'CANCELLED'}
 
 class SEAMLESS_OT_ExportStl(bpy.types.Operator, ExportHelper):
     """カーネルから直接 STL を書き出す。

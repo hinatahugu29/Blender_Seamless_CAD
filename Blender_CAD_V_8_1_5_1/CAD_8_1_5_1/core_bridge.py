@@ -899,7 +899,7 @@ def send_and_receive(req_dict):
                 res_json = data.decode('utf-8')
                 return json.loads(res_json)
             elif req_dict.get('action') in {'export_step', 'export_stack_to_step',
-                                            'export_stack_to_stl'}:
+                                            'export_parts_to_step', 'export_stack_to_stl'}:
                 return True
             elif req_dict.get('action') == 'measure_entity':
                 # f64 が10個 (種別, 長さor面積, 半径, 形状コード, 中心xyz, 法線xyz)
@@ -1078,6 +1078,27 @@ def export_stack_to_step(stack_ptr, filepath, scale=1.0):
         "stack_ptr": stack_ptr,
         "filepath": filepath,
         "scale": float(scale)
+    }
+    return send_and_receive(req_dict)
+
+def export_parts_to_step(parts, filepath, scale=1.0, assembly_name="Assembly"):
+    """名前付き STEP 書き出し。複数 Part を渡すとアセンブリ構造になる。
+
+    parts は (stack_ptr, 名前) の並び。
+
+    export_stack_to_step との違いは **XCAF を通すこと**だけ。あちらは
+    STEPControl_Writer に直接渡すので形状しか出ず、受け取った側では
+    名前の無い塊がひとつ見えるだけになる。旧関数は互換のために残してある。
+
+    形状を持たない Part は**サーバー側が読み飛ばす**。Part を作っただけで
+    まだ何も置いていない状態は普通に起こるため。全部空なら失敗が返る。
+    """
+    req_dict = {
+        "action": "export_parts_to_step",
+        "filepath": filepath,
+        "scale": float(scale),
+        "assembly_name": str(assembly_name),
+        "parts": [{"ptr": int(ptr), "name": str(name)} for ptr, name in parts],
     }
     return send_and_receive(req_dict)
 

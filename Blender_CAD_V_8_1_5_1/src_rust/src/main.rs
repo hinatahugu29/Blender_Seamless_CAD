@@ -595,6 +595,30 @@ fn handle_client(mut stream: TcpStream, workers: StackWorkers) {
                 }
             }
 
+        } else if action == "export_parts_to_step" {
+            // 応答は export_stack_to_step と同じ形。
+            // parts は [{"ptr": <isize>, "name": "<str>"}, ...]。
+            let filepath = req["filepath"].as_str().unwrap_or("");
+            let scale    = req["scale"].as_f64().unwrap_or(1.0);
+            let asm_name = req["assembly_name"].as_str().unwrap_or("Assembly");
+            let mut parts: Vec<(isize, String)> = Vec::new();
+            if let Some(arr) = req["parts"].as_array() {
+                for p in arr {
+                    let ptr  = p["ptr"].as_i64().unwrap_or(0) as isize;
+                    let name = p["name"].as_str().unwrap_or("").to_string();
+                    if ptr != 0 { parts.push((ptr, name)); }
+                }
+            }
+            match seamless_core::export_parts_to_step(parts, filepath, scale, asm_name) {
+                Ok(_) => { stream.write_all(&[1u8]).unwrap(); },
+                Err(e) => {
+                    stream.write_all(&[0u8]).unwrap();
+                    let eb = e.as_bytes();
+                    stream.write_all(&(eb.len() as u32).to_le_bytes()).unwrap();
+                    stream.write_all(eb).unwrap();
+                }
+            }
+
         } else if action == "export_stack_to_stl" {
             // 応答は export_stack_to_step と同じ形 (成功 1u8 / 失敗 0u8 + 長さ + 文字列)。
             let filepath  = req["filepath"].as_str().unwrap_or("");

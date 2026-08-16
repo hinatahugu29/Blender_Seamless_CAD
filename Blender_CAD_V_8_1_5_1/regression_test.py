@@ -1710,6 +1710,87 @@ def t_step_export():
     assert "ISO-10303" in head, f"file does not look like STEP; starts with: {head[:60]!r}"
 
 
+def t_step_export_carries_part_name():
+    """書き出した STEP に Part 名が入っている。
+
+    ここが通らないと、受け取った側では**名前の無い塊がひとつ**見えるだけになる。
+    listing で「STEP 相互運用」を看板にしている以上、形が出るだけでは足りない。
+
+    STEP はテキストなので PRODUCT の中身を直接見る。読み戻しに XCAF リーダを
+    足すより、ファイルに何が書かれたかを見るほうが確実。
+    """
+    import tempfile
+    col, props = _fresh_part()
+    bpy.ops.seamless.add_primitive(type='BOX')
+
+    # 既定名 (Seamless_CAD.001 など) は他と紛れるので、確実に判別できる名前にする
+    col.name = "RegressionWidget"
+
+    out = os.path.join(tempfile.gettempdir(), "seamless_cad_regression_named.stp")
+    if os.path.exists(out):
+        os.remove(out)
+
+    res = bpy.ops.seamless.export_step(filepath=out)
+    assert res == {'FINISHED'}, f"export_step returned {res}"
+    assert os.path.exists(out), "export_step reported success but wrote no file"
+
+    with open(out, encoding="utf-8", errors="replace") as f:
+        text = f.read()
+    assert "ISO-10303" in text, "file does not look like STEP"
+    assert "RegressionWidget" in text, \
+        "the Part name is missing from the STEP file; it was written without XCAF"
+
+
+def t_step_export_all_parts_is_an_assembly():
+    """複数 Part を1つの STEP にアセンブリとして書き出せる。
+
+    見るのは3つ: 両方の Part 名があること、アセンブリ名があること、そして
+    **NEXT_ASSEMBLY_USAGE_OCCURRENCE があること**。3つ目が無いと、名前は
+    付いていても構造としては並べただけになる。
+
+    空の Part はサーバー側が読み飛ばす仕様なので、両方に形状を入れておく。
+
+    **2つ目は `add_part` で作ること。** `_fresh_part()` は全コレクションを
+    消してから作り直すので、2回呼ぶと1つ目が消え、Part がひとつの
+    ファイルしか出ない (最初にこれで失敗させた)。
+    """
+    from CAD_8_1_5_1 import utils
+    import tempfile
+    col_a, props_a = _fresh_part()
+    col_a.name = "RegressionPartA"
+    bpy.ops.seamless.add_primitive(type='BOX')
+
+    bpy.ops.seamless.add_part()
+    col_b = utils.get_active_collection(bpy.context)
+    assert col_b is not None and col_b != col_a, "add_part did not switch to a new collection"
+    col_b.name = "RegressionPartB"
+    bpy.ops.seamless.add_primitive(type='SPHERE')
+    assert getattr(col_b, "seamless_cad_stack_ptr", "0") != "0", \
+        "the second part never got a stack; the kernel did not answer"
+
+    out = os.path.join(tempfile.gettempdir(), "seamless_cad_regression_asm.stp")
+    if os.path.exists(out):
+        os.remove(out)
+
+    res = bpy.ops.seamless.export_step(filepath=out, all_parts=True,
+                                       assembly_name="RegressionAssembly")
+    assert res == {'FINISHED'}, f"export_step(all_parts=True) returned {res}"
+
+    with open(out, encoding="utf-8", errors="replace") as f:
+        text = f.read()
+    for expected in ("RegressionPartA", "RegressionPartB", "RegressionAssembly"):
+        assert expected in text, f"{expected!r} is missing from the assembly STEP"
+    assert "NEXT_ASSEMBLY_USAGE_OCCURRENCE" in text, \
+        "no assembly relationship in the file; the parts were written side by side"
+
+    # スタックの結果はコンパウンドで返ることがあり、そのまま入れると
+    # PRODUCT('PartA') の下に無名の PRODUCT('SOLID') がもう一段生える。
+    # このテストの部品はどちらもソリッド1個なので、剥がれていれば出ない。
+    # (中身が複数ソリッドの Part では正当に出るので、一般の断言ではない)
+    assert "PRODUCT('SOLID'" not in text, \
+        "an unnamed SOLID product is nested under the part; the lone-solid compound was not unwrapped"
+
+
 def t_stl_export():
     """STL を書き出せる。カーネルから直接で、Bake を経由しない。
 
@@ -1924,6 +2005,8 @@ def main():
     check("bake to mesh", t_bake_to_mesh)
     check("STEP export", t_step_export)
     check("STEP export scale", t_step_export_scale)
+    check("STEP carries part name", t_step_export_carries_part_name)
+    check("STEP all parts is an assembly", t_step_export_all_parts_is_an_assembly)
     check("STL export", t_stl_export)
     check("STL export scale", t_stl_export_scale)
     check("STL export honours quality", t_stl_export_honours_quality)

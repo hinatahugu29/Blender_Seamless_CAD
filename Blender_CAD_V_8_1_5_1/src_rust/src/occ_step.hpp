@@ -10,6 +10,20 @@
 #include <BRepMesh_IncrementalMesh.hxx>
 #include <BRepBuilderAPI_Copy.hxx>
 #include <BRepTools.hxx>
+// XCAF: STEP に名前とアセンブリ構造を載せるための一式。
+// STEPControl_Writer は形状しか書けないので、名前を出すにはこちらを通す。
+#include <STEPCAFControl_Writer.hxx>
+#include <XCAFApp_Application.hxx>
+#include <XCAFDoc_DocumentTool.hxx>
+#include <XCAFDoc_ShapeTool.hxx>
+#include <TDocStd_Document.hxx>
+#include <TDataStd_Name.hxx>
+#include <TDF_Label.hxx>
+#include <TDF_LabelSequence.hxx>
+#include <TCollection_ExtendedString.hxx>
+#include <TopoDS_Compound.hxx>
+#include <BRep_Builder.hxx>
+#include <TopoDS_Iterator.hxx>
 #include <BRep_Tool.hxx>
 #include <Poly_Triangulation.hxx>
 #include <TopLoc_Location.hxx>
@@ -24,6 +38,18 @@ namespace occ {
     // Export the result of a CADStack to a STEP file.
     // scale は「1 Blender 単位を何 mm として書き出すか」。1.0 で従来どおり。
     bool export_stack_to_step(void* stack_ptr, const std::string& filepath, double scale = 1.0);
+
+    // Export one or more CADStacks to a STEP file **with names**, and with an
+    // assembly structure when more than one is given.
+    //
+    // stack_ptrs と names は同じ長さでなければならない。形状を持たないスタックは
+    // 読み飛ばす。1つも残らなければ false。
+    // scale は export_stack_to_step と同じ意味。
+    bool export_parts_to_step(const std::vector<void*>& stack_ptrs,
+                              const std::vector<std::string>& names,
+                              const std::string& filepath,
+                              double scale,
+                              const std::string& assembly_name);
 
     // Export the result of a CADStack to an STL file.
     // scale は export_stack_to_step と同じ意味。

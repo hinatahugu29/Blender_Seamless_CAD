@@ -205,6 +205,74 @@ pub fn export_stack_to_step(stack_ptr: isize, filepath: &str, scale: f64) -> Res
     }
 }
 
+/// 名前付き STEP 書き出し。複数 Part を渡すとアセンブリ構造になる。
+///
+/// `export_stack_to_step` との違いは **XCAF を通すこと** だけ。あちらは
+/// `STEPControl_Writer` に直接渡すので、形状しか出ない (名前も構造も無い)。
+/// 旧関数は互換のために残してあり、回帰テストも両方を見ている。
+///
+/// `parts` は (stack_ptr, 名前) の並び。`assembly_name` は 2つ以上のときだけ
+/// 使われる。`scale` の意味は `export_stack_to_step` と同じ。
+pub fn export_parts_to_step(parts: Vec<(isize, String)>, filepath: &str, scale: f64,
+                            assembly_name: &str) -> Result<(), String> {
+    if parts.is_empty() {
+        return Err("export_parts_to_step: no parts were given".to_string());
+    }
+    for (ptr, name) in &parts {
+        if !crate::is_valid_stack_ptr(*ptr) {
+            return Err(format!("export_parts_to_step: unknown or already-deleted stack_ptr {} (part {:?})",
+                               ptr, name));
+        }
+    }
+
+    // **ポインタの昇順でロックを取る。** 複数スタックを同時に押さえるので、
+    // 呼ぶ側の並び順のまま取ると、別スレッドが逆順で取ったときに刺さる。
+    // 順序を1つに決めておけば、その組み合わせは起こらない。
+    let mut ordered: Vec<isize> = parts.iter().map(|(p, _)| *p).collect();
+    ordered.sort_unstable();
+    ordered.dedup();
+    let locks: Vec<_> = ordered.iter().map(|p| crate::get_stack_lock(*p)).collect();
+    let mut _guards = Vec::with_capacity(locks.len());
+    for lock in &locks {
+        _guards.push(lock.lock().map_err(|_| "export_parts_to_step: stack lock poisoned".to_string())?);
+    }
+
+    let filepath_c = std::ffi::CString::new(filepath).map_err(|_| "Invalid filepath")?;
+    let filepath_ptr = filepath_c.as_ptr();
+    let asm_c = std::ffi::CString::new(assembly_name).map_err(|_| "Invalid assembly name")?;
+    let asm_ptr = asm_c.as_ptr();
+
+    let ptrs: Vec<isize> = parts.iter().map(|(p, _)| *p).collect();
+    let names_c: Vec<std::ffi::CString> = parts.iter()
+        .map(|(_, n)| std::ffi::CString::new(n.as_str()).unwrap_or_default())
+        .collect();
+    let names_ptr: Vec<*const i8> = names_c.iter().map(|c| c.as_ptr()).collect();
+
+    let p_ptr = ptrs.as_ptr();
+    let n_ptr = names_ptr.as_ptr();
+    let n_parts = ptrs.len() as i32;
+
+    unsafe {
+        let success = cpp!([p_ptr as "const intptr_t*", n_ptr as "const char**", n_parts as "int",
+                            filepath_ptr as "const char*", scale as "double",
+                            asm_ptr as "const char*"] -> bool as "bool" {
+            std::vector<void*> stacks;
+            std::vector<std::string> names;
+            for (int i = 0; i < n_parts; ++i) {
+                stacks.push_back(reinterpret_cast<void*>(p_ptr[i]));
+                names.push_back(n_ptr[i] ? n_ptr[i] : "");
+            }
+            return occ::export_parts_to_step(stacks, names, filepath_ptr, scale, asm_ptr);
+        });
+
+        if success {
+            Ok(())
+        } else {
+            Err("export_parts_to_step: nothing was written (every part may be empty)".to_string())
+        }
+    }
+}
+
 /// STL 書き出し。`scale` の意味は `export_stack_to_step` と同じ。
 ///
 /// `angular_deflection` は**ラジアン**で渡すこと。アドオン側のプロパティは
