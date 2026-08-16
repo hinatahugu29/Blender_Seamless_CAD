@@ -899,7 +899,8 @@ def send_and_receive(req_dict):
                 res_json = data.decode('utf-8')
                 return json.loads(res_json)
             elif req_dict.get('action') in {'export_step', 'export_stack_to_step',
-                                            'export_parts_to_step', 'export_stack_to_stl'}:
+                                            'export_parts_to_step', 'export_stack_to_stl',
+                                            'export_stack_to_iges'}:
                 return True
             elif req_dict.get('action') == 'measure_entity':
                 # f64 が10個 (種別, 長さor面積, 半径, 形状コード, 中心xyz, 法線xyz)
@@ -1099,6 +1100,25 @@ def export_parts_to_step(parts, filepath, scale=1.0, assembly_name="Assembly"):
         "scale": float(scale),
         "assembly_name": str(assembly_name),
         "parts": [{"ptr": int(ptr), "name": str(name)} for ptr, name in parts],
+    }
+    return send_and_receive(req_dict)
+
+def export_stack_to_iges(stack_ptr, filepath, scale=1.0, brep_mode=True):
+    """IGES 書き出し。scale の意味は export_stack_to_step と同じ。
+
+    **幾何のみ。** 名前もアセンブリ構造も入らない。IGES の実体参照は相手の
+    実装差が大きく、名前を載せても読めない側が多いため、STEP のような XCAF
+    経路は用意していない。名前が要るなら STEP を使うこと。
+
+    brep_mode=True でソリッドとして、False で面の集まりとして書く。
+    受け手が古いと前者を読めないことがある。
+    """
+    req_dict = {
+        "action": "export_stack_to_iges",
+        "stack_ptr": stack_ptr,
+        "filepath": filepath,
+        "scale": float(scale),
+        "brep_mode": bool(brep_mode),
     }
     return send_and_receive(req_dict)
 

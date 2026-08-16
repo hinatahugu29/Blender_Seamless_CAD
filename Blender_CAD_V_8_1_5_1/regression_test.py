@@ -1791,6 +1791,46 @@ def t_step_export_all_parts_is_an_assembly():
         "an unnamed SOLID product is nested under the part; the lone-solid compound was not unwrapped"
 
 
+def t_iges_export():
+    """IGES を書き出せる。
+
+    IGES は幾何のみ (名前もアセンブリ構造も入らない) なので、見るのは
+    「IGES として成立しているか」まで。
+
+    **このテストは `IGESControl_Controller::Init()` の番人ではない。**
+    2026-08-17 にその行を外して通したところ書き出しは成功した (OCCT 8.0.1)。
+    同一プロセスで先に STEP を扱っているためと思われる。
+    番人だと思って安心しないこと。
+
+    IGES は固定長80桁のレコードで、各行の73桁目が区分文字 (S/G/D/P/T)。
+    先頭は必ず S、末尾は T。拡張子だけ見て通すより、この形を見るほうが確実。
+    """
+    import tempfile
+    col, props = _fresh_part()
+    bpy.ops.seamless.add_primitive(type='BOX')
+
+    out = os.path.join(tempfile.gettempdir(), "seamless_cad_regression.igs")
+    if os.path.exists(out):
+        os.remove(out)
+
+    res = bpy.ops.seamless.export_iges(filepath=out)
+    assert res == {'FINISHED'}, f"export_iges returned {res}"
+    assert os.path.exists(out), "export_iges reported success but wrote no file"
+    assert os.path.getsize(out) > 0, "exported IGES file is empty"
+
+    with open(out, encoding="ascii", errors="replace") as f:
+        lines = [ln.rstrip("\n").rstrip("\r") for ln in f if ln.strip()]
+    assert lines, "IGES file has no records"
+    assert lines[0][72:73] == "S", \
+        f"first record is not a Start record; column 73 is {lines[0][72:73]!r}"
+    assert lines[-1][72:73] == "T", \
+        f"last record is not a Terminate record; column 73 is {lines[-1][72:73]!r}"
+
+    sections = {ln[72:73] for ln in lines if len(ln) > 72}
+    for needed in ("S", "G", "D", "P", "T"):
+        assert needed in sections, f"IGES file is missing the {needed} section"
+
+
 def t_stl_export():
     """STL を書き出せる。カーネルから直接で、Bake を経由しない。
 
@@ -2007,6 +2047,7 @@ def main():
     check("STEP export scale", t_step_export_scale)
     check("STEP carries part name", t_step_export_carries_part_name)
     check("STEP all parts is an assembly", t_step_export_all_parts_is_an_assembly)
+    check("IGES export", t_iges_export)
     check("STL export", t_stl_export)
     check("STL export scale", t_stl_export_scale)
     check("STL export honours quality", t_stl_export_honours_quality)

@@ -110,15 +110,23 @@ class SEAMLESS_PT_QualityBakePanel(bpy.types.Panel):
         
         layout.operator("seamless.bake_mesh", text="Bake to Mesh", icon='MESH_DATA')
         
-        # 取り込みと書き出しを別の行に分ける。1行に4つ並べるとラベルが
-        # 潰れて "Impo.." "Expo.." になり、どれがどちらか読めなくなる。
-        row_in = layout.row(align=True)
-        row_in.operator("seamless.import_step", text="Import STEP", icon='IMPORT')
-        row_in.operator("seamless.import_svg", text="Import SVG", icon='IMPORT')
+        # 取り込みと書き出しは、方向を見出しで示してボタン側は形式名だけにする。
+        # 各ボタンに "Export STEP" と書くと N パネルの幅では "Expo.." に潰れ、
+        # 3つ並べた時点でどれがどれか読めなくなる。見出しに逃がせば、
+        # 形式が増えても横に足せる。
+        box_io = layout.column(align=True)
 
-        row_out = layout.row(align=True)
-        row_out.operator("seamless.export_step", text="Export STEP", icon='EXPORT')
-        row_out.operator("seamless.export_stl", text="Export STL", icon='EXPORT')
+        box_io.label(text="Import:", icon='IMPORT')
+        row_in = box_io.row(align=True)
+        row_in.operator("seamless.import_step", text="STEP")
+        row_in.operator("seamless.import_svg", text="SVG")
+
+        box_io.separator()
+        box_io.label(text="Export:", icon='EXPORT')
+        row_out = box_io.row(align=True)
+        row_out.operator("seamless.export_step", text="STEP")
+        row_out.operator("seamless.export_stl", text="STL")
+        row_out.operator("seamless.export_iges", text="IGES")
 
 class SEAMLESS_PT_MeasurePanel(bpy.types.Panel):
     """アクティブな Part の質量特性を表示する。

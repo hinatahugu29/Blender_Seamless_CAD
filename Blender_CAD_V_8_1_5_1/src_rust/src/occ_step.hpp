@@ -24,6 +24,9 @@
 #include <TopoDS_Compound.hxx>
 #include <BRep_Builder.hxx>
 #include <TopoDS_Iterator.hxx>
+// IGES: 幾何のみの書き出し。IGESControl_Controller::Init() を先に呼ぶこと。
+#include <IGESControl_Writer.hxx>
+#include <IGESControl_Controller.hxx>
 #include <BRep_Tool.hxx>
 #include <Poly_Triangulation.hxx>
 #include <TopLoc_Location.hxx>
@@ -50,6 +53,15 @@ namespace occ {
                               const std::string& filepath,
                               double scale,
                               const std::string& assembly_name);
+
+    // Export the result of a CADStack to an IGES file.
+    // scale は export_stack_to_step と同じ意味。
+    //
+    // **幾何のみ。** 名前もアセンブリ構造も入らない。IGES の実体参照は
+    // 相手の実装差が大きく、名前を載せても読めない側が多いため、
+    // STEP のような XCAF 経路は用意していない。名前が要るなら STEP を使うこと。
+    bool export_stack_to_iges(void* stack_ptr, const std::string& filepath,
+                              double scale = 1.0, bool brep_mode = true);
 
     // Export the result of a CADStack to an STL file.
     // scale は export_stack_to_step と同じ意味。

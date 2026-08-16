@@ -127,7 +127,7 @@ fn main() {
         // TKXCAF / TKLCAF は XCAF 文書 (名前付き STEP = export_parts_to_step) 用。
         // **いずれも DLL は以前から配布物に同梱されていたが、リンクはしていなかった。**
         // 未配線の OCCT 機能を足すときは、ここに追記しないと未解決シンボルで落ちる。
-        "TKDESTEP", "TKDESTL", "TKXCAF", "TKLCAF", "TKXSBase"
+        "TKDESTEP", "TKDESTL", "TKDEIGES", "TKXCAF", "TKLCAF", "TKXSBase"
     ];
 
     for lib in libs {

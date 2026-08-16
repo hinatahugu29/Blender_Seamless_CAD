@@ -273,6 +273,37 @@ pub fn export_parts_to_step(parts: Vec<(isize, String)>, filepath: &str, scale: 
     }
 }
 
+/// IGES 書き出し。`scale` の意味は `export_stack_to_step` と同じ。
+///
+/// **幾何のみ。** 名前もアセンブリ構造も入らない (IGES 側の事情。詳細は
+/// `occ_step.hpp` の宣言に書いてある)。名前が要るなら STEP を使うこと。
+///
+/// `brep_mode` は true でソリッドとして、false で面の集まりとして書く。
+pub fn export_stack_to_iges(stack_ptr: isize, filepath: &str, scale: f64,
+                            brep_mode: bool) -> Result<(), String> {
+    if !crate::is_valid_stack_ptr(stack_ptr) {
+        return Err(format!("export_stack_to_iges: unknown or already-deleted stack_ptr {}", stack_ptr));
+    }
+    let filepath_c = std::ffi::CString::new(filepath).map_err(|_| "Invalid filepath")?;
+    let filepath_ptr = filepath_c.as_ptr();
+
+    let lock = crate::get_stack_lock(stack_ptr);
+    let _guard = lock.lock().map_err(|_| "export_stack_to_iges: stack lock poisoned".to_string())?;
+
+    unsafe {
+        let success = cpp!([stack_ptr as "void*", filepath_ptr as "const char*",
+                            scale as "double", brep_mode as "bool"] -> bool as "bool" {
+            return occ::export_stack_to_iges(stack_ptr, filepath_ptr, scale, brep_mode);
+        });
+
+        if success {
+            Ok(())
+        } else {
+            Err("export_stack_to_iges: nothing was written (no shape, or the writer rejected it)".to_string())
+        }
+    }
+}
+
 /// STL 書き出し。`scale` の意味は `export_stack_to_step` と同じ。
 ///
 /// `angular_deflection` は**ラジアン**で渡すこと。アドオン側のプロパティは

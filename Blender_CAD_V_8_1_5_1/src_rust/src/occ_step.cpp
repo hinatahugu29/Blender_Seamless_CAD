@@ -318,6 +318,62 @@ bool export_parts_to_step(const std::vector<void*>& stack_ptrs,
     }
 }
 
+bool export_stack_to_iges(void* stack_ptr, const std::string& filepath,
+                          double scale, bool brep_mode) {
+    if (!stack_ptr) return false;
+    occ_core::CADStack* stack = static_cast<occ_core::CADStack*>(stack_ptr);
+    if (stack->current_shape.IsNull()) return false;
+
+    const double safe_scale = std::max(scale, 1e-6);
+    TopoDS_Shape out_shape = scaled_for_export(stack->current_shape, safe_scale,
+                                               "export_stack_to_iges");
+    if (out_shape.IsNull()) return false;
+
+    try {
+        OCC_CATCH_SIGNALS
+
+        // OCCT の作法として、IGES を扱う前にコントローラを登録する。
+        // 何度呼んでも害は無い。
+        //
+        // **ただし「呼ばないと落ちる」ことは確認できていない。** 2026-08-17 に
+        // この行を外して回帰テストを通したところ、**書き出しは成功した**
+        // (OCCT 8.0.1)。同じプロセスで先に STEP を扱っているため、登録が
+        // 済んでいるのだと思われるが、そこまでは追っていない。
+        //
+        // 残してあるのは、まっさらなプロセスで IGES だけを呼ぶ経路が将来
+        // 出来たときの保険。**「これが無いと動かない」とは書かないこと。**
+        IGESControl_Controller::Init();
+
+        // 単位は MM 固定。倍率は STEP/STL と同じく形状側に掛けてあるので、
+        // ここで単位名を変えると二重に効いてしまう。
+        //
+        // brep_mode: 1 = ソリッド(MSBO)として、0 = 面の集まりとして書く。
+        // 受け手が古いと 1 を読めないことがあるので選べるようにしてある。
+        IGESControl_Writer writer("MM", brep_mode ? 1 : 0);
+        if (!writer.AddShape(out_shape)) {
+            occ_core::log_debug("export_stack_to_iges: AddShape rejected the shape");
+            return false;
+        }
+        // Write() が中で呼ぶので必須ではない (2026-08-17 に外して確認済み)。
+        // 明示しておくのは、書き出しの手順を読んで追えるようにするため。
+        writer.ComputeModel();
+        if (!writer.Write(filepath.c_str())) {
+            occ_core::log_debug("export_stack_to_iges: failed to write " + filepath);
+            return false;
+        }
+        occ_core::log_debug("export_stack_to_iges: wrote " + filepath +
+                            (brep_mode ? " (BRep mode)" : " (surface mode)"));
+        return true;
+
+    } catch (Standard_Failure const& e) {
+        occ_core::log_debug(std::string("export_stack_to_iges: ") + e.GetMessageString());
+        return false;
+    } catch (...) {
+        occ_core::log_debug("export_stack_to_iges: unknown exception");
+        return false;
+    }
+}
+
 bool export_stack_to_stl(void* stack_ptr, const std::string& filepath, double scale,
                          double linear_deflection, double angular_deflection,
                          bool ascii_mode) {

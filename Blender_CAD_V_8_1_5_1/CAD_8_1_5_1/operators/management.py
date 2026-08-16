@@ -700,6 +700,61 @@ class SEAMLESS_OT_ExportStep(bpy.types.Operator, ExportHelper):
                     "Failed to export STEP. Every selected Part may be empty.")
         return {'CANCELLED'}
 
+class SEAMLESS_OT_ExportIges(bpy.types.Operator, ExportHelper):
+    """IGES を書き出す。**幾何のみ。**
+
+    名前もアセンブリ構造も入らない。IGES の実体参照は相手の実装差が大きく、
+    名前を載せても読めない側が多いため、STEP のような XCAF 経路は用意して
+    いない。**名前が要るなら STEP を使うこと。**
+
+    IGES は STEP に置き換えられた古い形式で、いま必要とする相手は多くない。
+    それでも入れてあるのは、受け取り側が IGES しか読めない場合があるため。
+    """
+    bl_idname = "seamless.export_iges"
+    bl_label = "Export IGES (.igs)"
+    bl_description = ("Write the kernel shape to IGES. Geometry only -- "
+                      "no names and no assembly structure. Prefer STEP")
+    filename_ext = ".igs"
+    filter_glob: bpy.props.StringProperty(default="*.igs;*.iges", options={'HIDDEN'})
+
+    scale: bpy.props.FloatProperty(
+        name="Scale (1 unit = N mm)",
+        description="How many millimetres one Blender unit becomes in the file. "
+                    "1.0 matches STEP and STL export",
+        default=1.0,
+        min=1e-6,
+        soft_max=1000.0,
+    )
+
+    brep_mode: bpy.props.BoolProperty(
+        name="Solid (BRep)",
+        description="Write solids. Turn off to write a collection of trimmed "
+                    "surfaces instead, which older readers cope with better",
+        default=True,
+    )
+
+    def execute(self, context):
+        props = utils.get_active_props(context)
+        if not props:
+            self.report({'WARNING'}, "No active Seamless CAD collection.")
+            return {'CANCELLED'}
+
+        from ..core_bridge import export_stack_to_iges, get_or_create_stack_ptr
+        col = utils.get_active_collection(context)
+        stack_ptr = get_or_create_stack_ptr(col)
+
+        success = export_stack_to_iges(stack_ptr, self.filepath, self.scale, self.brep_mode)
+        if success:
+            mode = "solid" if self.brep_mode else "surfaces"
+            self.report({'INFO'},
+                        f"Exported IGES to {self.filepath} "
+                        f"(1 unit = {self.scale:g} mm, {mode})")
+            return {'FINISHED'}
+
+        self.report({'ERROR'},
+                    "Failed to export IGES. The part may be empty.")
+        return {'CANCELLED'}
+
 class SEAMLESS_OT_ExportStl(bpy.types.Operator, ExportHelper):
     """カーネルから直接 STL を書き出す。
 
