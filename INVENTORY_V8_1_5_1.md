@@ -204,10 +204,25 @@
 
 | 形式 | 読込 | 書出 |
 |---|---|---|
-| **STEP** (`.stp` / `.step`) | ✅ `import_step` | ✅ `export_step` |
+| **STEP** (`.stp` / `.step`) | ✅ `import_step` | ✅ `export_step` (**名前・アセンブリ構造つき**) |
 | **STL** (`.stl`) | — | ✅ `export_stl` **[2026-08-17 追加]** |
 | **SVG** | ✅ `import_svg` (2D プロファイル/ロゴ) | — |
 | Blender メッシュ | — | ✅ `bake_mesh` (以降は Blender 標準の書出が使える) |
+
+**STEP は 2026-08-17 から XCAF 経由**(`STEPCAFControl_Writer`)。それ以前は
+`STEPControl_Writer` に直接渡していたため、受け取った側では**名前の無い塊が
+ひとつ**見えるだけだった。現在は Part 名が製品名として入り、
+`All Parts as Assembly` を入れると全 Part が1ファイルのアセンブリになる:
+
+```
+Assembly
+  ├─ Part_1
+  └─ Part_2      (NEXT_ASSEMBLY_USAGE_OCCURRENCE で関係づけ)
+```
+
+**色は載っていない。** アドオン側に色という概念がまだ無く
+(`properties.py` に色プロパティは1つも無い)、書き出す元データが存在しない。
+詳細は `IMPLEMENTATION_ROADMAP.md` の「追加項目 — Part の色」。
 
 **STL はカーネルから直接書き出す**(Bake → Blender メッシュ → Blender の STL
 エクスポータ、という往復を通さない)。利点は手数ではなく**精度**で、
@@ -230,7 +245,7 @@ STEP と同じ `Scale (1 unit = N mm)` を持つ。
 
 | 仕組み | 内容 |
 |---|---|
-| `regression_test.py` | ヘッドレス回帰テスト **41件** (2026-08-17 実測)。Blender 4.2 / 5.1 で確認。登録、プリミティブ追加、双方向同期、削除同期、確定フェーズの契約、FILLET/CHAMFER が実際に形状を変えること、スケッチ拘束ソルバ、スケッチ確定、ベイク、STEP 書出、保存→再読込、Undo 1回=1ステップ |
+| `regression_test.py` | ヘッドレス回帰テスト **43件** (2026-08-17 実測)。Blender 4.2 / 5.1 で確認。登録、プリミティブ追加、双方向同期、削除同期、確定フェーズの契約、FILLET/CHAMFER が実際に形状を変えること、スケッチ拘束ソルバ、スケッチ確定、ベイク、STEP 書出、保存→再読込、Undo 1回=1ステップ |
 | `audit_ui_params.py` | UI に出ているパラメータと実際に効くパラメータの突き合わせ。全11型で不一致ゼロ |
 | `package_addon.py` の PREFLIGHT | 必須ファイルの存在、全 `.py` の構文、同梱ライブラリの**実 import**、文字化け、バージョン整合、`license.txt` の同梱 |
 
