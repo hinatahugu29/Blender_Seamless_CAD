@@ -23,7 +23,7 @@ SolidWorks / Fusion / Rhino / FreeCAD へ部品を渡すとき、また受け取
 
 1. モデルを仕上げます
 2. 必要なら **Cleanup (Unify)** をツリーの**最後の項目**として足します
-3. **Quality & Export > Export STEP**
+3. **Quality & Export > Export > STEP**
 
 **Cleanup は同一平面上の面を統合します。**3つに割れていた面が1つになるので、
 受け取る側にとって扱いやすいモデルになります。やる価値はあり、そして**最後に**
@@ -57,7 +57,7 @@ SolidWorks が受け取るかどうかは分かりません。
 
 ## 部品を取り込む
 
-**Quality & Export > Import STEP**。`.stp` と `.step` に対応します。
+**Quality & Export > Import > STEP**。`.stp` と `.step` に対応します。
 
 ダイアログの唯一の設定は **Scale** です。
 
@@ -78,7 +78,7 @@ SolidWorks が受け取るかどうかは分かりません。
 
 ## 2D のプロファイルを取り込む
 
-**Quality & Export > Import SVG** は輪郭を取り込みます。こちらにも **Scale** が
+**Quality & Export > Import > SVG** は輪郭を取り込みます。こちらにも **Scale** が
 あります。ロゴ、レーザーカットの外形、Illustrator や Inkscape で描いた線など、
 プロファイルがすでに図版として存在する場合に使います。
 

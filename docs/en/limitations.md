@@ -49,13 +49,19 @@ always appended to the end, including while a rollback pin is set.
 This is a real constraint on how you work: order has to be decided as you build.
 [The Feature Tree and parts](feature-tree.md) covers what to do instead.
 
-## STEP export carries geometry only
+## Exported files carry no colours
 
-The exported file has no part names, no colours, and no assembly structure. The
-geometry is exact B-Rep in AP214 IS, but everything around it is absent.
+STEP export writes part names and assembly structure, and the geometry is exact
+B-Rep in AP214 IS. **Colours are the one thing missing**, and the reason is
+upstream of the exporter: there is nowhere in this addon to give a Part or a
+face a colour, so there is nothing for the file to carry.
 
-If your recipient needs a named, coloured, structured assembly, this export will
-not meet that need yet.
+If your recipient needs colour-coded assemblies, this export will not meet that
+need yet.
+
+IGES export is a further step back: **geometry only**, with no names and no
+structure. That is deliberate — IGES readers disagree too much about names for
+them to be dependable. Use STEP unless the recipient cannot read it.
 
 ## STEP export units
 

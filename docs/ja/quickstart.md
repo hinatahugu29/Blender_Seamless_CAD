@@ -138,7 +138,7 @@ Feature Tree の各行の右端にピンのアイコンがあります。ある�
 必要とする用途はこちらです。レンダリング用なら、先に **Use High Quality Bake**
 を有効にしてください。
 
-**Export STEP**（`Quality & Export > Export STEP`）は、他の CAD ソフトで使える
+**Export STEP**（`Quality & Export > Export > STEP`）は、他の CAD ソフトで使える
 本物の B-Rep の STEP ファイル（AP214 IS）を書き出します。三角形近似ではなく、
 厳密な曲面がそのまま保存されます。
 

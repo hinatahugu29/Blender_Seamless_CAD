@@ -100,10 +100,15 @@ thousand times too small.
 There is no export scale option, so the fix is to build at the right scale, or
 to rescale in the receiving application.
 
-## The exported STEP has no names or colours
+## The exported STEP has no colours
 
-Correct, and currently expected. STEP export carries geometry only — no part
-names, no colours, no assembly structure. The geometry itself is exact. See
+Correct, and expected. There is nowhere in the addon to set a colour, so there
+is nothing for the file to carry.
+
+**Names and assembly structure are written**, though. If your file arrives
+unnamed, check that you are exporting STEP and not IGES — IGES carries geometry
+only. The product name comes from the Part's collection name, so renaming the
+collection renames the part in the file. See
 [Import and export](import-export.md).
 
 ## Reporting a problem

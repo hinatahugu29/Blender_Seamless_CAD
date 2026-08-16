@@ -74,10 +74,12 @@ own exporters. IGES is not supported.
 millimetre scale. See
 [How to: exchange files with other CAD software](howto-cad-exchange.md).
 
-**Why does my exported file have no names or colours?**
-STEP export carries geometry only — no part names, no colours, no assembly
-structure. The surfaces themselves are exact. See
-[Known limitations](limitations.md).
+**Why does my exported file have no colours?**
+Because there is no colour to export. Nothing in this addon lets you give a Part
+or a face a colour, so the file has none to carry. Names and assembly structure
+*are* written — the Part's collection name becomes the product name, and **All
+Parts as Assembly** writes every Part into one structured file. IGES is the
+exception: geometry only, on purpose. See [Known limitations](limitations.md).
 
 **Is the exported geometry triangulated?**
 No. STEP export writes exact B-Rep surfaces. Display quality settings do not

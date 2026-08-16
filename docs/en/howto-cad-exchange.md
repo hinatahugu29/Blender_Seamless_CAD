@@ -20,7 +20,7 @@ dimension.
 
 1. Finish the model
 2. Optionally add **Cleanup (Unify)** as the **last** entry in the tree
-3. **Quality & Export > Export STEP**
+3. **Quality & Export > Export > STEP**
 
 **Cleanup merges coplanar faces**, which gives the recipient a tidier model —
 one face where you had three. It is worth doing, and it is worth doing *last*:
@@ -53,7 +53,7 @@ not tell you SolidWorks will take it.
 
 ## Bringing a part in
 
-**Quality & Export > Import STEP**, accepting `.stp` and `.step`.
+**Quality & Export > Import > STEP**, accepting `.stp` and `.step`.
 
 The dialog's one option is **Scale**:
 
@@ -74,7 +74,7 @@ The scale you chose is stored with the entry, so reloading stays consistent.
 
 ## Bringing in a 2D profile
 
-**Quality & Export > Import SVG** brings in outlines, also with a **Scale**
+**Quality & Export > Import > SVG** brings in outlines, also with a **Scale**
 option. Use it when the profile already exists as artwork — a logo, a laser-cut
 outline, a drawing traced in Illustrator or Inkscape.
 

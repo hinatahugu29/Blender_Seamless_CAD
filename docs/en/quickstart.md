@@ -141,7 +141,7 @@ ordinary Blender mesh. Use this for rendering, sculpting, or anything that needs
 Blender geometry. Enable **Use High Quality Bake** first if the result is for
 a render.
 
-**Export STEP** (`Quality & Export > Export STEP`) writes a real B-Rep STEP file
+**Export STEP** (`Quality & Export > Export > STEP`) writes a real B-Rep STEP file
 (AP214 IS) for use in other CAD software. This preserves exact surfaces, not a
 triangulated approximation.
 

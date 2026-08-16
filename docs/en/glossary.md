@@ -140,8 +140,8 @@ that cause confusion.
   stay linked.
 
 **STEP**
-: The neutral CAD exchange format. Export is AP214 IS, geometry only: no names,
-  no colours, no assembly structure.
+: The neutral CAD exchange format. Export is AP214 IS, and carries part names
+  and assembly structure. Colours are not written.
 
 **AP214**
 : The STEP application protocol used for export. Recipients occasionally ask
