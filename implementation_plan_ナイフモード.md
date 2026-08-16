@@ -1,3 +1,12 @@
+<!-- DOC-STATUS -->
+> **状態: 未実装の提案（歴史的資料ではない）** — 面をスケッチ線で分割する Knife / Split の計画。**まだ実装されていない。**
+> `IMPLEMENTATION_ROADMAP.md` フェーズ2.3（Split）と**同じ主題**なので、着手するときは両方を読むこと。
+> なお `BRepFeat_SplitShape` は既に FACE_INSET の内部で使われており（`occ_modifiers.cpp:1467`）、**この API 自体には土地勘がある。**
+>
+> 全体の分類は `CLAUDE.md` §6 にある。**このバナーを消さないこと。**
+
+---
+
 # Knife Mode (Split Face) 実装計画案
 
 CADエンジンの厳密性を保ちつつ、Blenderのナイフツールのような「面を自由に割る」操作を実現するための実装計画です。

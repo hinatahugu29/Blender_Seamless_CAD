@@ -1,3 +1,10 @@
+<!-- DOC-STATUS -->
+> **状態: 歴史的資料** — V1.3.2 の検討議題。**実施済み**（幾何構造に基づく相対配置は現在の `core/semantic_targets.py` に相当）。
+>
+> 全体の分類は `CLAUDE.md` §6 にある。**このバナーを消さないこと。**
+
+---
+
 # V1.3.2 検討議題: "Topological Alignment & Attachment"
 
 > [!NOTE]
