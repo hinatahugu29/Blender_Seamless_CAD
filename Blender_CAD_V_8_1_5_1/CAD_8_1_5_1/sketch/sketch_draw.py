@@ -11,6 +11,23 @@ from .. import utils
 from .sketch_finalize import calculate_arc_points, calculate_circle_points
 
 
+# 編集中スケッチの線色。
+#
+# 確定済みジオメトリのワイヤーは drawing.py で (0.2, 0.8, 1.0) のシアンで
+# 描かれる。ここも (0.0, 0.7, 0.9) のシアンだったため、Edit Sketch で既存の
+# スケッチを開くと編集中の線と確定形状の線がほぼ同じ色で重なり、どちらを
+# 触っているのか分からなくなっていた(2026-08-17 のユーザー報告)。
+# 色相を紫側へ離してある。
+#
+# このオーバーレイは depth_test 'ALWAYS' で必ず手前に描かれるので、
+# Z ファイティングは起きない。色を離すだけで確実に分離できる。
+#
+# 変えるときは、この4つすべてから十分離れていることを確認すること:
+#   確定ワイヤー (0.2, 0.8, 1.0) / 選択オレンジ (1.0, 0.5, 0.0)
+#   点の緑 (0.0, 0.9, 0.2)       / 完全拘束の濃紺 (0.1, 0.15, 0.2)
+SKETCH_LINE_COLOR = (0.72, 0.55, 1.0, 0.9)
+SKETCH_SELECT_HL_COLOR = (0.85, 0.70, 1.0, 1.0)
+
 
 def _transform_coords(coords):
     mat = sketch_globals._reference_matrix if sketch_globals._reference_matrix else mathutils.Matrix.Identity(4)
@@ -124,7 +141,7 @@ def draw_sketch_3d(context, props):
             
         if solid_line_coords:
             gpu.state.line_width_set(3.0)
-            shader.uniform_float("color", (0.0, 0.7, 0.9, 0.9))
+            shader.uniform_float("color", SKETCH_LINE_COLOR)
             batch = batch_for_shader(shader, 'LINES', {"pos": _transform_coords(solid_line_coords)})
             batch.draw(shader)
         
@@ -200,7 +217,7 @@ def draw_sketch_3d(context, props):
                 
         if circle_lines:
             gpu.state.line_width_set(3.0)
-            shader.uniform_float("color", (0.0, 0.7, 0.9, 0.9))
+            shader.uniform_float("color", SKETCH_LINE_COLOR)
             batch = batch_for_shader(shader, 'LINES', {"pos": _transform_coords(circle_lines)})
             batch.draw(shader)
         if fully_constrained_circle_lines:
@@ -245,7 +262,7 @@ def draw_sketch_3d(context, props):
                 
         if arc_lines:
             gpu.state.line_width_set(3.0)
-            shader.uniform_float("color", (0.0, 0.7, 0.9, 0.9))
+            shader.uniform_float("color", SKETCH_LINE_COLOR)
             batch = batch_for_shader(shader, 'LINES', {"pos": _transform_coords(arc_lines)})
             batch.draw(shader)
         if fully_constrained_arc_lines:
@@ -393,7 +410,7 @@ def draw_sketch_3d(context, props):
             line = next((l for l in props.sketch_lines if l.id == sel_line_id), None)
             if line and line.start_point_id in point_dict and line.end_point_id in point_dict:
                 gpu.state.line_width_set(4.0)
-                shader.uniform_float("color", (0.0, 0.8, 1.0, 1.0))
+                shader.uniform_float("color", SKETCH_SELECT_HL_COLOR)
                 batch = batch_for_shader(shader, 'LINES', {"pos": _transform_coords([point_dict[line.start_point_id], point_dict[line.end_point_id]])})
                 batch.draw(shader)
 
@@ -474,7 +491,7 @@ def draw_sketch_3d(context, props):
                     (sx - s_size, sy + s_size, sz), (sx - s_size, sy - s_size, sz),
                 ]
                 gpu.state.line_width_set(2.5)
-                shader.uniform_float("color", (0.0, 0.8, 1.0, 1.0))
+                shader.uniform_float("color", SKETCH_SELECT_HL_COLOR)
                 batch = batch_for_shader(shader, 'LINES', {"pos": _transform_coords(box_coords)})
                 batch.draw(shader)
 
