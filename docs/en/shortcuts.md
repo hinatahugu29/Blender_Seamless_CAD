@@ -68,10 +68,20 @@ Snapping is automatic. Indicators tell you which one caught:
 suspended while <kbd>Shift</kbd> axis lock is active — the two would otherwise
 fight over the same coordinate.
 
-**Vertex Snap** is the one that reuses an existing point instead of making a new
-one, joining what you draw to what is already there. It is on by default and has
-its own sidebar toggle. Hold <kbd>Ctrl</kbd> to skip it for a single click when
-you want a point that happens to sit near another to stay separate.
+**Vertex Snap** governs both of the ways points get joined together:
+
+- Drawing near an existing point reuses that point instead of making a new one
+- **Dropping a dragged point near another one merges the two**, deleting the one
+  you dragged and rewiring whatever referred to it
+
+It is on by default and has its own sidebar toggle. Hold <kbd>Ctrl</kbd> to skip
+it for a single click or drag when you want points that happen to sit near each
+other to stay separate.
+
+The merge distance matches the distance at which a point highlights under the
+cursor, so if it lights up it will merge. Before **8.1.5.8** that merge used a
+fixed distance in scene units instead, which did not change with zoom and could
+absorb a point one grid square away.
 
 Turning it off does not stop you selecting vertices — picking in Select mode is a
 different thing from snapping, and it keeps working either way.

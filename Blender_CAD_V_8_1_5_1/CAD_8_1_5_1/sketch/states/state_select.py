@@ -144,6 +144,30 @@ class StateSelect(SketchState):
         # --- END DRAG LOGIC ---
         return False
 
+    def _merge_threshold(self, event, drag_co, pixels=15.0):
+        """マージ判定の距離を「画面上 pixels ピクセル相当」で返す。
+
+        state_base のホバー判定と同じ作り方にしてある。ホバーで点が光る距離と
+        マージされる距離を一致させることで、挙動が目で予測できる。
+
+        region / rv3d が取れないときだけ、従来の固定値 0.15 に落ちる。
+        """
+        from bpy_extras import view3d_utils
+        region = self.context.region
+        rv3d = self.context.region_data
+        if not region or not rv3d:
+            return 0.15
+        mat = sketch_globals._reference_matrix if sketch_globals._reference_matrix else mathutils.Matrix.Identity(4)
+        world_co = mat @ mathutils.Vector((drag_co.x, drag_co.y, 0.0))
+        offset_3d = view3d_utils.region_2d_to_location_3d(
+            region, rv3d,
+            (event.mouse_region_x + pixels, event.mouse_region_y),
+            world_co,
+        )
+        if not offset_3d:
+            return 0.15
+        return (world_co - offset_3d).length
+
     def _cursor_co(self, x, y):
         """ドラッグ差分の基準にする「実際のカーソル位置」。
 
@@ -331,10 +355,19 @@ class StateSelect(SketchState):
         if self.sketch_op._is_dragging and self.sketch_op._drag_point_id is not None:
             drag_id = self.sketch_op._drag_point_id
             drag_pt = next((p for p in props.sketch_points if p.id == drag_id), None)
-            if drag_pt:
+            # ドラッグした点を近くの点へ吸収させる(破壊的マージ)。
+            # Vertex Snap が OFF なら行わない。ここは state_base のホバー判定とは
+            # 別経路なので、あちらだけ止めても効かない(2026-08-18 のユーザー報告)。
+            allow_merge = getattr(props, "sketch_snap_vertex", True) and not event.ctrl
+            if drag_pt and allow_merge:
                 drag_co = mathutils.Vector((drag_pt.co[0], drag_pt.co[1], 0.0))
-                # 結合のしきい値
-                best_dist = 0.15
+                # 結合のしきい値は画面基準にする。
+                # 以前はワールド座標の固定値 0.15 だった。グリッド間隔が近いと
+                # 「隣のマスに置いたら勝手に吸われる」ことになり、ズームしても
+                # 変わらないので見た目と挙動が噛み合わなかった。
+                # ホバーの強調表示と同じ 15px 相当にすることで、
+                # 「光ったらマージされる」という予測できる対応になる。
+                best_dist = self._merge_threshold(event, drag_co)
                 target_id = -1
                 for pt in props.sketch_points:
                     if pt.id != drag_id and not pt.is_segment:
@@ -343,7 +376,7 @@ class StateSelect(SketchState):
                         if dist < best_dist:
                             best_dist = dist
                             target_id = pt.id
-                            
+
                 if target_id != -1:
                     from ..sketch_history import push_history
                     from ..sketch_solver import solve_gcs_external

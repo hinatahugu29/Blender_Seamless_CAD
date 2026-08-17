@@ -544,6 +544,45 @@ def _sk_co(props, pid):
     raise AssertionError(f"sketch point {pid} not found")
 
 
+class _FakeEvent:
+    """モーダルへ渡す event の最小の代役。
+
+    StateSelect の release 処理が読むのは shift / ctrl とマウス座標だけ。
+    背景実行では region が無いので、画面基準のしきい値計算は従来の
+    固定値へ落ちる。そのぶん距離の数字は素直に比較できる。
+    """
+
+    def __init__(self, shift=False, ctrl=False, x=0, y=0):
+        self.shift = shift
+        self.ctrl = ctrl
+        self.mouse_region_x = x
+        self.mouse_region_y = y
+        self.type = 'LEFTMOUSE'
+        self.value = 'RELEASE'
+
+
+class _FakeSketchOp:
+    """StateSelect が触るモーダル側の属性だけを持つ代役。"""
+
+    def __init__(self, drag_point_id):
+        self._is_dragging = True
+        self._drag_point_id = drag_point_id
+        self._drag_point_ids = [drag_point_id]
+        self._last_solve_time = 0.0
+
+
+def _release_drag(props, drag_pt_id, ctrl=False):
+    """頂点をドラッグして離した瞬間の処理を1回走らせる。"""
+    from CAD_8_1_5_1.sketch.states.state_select import StateSelect
+    from CAD_8_1_5_1.sketch import sketch_globals
+
+    sketch_globals._is_box_selecting = False
+    sketch_globals._last_mouse_pos = None
+    op = _FakeSketchOp(drag_pt_id)
+    state = StateSelect(bpy.context, props, op)
+    state.handle_left_click_release(_FakeEvent(ctrl=ctrl), mathutils.Vector((0.0, 0.0, 0.0)))
+
+
 def t_measure_part():
     """計測が実際の形状を測っている。
 
@@ -1253,6 +1292,54 @@ def t_offset_pick_then_cleanup_merges():
          f"coplanar after the pick and should merge. If the reference came from the "
          f"float32 tessellation cache the residual is ~1e-6, which is exactly "
          f"CLEANUP's SetLinearTolerance, so merging becomes a coin toss")
+
+
+def t_vertex_snap_off_stops_merge_on_release():
+    """Vertex Snap を切ったら、離した頂点が隣の頂点に吸収されない。
+
+    releasing a drag は state_base のホバー判定とは **別経路** で近くの点を
+    探し、見つかると参照を書き換えて点を削除する破壊的マージを行う。
+    ホバー側だけ止めても効かず、トグルを OFF にしても勝手に繋がる、という
+    報告(2026-08-18)がここから出た。長方形の頂点が1点にまとまる症状も同じ経路。
+
+    背景実行では region が無いのでしきい値は従来の固定値 0.15 に落ちる。
+    0.1 離した2点はその中に入るので、ON なら必ず吸収される距離になる。
+    """
+    col, props = _fresh_part()
+
+    def build():
+        _sketch_reset(props)
+        _sk_point(props, 1, 0.0, 0.0)
+        _sk_point(props, 2, 0.1, 0.0)   # しきい値 0.15 の内側
+        _sk_point(props, 3, 2.0, 0.0)
+        _sk_line(props, 1, 1, 3)
+        _sk_line(props, 2, 2, 3)
+
+    def ids():
+        return sorted(p.id for p in props.sketch_points)
+
+    # ON(既定): 従来どおり吸収される。これが壊れると「繋げたいのに繋がらない」
+    build()
+    props.sketch_snap_vertex = True
+    _release_drag(props, 2)
+    assert ids() == [1, 3], \
+        f"with Vertex Snap on, releasing point 2 next to point 1 should merge it away; points are {ids()}"
+
+    # OFF: 3点そのまま残る
+    build()
+    props.sketch_snap_vertex = False
+    _release_drag(props, 2)
+    assert ids() == [1, 2, 3], \
+        f"with Vertex Snap off, no point may be absorbed; points are {ids()}"
+    assert _sk_co(props, 2) == (0.1, 0.0), \
+        f"point 2 must keep the position it was dropped at, got {_sk_co(props, 2)}"
+
+    # ON でも Ctrl を押していれば、そのリリースだけ吸収しない
+    build()
+    props.sketch_snap_vertex = True
+    _release_drag(props, 2, ctrl=True)
+    assert ids() == [1, 2, 3], \
+        f"holding Ctrl must skip the merge even with the toggle on; points are {ids()}"
 
 
 def t_sketch_solver_constraints():
@@ -2034,6 +2121,7 @@ def main():
     check("offset pick then cleanup merges", t_offset_pick_then_cleanup_merges)
     check("offset face gets hard to identify", t_offset_face_becomes_unidentifiable)
     check("offset pick zero reference", t_offset_pick_zero_reference)
+    check("vertex snap off stops merge", t_vertex_snap_off_stops_merge_on_release)
     check("sketch solver constraints", t_sketch_solver_constraints)
     check("sketch radius constraint", t_sketch_radius_constraint_action)
     check("circle dimension holds centre", t_sketch_circle_distance_holds_centre)
