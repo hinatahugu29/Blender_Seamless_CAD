@@ -11,6 +11,15 @@ moving an ordinary Blender object, and the geometry follows.
 Viewport navigation — middle mouse, the wheel, and the numpad views — is passed
 through in every mode below. You never have to leave a mode to orbit.
 
+The **Industry Compatible** keymap is supported too, so <kbd>Alt</kbd> with a
+mouse button orbits, pans and zooms from inside a mode. Selection Mode is the one
+place where this shares a key with the addon: <kbd>Alt</kbd> + left drag moves a
+gizmo axis there. It decides by what is under the cursor — on a gizmo axis or a
+control point you grab it, anywhere else you orbit.
+
+> Before **8.1.5.8**, numpad views did nothing in Sketch Mode or Selection Mode,
+> and the Industry Compatible keymap was not handled at all.
+
 ---
 
 ## Sketch mode
@@ -47,8 +56,7 @@ Active from **Start Sketch** or **on Face** until you press **Apply** or
 
 ### Snapping while drawing
 
-Snapping is automatic; there is no modifier to hold. Indicators tell you which
-one caught:
+Snapping is automatic. Indicators tell you which one caught:
 
 | Indicator | Meaning |
 |---|---|
@@ -59,6 +67,14 @@ one caught:
 **Grid Snap** is a toggle in the sidebar rather than a held key, and it is
 suspended while <kbd>Shift</kbd> axis lock is active — the two would otherwise
 fight over the same coordinate.
+
+**Vertex Snap** is the one that reuses an existing point instead of making a new
+one, joining what you draw to what is already there. It is on by default and has
+its own sidebar toggle. Hold <kbd>Ctrl</kbd> to skip it for a single click when
+you want a point that happens to sit near another to stay separate.
+
+Turning it off does not stop you selecting vertices — picking in Select mode is a
+different thing from snapping, and it keeps working either way.
 
 ---
 

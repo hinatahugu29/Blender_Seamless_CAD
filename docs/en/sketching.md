@@ -30,9 +30,15 @@ rather than making you rebuild it.
 |---|---|
 | **Show Grid** | Displays the sketch grid |
 | **Grid Snap** | Snaps drawing to the grid |
+| **Vertex Snap** | Reuses a nearby existing point instead of creating a new one |
 
-These are independent — you can snap to a grid you are not displaying, and
-display one you are not snapping to.
+Show Grid and Grid Snap are independent — you can snap to a grid you are not
+displaying, and display one you are not snapping to.
+
+**Vertex Snap** is on by default and is what joins your new geometry to what is
+already drawn. Turn it off when you want points to stay separate even where they
+sit close together, or hold <kbd>Ctrl</kbd> to skip it for one click. Selecting
+vertices still works with it off.
 
 ## Pen tools
 
