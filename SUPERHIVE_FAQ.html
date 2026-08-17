@@ -79,5 +79,31 @@
             The add-on's interface itself is in English in all cases.
         </p>
     </div>
+
+    <!-- FAQ 10 -->
+    <div style="margin-bottom: 24px;">
+        <h3>Q10: Will it change my keymap? I use the Industry Compatible one.</h3>
+        <p>
+            <strong>A:</strong> It registers no keymap entries at all, so nothing you already
+            use in Blender is rebound or overridden.
+        </p>
+        <p>
+            The part worth knowing is that the add-on's interactive modes — sketching, selection,
+            transform — run as modal operators, and while one is running it handles keys itself.
+            Viewport navigation is passed through, so middle mouse, the wheel and the numpad views
+            keep working without leaving the mode. <strong>As of 8.1.5.8 the Industry Compatible
+            keymap is passed through too</strong>, meaning Alt with a mouse button orbits, pans and
+            zooms from inside a mode.
+        </p>
+        <p>
+            One overlap remains by design: in Selection Mode, Alt + left drag is also how you move a
+            gizmo axis. It resolves by what is under the cursor — on a gizmo axis or a control point
+            you grab it, anywhere else you orbit.
+        </p>
+        <p>
+            If you find a navigation key that a mode swallows, please report it. That is a bug, not
+            intended behaviour, and the 8.1.5.8 fixes came from exactly such a report.
+        </p>
+    </div>
 </body>
 </html>

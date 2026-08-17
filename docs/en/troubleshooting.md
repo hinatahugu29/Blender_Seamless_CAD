@@ -31,6 +31,17 @@ computed exactly.
 Turn them off in **Quality & Export** if you would rather always see the exact
 shape. See [Quality and performance](quality.md).
 
+## I have two Blenders open and one of them will not preview
+
+Expected, for now. The kernel that computes geometry runs on a fixed local port,
+and the first Blender to start claims it. The second one connects to that same
+kernel instead of starting its own, so it is asking a process that holds someone
+else's model to draw yours.
+
+Bake to Mesh in the file you are only using for reference, or disable the add-on
+there, or close one before working in the other. See
+[Known limitations](limitations.md).
+
 ## Nothing updates after an edit
 
 Press the refresh icon in **Modify & Pattern > Topology** to force a full
@@ -81,6 +92,28 @@ For arcs it appears as **Radius** rather than **Length**.
 Usually over-constrained. Turn on **Constraints / Parameters** in the sketch
 panel for a full list of constraints with the IDs they act on, and delete the one
 that is holding it. See [Sketching](sketching.md).
+
+## Everything is slow, not just one operation
+
+If the whole add-on feels slow regardless of what you do — including on hardware
+that should have no trouble — work through these in order:
+
+1. **Check for a leftover kernel process.** Task Manager (Ctrl+Shift+Esc) →
+   Details → look for `cad_server.exe`. If there is more than one, or one is left
+   over from a session that crashed, close them all and restart Blender. A stale
+   kernel keeps answering while holding the wrong state.
+2. **Turn off Use WGPU Overlay and set Opacity fully opaque.** These two interact,
+   so testing them one at a time can miss the effect. The overlay is experimental
+   and the add-on is expected to run faster with it off.
+3. **Check whether security software is inspecting local connections.** Blender
+   and the kernel talk over a local TCP port. Software that hooks that traffic can
+   slow every operation noticeably.
+4. **Capture a profile.** Enable **Perf Logging** in preferences, perform the slow
+   action once, then look at `seamless_cad_profile.log` in your OS temp directory.
+   It shows where the time actually goes, which beats guessing.
+
+When reporting it, say which of drag, release, or startup is the slow part — they
+are different parts of the pipeline and the answer narrows things down a lot.
 
 ## Editing an early operation is slow
 

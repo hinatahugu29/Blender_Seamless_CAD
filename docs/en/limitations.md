@@ -89,6 +89,26 @@ applying it in the middle of a live history can break operations below it.
 
 Treat it as a final step before export. See [How it works](concepts.md).
 
+## Only one Blender at a time can compute geometry
+
+Geometry is computed by a separate kernel process that Blender talks to over a
+fixed local port. **The first Blender to start claims it.** Open a second Blender
+with the add-on enabled and it will not start its own kernel — it connects to the
+one already running, which is holding another file's geometry. The result is that
+previews stop updating correctly in one or both windows.
+
+This matters if you keep a second Blender open for reference, which is a normal
+way to work.
+
+Until each Blender gets its own kernel, the ways round it are:
+
+- **Bake to Mesh** in the reference file, so it needs no kernel at all
+- Disable the add-on in the Blender you are only using to look at something
+- Close one Blender before starting work in the other
+
+Nothing is corrupted by this — it is the live preview that goes wrong, not your
+saved data.
+
 ## Baked meshes do not stay linked
 
 **Bake to Mesh** produces a snapshot. It does not update when the Feature Tree
