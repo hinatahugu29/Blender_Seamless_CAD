@@ -42,7 +42,7 @@ Active from **Start Sketch** or **on Face** until you press **Apply** or
 | <kbd>Ctrl</kbd>+<kbd>C</kbd> / <kbd>Ctrl</kbd>+<kbd>V</kbd> | Copy / paste the selection |
 | <kbd>Ctrl</kbd>+<kbd>A</kbd> | Select all |
 | <kbd>L</kbd> | Chain select — the connected run of geometry. **Select tool only** |
-| <kbd>Alt</kbd>+wheel | Halve or double the grid step |
+| <kbd>Alt</kbd>+wheel | Halve or double the grid step, between 1/1024 and 1024 |
 | Left click on a dimension label | Edit that dimension's value. **Select tool only** |
 
 > **Right click and <kbd>Esc</kbd> are consumed.** Neither opens Blender's

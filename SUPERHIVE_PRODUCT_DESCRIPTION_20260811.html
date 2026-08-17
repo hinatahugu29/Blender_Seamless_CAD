@@ -53,8 +53,23 @@
         <p style="margin:8px 0 0 0;"><strong>Vertex snapping can be turned off.</strong> Drawing near
         an existing point always reused that point and joined the new geometry to it, with no way to
         decline. There is now a <strong>Vertex Snap</strong> toggle in the sketch sidebar, and holding
-        <kbd>Ctrl</kbd> skips it for a single click. Turning it off does not affect selecting
+        <kbd>Ctrl</kbd> skips it for a single click or drag. Turning it off does not affect selecting
         vertices — picking and snapping were always separate, and picking keeps working either way.</p>
+
+        <p style="margin:8px 0 0 0;">The toggle covers both of the ways points joined on their own.
+        Besides reusing a point while drawing, <strong>dropping a dragged vertex near another one
+        merged the two</strong> — deleting the one you dragged and rewiring whatever referred to it.
+        That merge used a fixed distance in scene units that did not change with zoom, so at a fine
+        grid it could absorb a point a whole square away. It now matches the distance at which a
+        point highlights under the cursor: if it lights up it merges, if it does not it will not.
+        This is also what could flatten a rectangle towards a single point.</p>
+
+        <p style="margin:8px 0 0 0;"><strong>The sketch grid is drawn where the snapping is.</strong>
+        The grid lines and the positions points snapped to could sit slightly apart — the snapping was
+        correct and the drawing was displaced, by a sixty-fourth of a unit. It needed a particular
+        sequence to trigger: scrolling the grid step down to its finest and back up left the step on a
+        value that the grid's own layout could not represent. Both the layout and the step limits are
+        fixed, so scrolling down and back up now returns the step you started from.</p>
 
         <p style="margin:8px 0 0 0;"><strong>Edit Sketch no longer draws over itself in one colour.</strong>
         Reopening a sketch put the editable lines on screen in almost exactly the cyan the finished
