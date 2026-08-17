@@ -144,6 +144,24 @@ class StateSelect(SketchState):
         # --- END DRAG LOGIC ---
         return False
 
+    def _cursor_co(self, x, y):
+        """ドラッグ差分の基準にする「実際のカーソル位置」。
+
+        modal_sketch はクリック時、ホバー中の頂点があると渡してくる座標を
+        その頂点の座標へ差し替える(スナップ)。それをそのまま
+        _last_mouse_pos に入れると、次の MOUSEMOVE で計算する
+        delta = 生カーソル - 頂点座標 となり、基準がずれる。
+        ホバー判定は画面上15ピクセルまで拾うので、頂点の中心をぴったり
+        掴まなかったぶんだけ図形が1フレーム目で飛ぶ。
+
+        _mouse_pos には差し替え前のカーソル位置が入っているのでそれを使う。
+        取れなければ渡された座標にそのまま従う。
+        """
+        cursor = getattr(sketch_globals, "_mouse_pos", None)
+        if cursor is None:
+            return mathutils.Vector((x, y, 0.0))
+        return mathutils.Vector((cursor.x, cursor.y, 0.0))
+
     def _get_selected(self, props, prop_name):
         s = getattr(props, prop_name)
         return [int(x) for x in s.split(",") if x]
@@ -205,8 +223,8 @@ class StateSelect(SketchState):
                         break
                         
                 sketch_globals._axis_lock_start_co = mathutils.Vector((x, y, 0.0))
-                sketch_globals._last_mouse_pos = mathutils.Vector((x, y, 0.0))
-            
+                sketch_globals._last_mouse_pos = self._cursor_co(x, y)
+
         elif props.sketch_hover_line_id >= 0:
             lid = props.sketch_hover_line_id
             if event.shift:
@@ -241,8 +259,8 @@ class StateSelect(SketchState):
                     self.sketch_op._drag_point_id = first_line.start_point_id
                 
                 sketch_globals._axis_lock_start_co = mathutils.Vector((x, y, 0.0))
-                sketch_globals._last_mouse_pos = mathutils.Vector((x, y, 0.0))
-            
+                sketch_globals._last_mouse_pos = self._cursor_co(x, y)
+
         else:
             if not event.shift:
                 self._set_selected(props, 'sketch_selected_points_str', [])

@@ -29,6 +29,8 @@ class SEAMLESS_PT_SketchPanel(bpy.types.Panel):
         row_grid = box.row(align=True)
         row_grid.prop(props, "sketch_show_grid", text="Show Grid", icon="SNAP_GRID")
         row_grid.prop(props, "sketch_grid_snap", text="Grid Snap", icon="SNAP_GRID")
+        row_snap = box.row(align=True)
+        row_snap.prop(props, "sketch_snap_vertex", text="Vertex Snap", icon="SNAP_VERTEX")
         box.separator()
 
         box.label(text="Pen Tools:", icon="LINE_DATA")

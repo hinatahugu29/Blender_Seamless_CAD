@@ -723,6 +723,18 @@ class SeamlessProperties(bpy.types.PropertyGroup):
     sketch_show_grid: bpy.props.BoolProperty(
         name="Show Grid", default=True, description="Show grid in sketch mode"
     )
+    # 近くの既存頂点を掴んで作図をそこに繋ぐ(暗黙の Coincident)機能。
+    # 既定は従来どおり ON。切りたいという要望が出たので露出させた。
+    # OFF にしても Select モードの頂点ピックは効く。あちらは吸着ではなく
+    # 「掴む対象の判定」で、殺すと頂点を選べなくなる。
+    sketch_snap_vertex: bpy.props.BoolProperty(
+        name="Vertex Snap",
+        default=True,
+        description=(
+            "Snap new geometry onto nearby existing vertices, joining them. "
+            "Turn off to place points freely. Hold Ctrl to skip it for one click"
+        ),
+    )
     is_sketch_active: bpy.props.BoolProperty(
         name="Is Sketch Active",
         description="Whether the sketch mode is currently running",

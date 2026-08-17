@@ -30,19 +30,29 @@ class SketchState:
         else:
             dynamic_threshold = 0.25
             
+        # 頂点吸着を切れるようにする。
+        # Select モードでは常に判定する。あそこでのホバーは吸着ではなく
+        # 「クリックで掴む対象の判定」なので、止めると頂点を選べなくなる。
+        # 作図中のみ、トグル OFF か Ctrl 押下でスキップする。
+        snap_to_vertex = (
+            props.sketch_pen_mode == 'SELECT'
+            or (getattr(props, "sketch_snap_vertex", True) and not event.ctrl)
+        )
+
         # ホバー判定 (Vertex)
         props.sketch_hover_point_id = -1
         hover_dist_threshold = dynamic_threshold  # ピクセルベースの動的スナップ範囲
-        for pt in props.sketch_points:
-            if pt.is_segment:
-                continue
-            pt_3d = mathutils.Vector((pt.co[0], pt.co[1], 0.0))
-            if (p_2d - pt_3d).length < hover_dist_threshold:
-                props.sketch_hover_point_id = pt.id
-                break
-                
+        if snap_to_vertex:
+            for pt in props.sketch_points:
+                if pt.is_segment:
+                    continue
+                pt_3d = mathutils.Vector((pt.co[0], pt.co[1], 0.0))
+                if (p_2d - pt_3d).length < hover_dist_threshold:
+                    props.sketch_hover_point_id = pt.id
+                    break
+
         # ホバー判定 (円周)
-        if props.sketch_hover_point_id < 0:
+        if snap_to_vertex and props.sketch_hover_point_id < 0:
             min_circle_dist = dynamic_threshold * 0.8 # スナップ距離を動的に
             best_circle_pt_id = -1
             for circ in props.sketch_circles:
