@@ -299,7 +299,8 @@ class SEAMLESS_OT_InteractivePlacement(bpy.types.Operator):
                 update_cad_preview_forced(context)
                 return {'CANCELLED'}
 
-        if event.type in {'MIDDLEMOUSE', 'WHEELUPMOUSE', 'WHEELDOWNMOUSE', 'WHEELINMOUSE', 'WHEELOUTMOUSE'}:
+        # 視点操作（テンキー・ホイール・中ボタン・Industry の Alt+マウス）は本体へ
+        if utils.is_viewport_nav_event(event):
             return {'PASS_THROUGH'}
 
         return {'RUNNING_MODAL'}
@@ -514,7 +515,8 @@ class SEAMLESS_OT_InteractiveTransform(bpy.types.Operator):
                 update_cad_preview_forced(context)
                 return {'CANCELLED'}
 
-        if event.type in {'MIDDLEMOUSE', 'WHEELUPMOUSE', 'WHEELDOWNMOUSE', 'WHEELINMOUSE', 'WHEELOUTMOUSE'}:
+        # 視点操作（テンキー・ホイール・中ボタン・Industry の Alt+マウス）は本体へ
+        if utils.is_viewport_nav_event(event):
             return {'PASS_THROUGH'}
 
         return {'RUNNING_MODAL'}

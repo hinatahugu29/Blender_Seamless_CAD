@@ -315,7 +315,7 @@ class CAD_OT_visual_snap(bpy.types.Operator):
     def modal(self, context, event):
         context.area.tag_redraw()
         
-        if event.type in {'MIDDLEMOUSE', 'WHEELUPMOUSE', 'WHEELDOWNMOUSE'}:
+        if utils.is_viewport_nav_event(event):
             return {'PASS_THROUGH'}
             
         # Modifiers

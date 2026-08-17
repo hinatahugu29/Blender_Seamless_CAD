@@ -291,8 +291,14 @@ class SEAMLESS_OT_SelectionModal(bpy.types.Operator):
         ray_origin = view3d_utils.region_2d_to_origin_3d(region, rv3d, coord)
         ray_direction = view3d_utils.region_2d_to_vector_3d(region, rv3d, coord)
         
-        # Allow viewport navigation
-        if event.type in {'MIDDLEMOUSE', 'WHEELUPMOUSE', 'WHEELDOWNMOUSE', 'WHEELINMOUSE', 'WHEELOUTMOUSE'}:
+        # Allow viewport navigation.
+        # ギズモをドラッグしている最中は素通ししない。Alt+LMB は Industry
+        # Compatible の回転だが、ドラッグ中に Alt を足しただけで軸移動が
+        # 途中で本体に奪われると、掴んだままカメラが回る。
+        # Alt はこのモーダル自身の修飾キー（Alt+LMB でギズモ軸ドラッグ）なので
+        # ここでは渡さない。ギズモに当たっていないときだけ後段で渡す。
+        is_gizmo_dragging = bool(self._drag_axis) or getattr(self, "_drag_point_idx", -1) != -1
+        if not is_gizmo_dragging and utils.is_viewport_nav_event(event, allow_alt_mouse=False):
             return {'PASS_THROUGH'}
 
         # Dragging logic
@@ -576,6 +582,16 @@ class SEAMLESS_OT_SelectionModal(bpy.types.Operator):
                     pt_min_dist, best_pt_idx = d, i
                     
         get_gizmo_engine().hover_point_idx = best_pt_idx
+
+        # Industry Compatible キーマップとの同居。
+        # Alt+RMB（ズーム）はギズモが使わないので常に本体へ渡す。
+        # Alt+LMB はこのモーダルのギズモ軸ドラッグと衝突するため、
+        # ギズモの軸にも制御点にも当たっていないときだけ回転として渡す。
+        # 「掴めるものがカーソルの下にあるなら掴む、無ければ回す」という
+        # 分岐なので、どちらの操作も従来どおり出せる。
+        if event.alt and event.type in {'LEFTMOUSE', 'RIGHTMOUSE'}:
+            if event.type == 'RIGHTMOUSE' or (best_axis == "" and best_pt_idx == -1):
+                return {'PASS_THROUGH'}
 
         if event.type == 'LEFTMOUSE' and event.value == 'PRESS':
             if best_pt_idx != -1:

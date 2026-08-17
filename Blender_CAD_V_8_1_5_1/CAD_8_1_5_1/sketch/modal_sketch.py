@@ -137,9 +137,9 @@ class SEAMLESS_OT_SketchDrawTool(bpy.types.Operator):
             context.area.tag_redraw()
             return {'RUNNING_MODAL'}
             
-        if event.type in {'MIDDLEMOUSE', 'WHEELUPMOUSE', 'WHEELDOWNMOUSE'} or event.type.startswith('NDOF'):
-            return {'PASS_THROUGH'}
-        if event.type in {'PAD1', 'PAD2', 'PAD3', 'PAD4', 'PAD5', 'PAD6', 'PAD7', 'PAD8', 'PAD9', 'PAD0', 'PADPERIOD'}:
+        # 視点操作は必ず Blender 本体へ。Alt+ホイールだけは上でグリッド刻みに
+        # 使っているので、この判定より前に処理しておくこと。
+        if utils.is_viewport_nav_event(event):
             return {'PASS_THROUGH'}
 
         mode = props.sketch_pen_mode

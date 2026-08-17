@@ -41,6 +41,59 @@ def error_print(*args, **kwargs):
     if ERROR_LOGS:
         print(*args, **kwargs)
 
+# --- Viewport navigation passthrough (shared by every modal operator) ---
+# モーダル中でも Blender 本体の視点操作を殺さないための共通判定。
+#
+# ここを共通化した理由（2026-08-17 のユーザー報告）:
+#  * テンキーの識別子を 'PAD1' と書いていた箇所があった。Blender の
+#    bpy.types.Event.type に 'PAD1' は存在しない（正しくは 'NUMPAD_1'）。
+#    綴りが違うだけなので例外にならず、パススルーが黙って効いていなかった。
+#  * Industry Compatible キーマップは視点操作を Alt+各マウスボタンに置く。
+#    Alt+LMB を素通ししないと、ユーザーが画面を回そうとした操作が
+#    そのまま作図クリックとして消費される。
+#
+# 判定を1箇所に集めてあるので、増やすときはここだけ直すこと。
+NAV_NUMPAD_EVENTS = {
+    'NUMPAD_0', 'NUMPAD_1', 'NUMPAD_2', 'NUMPAD_3', 'NUMPAD_4',
+    'NUMPAD_5', 'NUMPAD_6', 'NUMPAD_7', 'NUMPAD_8', 'NUMPAD_9',
+    'NUMPAD_PERIOD', 'NUMPAD_PLUS', 'NUMPAD_MINUS',
+    'NUMPAD_SLASH', 'NUMPAD_ASTERIX',
+}
+
+NAV_WHEEL_EVENTS = {
+    'WHEELUPMOUSE', 'WHEELDOWNMOUSE', 'WHEELINMOUSE', 'WHEELOUTMOUSE',
+}
+
+# Industry Compatible: Alt+LMB 回転 / Alt+MMB パン / Alt+RMB ズーム
+NAV_ALT_MOUSE_EVENTS = {'LEFTMOUSE', 'MIDDLEMOUSE', 'RIGHTMOUSE'}
+
+
+def is_viewport_nav_event(event, allow_alt_mouse=True):
+    """True なら Blender 本体に PASS_THROUGH すべき視点操作イベント。
+
+    テンキー・ホイール・中ボタン・NDOF に加えて、Industry Compatible
+    キーマップの Alt+マウスドラッグを含む。Alt+ホイールはアドオン側で
+    グリッド刻みに使っているので、その判定は呼び出し側が先に行うこと。
+
+    allow_alt_mouse=False は、Alt 自体をアドオンの修飾キーに使っている
+    モーダル向け。Selection Mode の Alt+LMB ギズモドラッグがこれに当たる。
+    その場合は Alt+マウスを無条件に渡さず、ギズモに当たっていないときだけ
+    呼び出し側で改めて判定すること。
+    """
+    etype = event.type
+    if etype in NAV_NUMPAD_EVENTS:
+        return True
+    if etype in NAV_WHEEL_EVENTS:
+        return True
+    if etype == 'MIDDLEMOUSE':
+        return True
+    if etype.startswith('NDOF') or etype.startswith('TRACKPAD'):
+        return True
+    if allow_alt_mouse and event.alt and etype in NAV_ALT_MOUSE_EVENTS:
+        return True
+    return False
+
+
 _is_updating_proxies = False
 _was_transform_modal = False
 _last_change_time = 0.0
