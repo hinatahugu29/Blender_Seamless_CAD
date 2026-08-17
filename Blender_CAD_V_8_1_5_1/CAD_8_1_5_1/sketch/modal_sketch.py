@@ -21,6 +21,12 @@ from .sketch_draw import draw_sketch_3d, draw_sketch_2d
 
 
 
+# グリッド刻みの上下限。刻みは 1.0 を起点に 2 で割る/掛けるので、
+# 境界もその列の上に置いてある。列から外れた値になると、グリッドの
+# 描画位置と吸着位置がずれる(sketch_draw.py のグリッド描画のコメント参照)。
+MIN_GRID_STEP = 1.0 / 1024.0   # 約 0.00098
+MAX_GRID_STEP = 1024.0
+
 _in_solve = False
 
 
@@ -130,10 +136,24 @@ class SEAMLESS_OT_SketchDrawTool(bpy.types.Operator):
             return {'PASS_THROUGH'}
 
         if event.type in {'WHEELUPMOUSE', 'WHEELDOWNMOUSE'} and event.alt:
+            # 刻みは 2 の冪乗のまま上下させる。
+            #
+            # 以前は max(0.001, step/2.0) だった。下限に当たると刻みが
+            # 0.001953125 -> 0.001 と**列から外れ**、そこから倍にしていくと
+            # 0.002 / 0.064 / 0.128 / 0.256 ... という値になる。
+            # これらは 10.0 を割り切らないため、グリッドの描画位置と
+            # 吸着位置がずれる原因になっていた(2026-08-18 のユーザー報告)。
+            #
+            # 下限では「それ以上細かくしない」だけにして、列を保つ。
+            # こうすると下げ切ってから戻したとき元の刻みに戻る。
             if event.type == 'WHEELUPMOUSE':
-                sketch_globals._grid_step = max(0.001, sketch_globals._grid_step / 2.0)
+                finer = sketch_globals._grid_step / 2.0
+                if finer >= MIN_GRID_STEP:
+                    sketch_globals._grid_step = finer
             else:
-                sketch_globals._grid_step *= 2.0
+                coarser = sketch_globals._grid_step * 2.0
+                if coarser <= MAX_GRID_STEP:
+                    sketch_globals._grid_step = coarser
             context.area.tag_redraw()
             return {'RUNNING_MODAL'}
             

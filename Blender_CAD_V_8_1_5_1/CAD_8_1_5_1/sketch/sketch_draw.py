@@ -55,20 +55,36 @@ def draw_sketch_3d(context, props):
 
         # グリッドの描画
         if getattr(props, "sketch_show_grid", True):
+            # グリッド線は必ず原点を通す。
+            #
+            # 以前は -size から step 刻みで足していた。size は
+            # max(10.0, step*20.0) なので、step が 10.0 を割り切らないとき
+            # (0.064 / 0.128 / 0.256 など) 原点に線が来ない。
+            # 一方スナップは modal_sketch で round(x/step)*step、つまり
+            # 原点基準で丸める。結果、**グリッドの見た目と吸着位置が
+            # 0.016 ずれる**(2026-08-18 のユーザー報告で実測)。
+            #
+            # step が 2 の冪乗から外れるのは Alt+ホイールの下限クランプが
+            # 原因で、そちらも modal_sketch 側で直してある。ただしここは
+            # step が何であっても原点を通るようにしておく。
+            #
+            # 添字から x = i*step で作るのは、加算の誤差を積まないため。
             grid_coords = []
             step = getattr(sketch_globals, '_grid_step', 1.0)
-            size = max(10.0, step * 20.0)
-            x = -size
-            while x <= size:
-                grid_coords.append((x, -size, 0.0))
-                grid_coords.append((x, size, 0.0))
-                x += step
-            y = -size
-            while y <= size:
-                grid_coords.append((-size, y, 0.0))
-                grid_coords.append((size, y, 0.0))
-                y += step
-            
+            if step <= 0.0:
+                step = 1.0
+            half = max(10.0, step * 20.0)
+            n = int(math.ceil(half / step))
+            extent = n * step
+            for i in range(-n, n + 1):
+                x = i * step
+                grid_coords.append((x, -extent, 0.0))
+                grid_coords.append((x, extent, 0.0))
+            for i in range(-n, n + 1):
+                y = i * step
+                grid_coords.append((-extent, y, 0.0))
+                grid_coords.append((extent, y, 0.0))
+
             gpu.state.line_width_set(1.0)
             # グリッドのアルファ値を少し上げて視認性を高める
             shader.uniform_float("color", (1.0, 1.0, 1.0, 0.25))

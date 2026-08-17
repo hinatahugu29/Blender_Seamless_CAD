@@ -1294,6 +1294,65 @@ def t_offset_pick_then_cleanup_merges():
          f"CLEANUP's SetLinearTolerance, so merging becomes a coin toss")
 
 
+def t_grid_lines_pass_through_the_origin():
+    """描いたグリッドの線が、吸着位置と同じ場所に来る。
+
+    吸着は modal_sketch が round(x/step)*step、つまり原点基準で丸める。
+    グリッド描画がそれと違う基準で線を並べると、**見た目と吸着先がずれる**。
+    以前は -max(10.0, step*20.0) から step 刻みで並べていたため、
+    step が 10.0 を割り切らない値(0.064 / 0.128 / 0.256)のとき 0.016 ずれた
+    (2026-08-18 のユーザー報告。X=-0.768 は 0.064 の12倍で、
+    吸着自体は正しくグリッドだけがずれていた)。
+
+    刻みが 2 の冪乗から外れる経路も塞いだが、ここでは**どんな刻みでも**
+    原点を通ることを確かめる。片方だけ直して安心しないため。
+    """
+    from CAD_8_1_5_1.sketch import sketch_globals
+    from CAD_8_1_5_1.sketch.modal_sketch import MIN_GRID_STEP, MAX_GRID_STEP
+
+    def grid_x_lines(step):
+        """sketch_draw のグリッド生成と同じ式で X 座標だけ作る。"""
+        half = max(10.0, step * 20.0)
+        n = int(math.ceil(half / step))
+        return [i * step for i in range(-n, n + 1)]
+
+    # 2 の冪乗だけでなく、列から外れた値も混ぜる。対称な値だけで確かめると
+    # まさに今回の不具合が素通りする。
+    for step in (1.0, 0.5, 0.25, 0.125, 0.064, 0.128, 0.256, 0.512, 1.024, 0.3, 0.001):
+        xs = grid_x_lines(step)
+        nearest = min(xs, key=abs)
+        assert abs(nearest) < 1e-9, \
+            f"grid step {step} puts no line on the origin; nearest is {nearest}"
+
+        # 吸着先(原点基準の丸め)が、必ずグリッド線の上に乗ること
+        for probe in (0.0, step * 0.4, -step * 0.4, step * 3.2, -step * 7.7):
+            snapped = round(probe / step) * step
+            assert any(abs(snapped - x) < step * 1e-6 for x in xs), \
+                f"grid step {step}: snap target {snapped} is not on any drawn grid line"
+
+    # 刻みの上下限が、1.0 を起点にした 2 の冪乗の列の上にあること。
+    # ここが列から外れると、下げ切って戻したときに変な刻みが残る。
+    for limit in (MIN_GRID_STEP, MAX_GRID_STEP):
+        exponent = math.log2(limit)
+        assert abs(exponent - round(exponent)) < 1e-12, \
+            f"grid step limit {limit} is not a power of two, so halving and doubling cannot round-trip"
+
+    # 下げ切ってから戻すと元の刻みに帰ってくること(クランプで列を外れない)
+    step = 1.0
+    for _ in range(30):
+        finer = step / 2.0
+        if finer >= MIN_GRID_STEP:
+            step = finer
+    assert abs(step - MIN_GRID_STEP) < 1e-12, f"halving should stop at the limit, got {step}"
+    for _ in range(30):
+        coarser = step * 2.0
+        if coarser <= MAX_GRID_STEP:
+            step = coarser
+    assert abs(step - MAX_GRID_STEP) < 1e-12, f"doubling should stop at the limit, got {step}"
+
+    sketch_globals._grid_step = 1.0
+
+
 def t_vertex_snap_off_stops_merge_on_release():
     """Vertex Snap を切ったら、離した頂点が隣の頂点に吸収されない。
 
@@ -2121,6 +2180,7 @@ def main():
     check("offset pick then cleanup merges", t_offset_pick_then_cleanup_merges)
     check("offset face gets hard to identify", t_offset_face_becomes_unidentifiable)
     check("offset pick zero reference", t_offset_pick_zero_reference)
+    check("grid lines hit the origin", t_grid_lines_pass_through_the_origin)
     check("vertex snap off stops merge", t_vertex_snap_off_stops_merge_on_release)
     check("sketch solver constraints", t_sketch_solver_constraints)
     check("sketch radius constraint", t_sketch_radius_constraint_action)
