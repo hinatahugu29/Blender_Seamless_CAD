@@ -535,7 +535,8 @@ def t_revolve_sweeps_a_profile():
 
     base_bounds = _result_bounds(col)
     assert base_bounds is not None, "the profile itself should produce a mesh"
-    assert base_bounds[1][1] - base_bounds[1][0] < 0.5,         f"the flat profile must be thin along Y before revolving, got {base_bounds[1]}"
+    assert base_bounds[1][1] - base_bounds[1][0] < 0.5, \
+        f"the flat profile must be thin along Y before revolving, got {base_bounds[1]}"
 
     bpy.ops.seamless.add_primitive(type='REVOLVE')
     rev = utils_props().primitives[-1]
@@ -553,11 +554,14 @@ def t_revolve_sweeps_a_profile():
     #   210 度回した後        y = (-1.750,  3.500)
     # 210 度は 90 度を通過するので +Y は半径いっぱい(3.5)まで届き、
     # 180 度を越えた分だけ -Y へ回り込んで -1.75 で止まる。
-    assert y_max > 2.0,         f"revolving 210 deg must sweep into +Y; got y_max={y_max:.3f} (bounds={bounds})"
-    assert y_min < -1.0,         f"revolving past 180 deg must reach -Y; got y_min={y_min:.3f} (bounds={bounds})"
+    assert y_max > 2.0, \
+        f"revolving 210 deg must sweep into +Y; got y_max={y_max:.3f} (bounds={bounds})"
+    assert y_min < -1.0, \
+        f"revolving past 180 deg must reach -Y; got y_min={y_min:.3f} (bounds={bounds})"
     # 一周させると y_min は -3.5 まで落ちる。360 度に丸められていないことの確認。
     # X で見てはいけない: 210 度でも 180 度を通過するので -X は半径まで届く
-    assert y_min > -2.5,         f"210 deg is not a full turn; y_min should stop short of -3.5, got y_min={y_min:.3f}"
+    assert y_min > -2.5, \
+        f"210 deg is not a full turn; y_min should stop short of -3.5, got y_min={y_min:.3f}"
 
 
 def t_revolve_ignores_a_missing_target():
@@ -578,7 +582,8 @@ def t_revolve_ignores_a_missing_target():
     rev.distance = 130.0
 
     after = _result_vertex_count(col)
-    assert after == base,         f"a REVOLVE with no target must leave the box alone; {base} -> {after}"
+    assert after == base, \
+        f"a REVOLVE with no target must leave the box alone; {base} -> {after}"
 
 
 def t_no_import_shadowing():
@@ -815,7 +820,8 @@ def t_measure_part():
         assert abs(v - 2.0 * r) < 1e-3,             f"a sphere of radius {r:.4f} should measure {2*r:.4f} on {axis}, got {v:.4f}"
     # 対称な形なので3軸は一致していなければならない。ここがずれるのは
     # バウンディングボックスがテセレーション由来になっている印
-    assert max(m["size"]) - min(m["size"]) < 1e-3,         f"a sphere must measure the same on every axis, got {tuple(round(v,4) for v in m['size'])}"
+    assert max(m["size"]) - min(m["size"]) < 1e-3, \
+        f"a sphere must measure the same on every axis, got {tuple(round(v,4) for v in m['size'])}"
 
 
 def t_measure_entity():
@@ -840,7 +846,8 @@ def t_measure_entity():
     assert m is not None, "measure_entity returned nothing"
     assert m["resolved"], f"the edge lineage should resolve: {lineages[0]}"
     assert not m["is_face"], "an edge lineage must report as an edge"
-    assert abs(m["amount"] - 2.0) < 1e-3,         f"every edge of a 2x2x2 box is 2.0 long, got {m['amount']}"
+    assert abs(m["amount"] - 2.0) < 1e-3, \
+        f"every edge of a 2x2x2 box is 2.0 long, got {m['amount']}"
     assert m["shape"] == "Line", f"a box edge is a straight line, got {m['shape']}"
     assert m["radius"] is None, "a straight edge has no radius"
 
@@ -865,7 +872,8 @@ def t_measure_entity():
             found_cylinder = r
             break
     assert found_cylinder is not None,         "a cylinder must expose at least one cylindrical face"
-    assert found_cylinder["radius"] is not None and found_cylinder["radius"] > 0.0,         f"a cylindrical face must report its radius, got {found_cylinder['radius']}"
+    assert found_cylinder["radius"] is not None and found_cylinder["radius"] > 0.0, \
+        f"a cylindrical face must report its radius, got {found_cylinder['radius']}"
     assert found_cylinder["amount"] > 0.0, "a face must report a positive area"
 
 
@@ -902,7 +910,8 @@ def t_measure_during_retargeting():
     filleted = core_bridge.measure_stack(stack_ptr)
     assert filleted is not None
     # 角を丸めたぶん体積は 8 より小さい
-    assert filleted["volume"] < 8.0 - 1e-4,         f"the fillet should remove material; volume is {filleted['volume']}"
+    assert filleted["volume"] < 8.0 - 1e-4, \
+        f"the fillet should remove material; volume is {filleted['volume']}"
 
     # 選択モードに入る = 対象の選び直し
     props.active_primitive_index = len(props.primitives) - 1
@@ -921,7 +930,8 @@ def t_measure_during_retargeting():
     assert not core_bridge._is_modifier_retargeting(props, active),         "leaving Selection Mode must clear the retargeting state"
     core_bridge.update_cad_preview_forced(bpy.context)
     after = core_bridge.measure_stack(stack_ptr)
-    assert abs(after["volume"] - filleted["volume"]) < 1e-3,         f"the fillet should come back; {after['volume']} vs {filleted['volume']}"
+    assert abs(after["volume"] - filleted["volume"]) < 1e-3, \
+        f"the fillet should come back; {after['volume']} vs {filleted['volume']}"
 
 
 def t_modifier_proxy_is_not_drawn():
@@ -951,12 +961,14 @@ def t_modifier_proxy_is_not_drawn():
     core_bridge.update_cad_preview_forced(bpy.context)
 
     proxy = _proxy_for(col, fillet)
-    assert len(proxy.data.vertices) == 0,         f"a FILLET proxy must have nothing to draw, got {len(proxy.data.vertices)} vertices"
+    assert len(proxy.data.vertices) == 0, \
+        f"a FILLET proxy must have nothing to draw, got {len(proxy.data.vertices)} vertices"
     assert not proxy.show_name,         "with an empty mesh the name label would be the only thing left floating at the origin"
 
     # 箱のプロキシはこれまでどおり形を持つ
     box_proxy = _proxy_for(col, props.primitives[0])
-    assert len(box_proxy.data.vertices) == 8,         f"a BOX proxy still needs its shape, got {len(box_proxy.data.vertices)} vertices"
+    assert len(box_proxy.data.vertices) == 8, \
+        f"a BOX proxy still needs its shape, got {len(box_proxy.data.vertices)} vertices"
 
     # 描かなくなっても、行を選べばプロキシがアクティブになる(チェックリスト B)
     bpy.ops.seamless.set_active_primitive(index=len(props.primitives) - 1)
@@ -964,7 +976,8 @@ def t_modifier_proxy_is_not_drawn():
 
     # そしてフィレット自体は効いたまま
     m = core_bridge.measure_stack(int(col.seamless_cad_stack_ptr))
-    assert m["volume"] < 8.0 - 1e-4,         f"blanking the proxy must not stop the fillet working; volume is {m['volume']}"
+    assert m["volume"] < 8.0 - 1e-4, \
+        f"blanking the proxy must not stop the fillet working; volume is {m['volume']}"
 
 
 def t_modifier_transform_is_ignored():
@@ -1149,7 +1162,8 @@ def t_offset_face_becomes_unidentifiable():
     i = choose_reference_face(cs, target)
     assert i is not None, "the face should still be found at a small offset"
     travelled = (cs[i][1] - base[1]).dot(base[2])
-    assert abs(travelled - 1.0) < 1e-3,         f"the face does move by the requested amount; got {travelled} for 1.0"
+    assert abs(travelled - 1.0) < 1e-3, \
+        f"the face does move by the requested amount; got {travelled} for 1.0"
 
     # 大きくすると、反対側の平行面のほうが手がかりに近くなり、選び分けられない
     ofs.radius = 3.0
@@ -1190,7 +1204,8 @@ def t_offset_pick_zero_reference():
 
     c = _face_centroid(col, target)
     assert c is not None, "the target face must exist at depth 0"
-    assert (mathutils.Vector(c) - hint).length < 1e-2,         f"at depth 0 the face should sit where the lineage says: {c} vs {tuple(hint)}"
+    assert (mathutils.Vector(c) - hint).length < 1e-2, \
+        f"at depth 0 the face should sit where the lineage says: {c} vs {tuple(hint)}"
 
 
 def t_step_export_scale():
@@ -1234,11 +1249,13 @@ def t_step_export_scale():
 
     # 既定(1.0)は従来どおり。ここが変わると既存ユーザーのファイルが崩れる
     same = roundtrip(1.0)
-    assert same and abs(same["volume"] - 8.0) < 1e-2,         f"scale 1.0 must keep the previous behaviour; got {same}"
+    assert same and abs(same["volume"] - 8.0) < 1e-2, \
+        f"scale 1.0 must keep the previous behaviour; got {same}"
 
     # 2 倍で出すと、受け取り側では体積が 8 倍(2^3)
     bigger = roundtrip(2.0)
-    assert bigger and abs(bigger["volume"] - 64.0) < 1e-1,         f"exporting at 2.0 should give a volume of 64 on the other side; got {bigger}"
+    assert bigger and abs(bigger["volume"] - 64.0) < 1e-1, \
+        f"exporting at 2.0 should give a volume of 64 on the other side; got {bigger}"
 
 
 def t_delete_updates_the_shape_at_once():
@@ -1642,9 +1659,11 @@ def t_sketch_solver_constraints():
     _sk_circle(props, 1, 1, 2)
     _sk_constraint(props, 1, 'RADIUS', [1, 2], 6.0)
     cx, cy = _sk_co(props, 1)
-    assert abs(cx - 3.0) < 1e-3 and abs(cy - 1.0) < 1e-3,         f"the centre must stay at (3.0, 1.0) when the radius changes; it moved to ({cx}, {cy})"
+    assert abs(cx - 3.0) < 1e-3 and abs(cy - 1.0) < 1e-3, \
+        f"the centre must stay at (3.0, 1.0) when the radius changes; it moved to ({cx}, {cy})"
     x, y = _sk_co(props, 2)
-    assert abs(math.hypot(x - cx, y - cy) - 6.0) < 1e-3,         f"the rim should be 6.0 from the centre, got {math.hypot(x - cx, y - cy)}"
+    assert abs(math.hypot(x - cx, y - cy) - 6.0) < 1e-3, \
+        f"the rim should be 6.0 from the centre, got {math.hypot(x - cx, y - cy)}"
 
 
 def t_sketch_angle_and_equal():
@@ -1844,9 +1863,11 @@ def t_sketch_circle_distance_holds_centre():
     _sk_constraint(props, 1, 'DISTANCE', [1, 2], 5.0)
 
     cx, cy = _sk_co(props, 1)
-    assert abs(cx - 4.0) < 1e-3 and abs(cy - 2.0) < 1e-3,         f"editing a circle's dimension must not move its centre; it went to ({cx}, {cy})"
+    assert abs(cx - 4.0) < 1e-3 and abs(cy - 2.0) < 1e-3, \
+        f"editing a circle's dimension must not move its centre; it went to ({cx}, {cy})"
     x, y = _sk_co(props, 2)
-    assert abs(math.hypot(x - cx, y - cy) - 5.0) < 1e-3,         f"the rim should end up 5.0 from the centre, got {math.hypot(x - cx, y - cy)}"
+    assert abs(math.hypot(x - cx, y - cy) - 5.0) < 1e-3, \
+        f"the rim should end up 5.0 from the centre, got {math.hypot(x - cx, y - cy)}"
 
     assert props.sketch_constraints[0].type == 'DISTANCE',         "the stored constraint must stay DISTANCE or the dimension label cannot find it"
 
@@ -1857,7 +1878,8 @@ def t_sketch_circle_distance_holds_centre():
     _sk_circle(props, 1, 1, 2)
     _sk_constraint(props, 1, 'DISTANCE', [2, 1], 5.0)
     cx, cy = _sk_co(props, 1)
-    assert abs(cx - 4.0) < 1e-3 and abs(cy - 2.0) < 1e-3,         f"reversed target order must also hold the centre; it went to ({cx}, {cy})"
+    assert abs(cx - 4.0) < 1e-3 and abs(cy - 2.0) < 1e-3, \
+        f"reversed target order must also hold the centre; it went to ({cx}, {cy})"
 
     # 円に属さない2点なら従来どおり両方が動いてよい(線の寸法はこの経路)
     _sketch_reset(props)
