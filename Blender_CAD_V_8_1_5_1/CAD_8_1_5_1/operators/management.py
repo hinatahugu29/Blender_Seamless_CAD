@@ -449,6 +449,61 @@ class SEAMLESS_OT_PickActiveAsTarget(bpy.types.Operator):
     def invoke(self, context, event):
         return context.window_manager.invoke_props_dialog(self)
 
+# スポイトのフォールバック探索半径(ピクセル)。狭いと拾えず、広いと隣の
+# プロファイルを掴む。実機で詰めること。
+_PROFILE_PICK_RADIUS_PX = 40.0
+
+
+def _pick_profile_uuid_screen_space(context, coord, exclude_uuid):
+    """スケッチ由来のプロファイルを画面上の距離で拾う。
+
+    CURVE / SURFACE のプロキシは utils._get_prim_display_scale が表示倍率を
+    0.001 に落としており、しかも sketch_finalize は location を原点に置いたまま
+    形状を points に持たせる。つまり画面に見えているスケッチの位置には当たり判定が
+    無く、scene.ray_cast は必ず外れる。Rev のターゲットにスケッチを指定できず
+    "No CAD object found under mouse" になっていた(2026-08-18 利用者報告)。
+
+    ここでは prim.points をそのままスクリーン座標へ落として最寄りを選ぶ。
+    描画側(drawing.py)にも変形側(transform.py)にも触らないので、ドラッグ
+    まわりの状態機械には影響しない。レイキャストが当たったときは呼ばれない。
+    """
+    props = utils.get_active_props(context)
+    region = getattr(context, "region", None)
+    rv3d = getattr(context, "region_data", None)
+    if not props or region is None or rv3d is None:
+        return ""
+
+    click = mathutils.Vector(coord)
+    best_uuid = ""
+    best_dist = _PROFILE_PICK_RADIUS_PX
+
+    for prim in props.primitives:
+        if not prim.uuid or prim.uuid == exclude_uuid:
+            continue
+        if len(prim.points) == 0:
+            continue
+        # カーネル側 (occ_core.cpp) が points に掛けるのと同じ変換。表示倍率は
+        # 含めない。含めると 0.001 が効いて全点が原点付近に潰れる。
+        mat = (
+            mathutils.Matrix.Translation(prim.location) @
+            mathutils.Euler(prim.rotation).to_matrix().to_4x4()
+        )
+        for pt in prim.points:
+            co = mathutils.Vector(pt.co)
+            # 内周の区切り。sketch_finalize が 1e10 を入れる番兵で、実点ではない
+            if abs(co.x) > 1e9:
+                continue
+            screen = view3d_utils.location_3d_to_region_2d(region, rv3d, mat @ co)
+            if screen is None:
+                continue
+            dist = (click - screen).length
+            if dist < best_dist:
+                best_dist = dist
+                best_uuid = prim.uuid
+
+    return best_uuid
+
+
 class SEAMLESS_OT_PickTargetModal(bpy.types.Operator):
     bl_idname = "seamless.pick_target_modal"
     bl_label = "Pick Target in Viewport"
@@ -468,42 +523,51 @@ class SEAMLESS_OT_PickTargetModal(bpy.types.Operator):
             ray_direction = view3d_utils.region_2d_to_vector_3d(region, rv3d, coord)
             
             has_hit, hit_pos, hit_norm, hit_idx, hit_obj, matrix = context.scene.ray_cast(context.view_layer.depsgraph, ray_origin, ray_direction)
-            
+
+            props = utils.get_active_props(context)
+            prim = None
+            if props and 0 <= self.index < len(props.primitives):
+                prim = props.primitives[self.index]
+
+            target_uuid = ""
             if has_hit and hit_obj and hit_obj.get("is_seamless_proxy"):
                 target_uuid = hit_obj.get("primitive_uuid", "")
-                if target_uuid:
-                    props = utils.get_active_props(context)
-                    if props and 0 <= self.index < len(props.primitives):
-                        prim = props.primitives[self.index]
-                        if prim.uuid != target_uuid: # 自己ターゲット防止
-                            final_val = target_uuid
 
-                            # 拡張: SWEEPの場合、FaceやEdgeの取得を試みる
-                            if prim.type == 'SWEEP':
-                                from ..core_bridge import get_core, is_core_busy, get_or_create_stack_ptr
-                                core = get_core()
-                                if core and not is_core_busy():
-                                    stack_ptr = get_or_create_stack_ptr(utils.get_active_collection(context))
-                                    if self.prop_name == 'sweep_profile_uuid' and hasattr(core, "pick_face"):
-                                        res = core.pick_face(stack_ptr, list(ray_origin), list(ray_direction), 0.6)
-                                        if res:
-                                            final_val = res[0] # Face:1@...
-                                    elif self.prop_name == 'sweep_path_uuid' and hasattr(core, "pick_edge"):
-                                        res = core.pick_edge(stack_ptr, list(ray_origin), list(ray_direction), 0.6)
-                                        if res:
-                                            final_val = res[0] # Edge:1@...
+            if not target_uuid and prim is not None:
+                # スケッチ(CURVE / SURFACE)にはレイの当たり判定が無い。
+                # _pick_profile_uuid_screen_space のコメントを参照。
+                target_uuid = _pick_profile_uuid_screen_space(context, coord, prim.uuid)
 
-                            if self.prop_name == 'loft_uuids':
-                                current = getattr(prim, "loft_uuids", "")
-                                if current:
-                                    setattr(prim, "loft_uuids", f"{current}|{final_val}")
-                                else:
-                                    setattr(prim, "loft_uuids", final_val)
-                            else:
-                                setattr(prim, self.prop_name, final_val)
-                            update_cad_preview(None, context)
-                            self.report({'INFO'}, f"Target set to: {final_val}")
-                            return {'FINISHED'}
+            # 自己ターゲット防止
+            if prim is not None and target_uuid and prim.uuid != target_uuid:
+                final_val = target_uuid
+
+                # 拡張: SWEEPの場合、FaceやEdgeの取得を試みる
+                if prim.type == 'SWEEP':
+                    from ..core_bridge import get_core, is_core_busy, get_or_create_stack_ptr
+                    core = get_core()
+                    if core and not is_core_busy():
+                        stack_ptr = get_or_create_stack_ptr(utils.get_active_collection(context))
+                        if self.prop_name == 'sweep_profile_uuid' and hasattr(core, "pick_face"):
+                            res = core.pick_face(stack_ptr, list(ray_origin), list(ray_direction), 0.6)
+                            if res:
+                                final_val = res[0] # Face:1@...
+                        elif self.prop_name == 'sweep_path_uuid' and hasattr(core, "pick_edge"):
+                            res = core.pick_edge(stack_ptr, list(ray_origin), list(ray_direction), 0.6)
+                            if res:
+                                final_val = res[0] # Edge:1@...
+
+                if self.prop_name == 'loft_uuids':
+                    current = getattr(prim, "loft_uuids", "")
+                    if current:
+                        setattr(prim, "loft_uuids", f"{current}|{final_val}")
+                    else:
+                        setattr(prim, "loft_uuids", final_val)
+                else:
+                    setattr(prim, self.prop_name, final_val)
+                update_cad_preview(None, context)
+                self.report({'INFO'}, f"Target set to: {final_val}")
+                return {'FINISHED'}
 
             self.report({'WARNING'}, "No CAD object found under mouse")
             return {'FINISHED'}
