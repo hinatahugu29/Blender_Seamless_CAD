@@ -8,10 +8,12 @@ Short answers, with links to the page that goes into detail.
 Windows 10 and 11, 64-bit. That is the product.
 
 Builds for Linux (x86-64) and macOS (Apple Silicon) exist and are being given to
-testers, but they are not on sale and have no release date. Nobody has confirmed
-them working inside Blender yet, and macOS notarisation needs a paid Apple
-Developer membership that is not funded — that, rather than the code, is the main
-obstacle. Buy only if you are on Windows. See [Testing builds](testing-builds.md).
+testers, but they are not on sale and have no release date. A few testers have
+reported both running inside Blender; how thoroughly they were exercised is not
+known, so it is nowhere near a tested platform. macOS notarisation also needs a
+paid Apple Developer membership that is not funded — that, rather than the code,
+is the main obstacle. Buy only if you are on Windows. See
+[Testing builds](testing-builds.md).
 
 **Which Blender versions work?**
 4.2 LTS or newer. Tested on 4.2, 4.3, 4.4 and 5.1.

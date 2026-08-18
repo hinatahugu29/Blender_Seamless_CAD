@@ -169,8 +169,9 @@ Blender_CAD_V_8_1_5_1/
 ## 制約
 
 - **配布しているのは Windows 版のみ。** Linux / macOS(Apple Silicon) は CI で
-  ビルドが通り ZIP まで出るようになりましたが、署名も実機確認も無いため
-  まだ配っていません（`CROSS_PLATFORM_BUILD.md`）
+  ビルドが通り ZIP まで出ます。テスターの方から数件「動いた」という報告も
+  ありますが、**検証の深さが不明**で、macOS は署名も無いためまだ配っていません
+  （`CROSS_PLATFORM_BUILD.md`）
 - **Beta。** 破壊的な変更が入る可能性があります
 - Windows でビルドする場合、MSVC と Windows SDK のパスが `build.rs` に
   ハードコードされています。OCCT の場所は `OCCT_ROOT` で差し替え可能です

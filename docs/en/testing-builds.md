@@ -44,18 +44,27 @@ Being specific about this matters more than usual here.
   build machine's environment
 - The kernel starts and answers on its port
 
-**Never verified:**
+**Reported by testers, depth unknown:**
 
-- Running inside Blender. **Not once, by anyone.** The checks above all happen
-  outside Blender
-- Creating or editing any geometry
+- Both builds run inside Blender. A small number of reports, macOS and Linux,
+  all of them positive
+
+That is the first signal from real hardware there has been, and it is the good
+kind. Treat it as encouraging rather than conclusive: **what those testers
+actually did in the session was not recorded**, so it does not tell us which
+features work. It rules out the worst case — that these builds simply do not
+start — and little more than that.
+
+**Still never verified:**
+
+- Creating or editing geometry, beyond whatever those sessions happened to touch
 - Viewport drawing, including whether the Metal backend works on macOS at all
 - STEP and SVG import/export
 - Anything to do with stability over a session
+- Whether the macOS quarantine step below was needed
 
-So the first thing a tester does — pressing **Start Seamless CAD** and seeing
-whether a box appears — is genuinely new information. It exercises both the
-kernel connection and the drawing path at once.
+So a tester's report is still genuinely new information, and the more precisely
+it says what was done, the more it is worth.
 
 **Do not use these builds for work you would be upset to lose.** Save often, and
 keep anything that matters in a separate file.
@@ -84,8 +93,9 @@ not funded yet. macOS may refuse to run it.
 
 It may well work anyway: Blender extracts the zip itself, and files unpacked
 that way do not normally inherit the quarantine flag that triggers the check.
-This has not been confirmed on a real machine, which is part of what we are
-asking you to find out.
+Testers have reported macOS builds running, so it does appear to survive
+Gatekeeper at least sometimes — but nobody has said whether they had to run the
+command below first, so this is still open.
 
 If the add-on loads but no geometry ever appears, clear the flag by hand:
 
@@ -125,5 +135,5 @@ If Blender crashes outright, say what you were doing at the moment it went. Even
 than nothing does.
 
 Reports that the build simply does not start are just as valuable as reports
-about modelling. Right now, "it launched and drew a cube" is itself a result
-worth hearing.
+about modelling. And now that a few people have said "it runs", the useful
+reports are the specific ones: which tools you used, and what they did.

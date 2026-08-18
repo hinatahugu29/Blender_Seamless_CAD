@@ -15,9 +15,10 @@ as a bundled executable built for Windows.
 
 Builds for **Linux (x86-64)** and **macOS (Apple Silicon)** now exist and are
 being given to testers. They are not on sale and have no release date. There is
-no Intel Mac build. See [Testing builds](testing-builds.md) for what has and has
-not been verified — the short version is that nobody has yet run them inside
-Blender.
+no Intel Mac build. A few testers have now reported both builds running inside
+Blender, which is the first signal from real hardware — but how far they
+exercised them is not known, so it is a long way from a tested platform. See
+[Testing builds](testing-builds.md) for what has and has not been verified.
 
 What still stands between those builds and a release is not the add-on's Python
 code:
@@ -25,8 +26,9 @@ code:
 - **macOS is not notarised.** The kernel is ad-hoc signed only. Notarisation
   requires an Apple Developer Program membership, which is not currently funded.
   That is the honest reason, and it is the main obstacle to a macOS release
-- **Nothing has been confirmed on real hardware.** Whether the viewport draws at
-  all through Metal cannot be established by automated builds
+- **Almost nothing has been confirmed on real hardware.** A few testers say the
+  builds run; what works past that, including whether the viewport draws through
+  Metal at all, is still unestablished — automated builds cannot settle it
 - On Linux, glibc 2.34 is the effective floor (Ubuntu 22.04, Debian 12, RHEL 9
   and newer)
 
