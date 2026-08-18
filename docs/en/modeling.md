@@ -39,6 +39,26 @@ expands it in place to show each control point as an editable `P0`, `P1`, …
 coordinate, with buttons to insert or remove points. For a **Plin**, each point
 also carries a fillet toggle.
 
+#### Using Rev
+
+**Rev** on its own produces nothing. It needs something to revolve.
+
+1. Create the profile first. A finished sketch (Sketch Surface), a **Poly** or a
+   **Surf** all work.
+2. Add **Rev**, then point **Target UUID** under **Pattern/Link Setup** at that
+   profile. Use the eyedropper to click it in the viewport, or the list button
+   beside it to pick it by name.
+3. **Rotation Axis** sets the axis (X / Y / Z) and **Total Angle** the sweep.
+4. The axis passes through the **Rev feature's own Location**, not the profile's.
+
+**The axis has to lie in the plane of the profile.** Revolving a sketch drawn on
+the XY plane around Z gives no volume, because the axis is perpendicular to that
+plane — pick X or Y instead, or draw the sketch on the XZ plane. It is the same
+idea as drawing a lathe cross-section.
+
+To revolve a **particular face** of an existing solid, use
+[**Face Rev**](#modification) rather than **Rev**.
+
 ### Swept shapes
 
 | Button | Shape |
