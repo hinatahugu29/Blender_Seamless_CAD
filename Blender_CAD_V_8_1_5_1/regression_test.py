@@ -489,6 +489,98 @@ def t_chamfer_cuts_edges():
         f"chamfering 4 edges must add geometry; stayed at {after} vertices"
 
 
+def _result_bounds(col):
+    """結果メッシュの軸ごとの (min, max) を返す。
+
+    頂点数だけを見ると「増えたが向きが逆」を取り逃がす(§4 の罠: 対称な値だけの
+    テスト)。REVOLVE は回転方向と軸位置の誤りが症状に出にくいので範囲で見る。
+    """
+    import math
+    from CAD_8_1_5_1 import core_bridge
+    core_bridge.update_cad_preview_forced(bpy.context)
+    core = core_bridge.get_core()
+    res = core.generate_mesh(int(col.seamless_cad_stack_ptr), 0.03, math.radians(6.0))
+    if not res or len(res[0]) == 0:
+        return None
+    flat = list(res[0])
+    xs = flat[0::3]
+    ys = flat[1::3]
+    zs = flat[2::3]
+    return (min(xs), max(xs)), (min(ys), max(ys)), (min(zs), max(zs))
+
+
+def t_revolve_sweeps_a_profile():
+    """REVOLVE が閉じたプロファイルから回転体を作る。
+
+    ここが空回りしていた。REVOLVE のターゲットは uuid_to_shape 経由で渡るため、
+    POLYGON / SLOT / SURFACE が occ_core.cpp で厚み 1e-4 に強制押し出しされた
+    「薄いソリッド」が来る。BRepPrimAPI_MakeRevol はソリッドを回せないので結果が
+    空になり、UUID を入れても何も起きなかった(2026-08-18 利用者報告)。
+    occ_arrays.cpp の extract_revolvable_profile がこれを吸収する。
+
+    値は非対称にすること。プロファイルを XZ 平面へ倒して X=3 に置き、Z 軸まわりに
+    210 度回す。軸を取り違えたり 360 度に丸めたりすると Y の広がりが合わなくなる。
+    """
+    col, props = _fresh_part()
+
+    bpy.ops.seamless.add_primitive(type='POLYGON')
+    profile = utils_props().primitives[-1]
+    profile.sides = 5
+    profile.radius = 0.5
+    # XY 平面のプロファイルを XZ 平面へ倒す。倒さないと回転軸(Z)が
+    # プロファイル平面に含まれず、掃引しても体積が出ない
+    profile.rotation = (math.radians(90.0), 0.0, 0.0)
+    profile.location = (3.0, 0.0, 0.0)
+    profile_uuid = profile.uuid
+
+    base_bounds = _result_bounds(col)
+    assert base_bounds is not None, "the profile itself should produce a mesh"
+    assert base_bounds[1][1] - base_bounds[1][0] < 0.5,         f"the flat profile must be thin along Y before revolving, got {base_bounds[1]}"
+
+    bpy.ops.seamless.add_primitive(type='REVOLVE')
+    rev = utils_props().primitives[-1]
+    rev.target_uuid = profile_uuid
+    rev.pattern_axis = 'Z'
+    rev.distance = 210.0
+    rev.location = (0.0, 0.0, 0.0)
+
+    bounds = _result_bounds(col)
+    assert bounds is not None, "REVOLVE produced no geometry at all"
+
+    _, (y_min, y_max), _ = bounds
+    # 掃引角は Y の範囲で見る。cad_server 直叩きでの実測 (2026-08-18):
+    #   プロファイル単体      y = (-0.000,  0.000)
+    #   210 度回した後        y = (-1.750,  3.500)
+    # 210 度は 90 度を通過するので +Y は半径いっぱい(3.5)まで届き、
+    # 180 度を越えた分だけ -Y へ回り込んで -1.75 で止まる。
+    assert y_max > 2.0,         f"revolving 210 deg must sweep into +Y; got y_max={y_max:.3f} (bounds={bounds})"
+    assert y_min < -1.0,         f"revolving past 180 deg must reach -Y; got y_min={y_min:.3f} (bounds={bounds})"
+    # 一周させると y_min は -3.5 まで落ちる。360 度に丸められていないことの確認。
+    # X で見てはいけない: 210 度でも 180 度を通過するので -X は半径まで届く
+    assert y_min > -2.5,         f"210 deg is not a full turn; y_min should stop short of -3.5, got y_min={y_min:.3f}"
+
+
+def t_revolve_ignores_a_missing_target():
+    """ターゲット未設定の REVOLVE が形状を壊さない。
+
+    extract_revolvable_profile で null を返す経路。ここで例外が漏れると
+    stack_results が空になり、無関係な形状まで消える。
+    """
+    col, props = _fresh_part()
+    bpy.ops.seamless.add_primitive(type='BOX')
+    base = _result_vertex_count(col)
+    assert base == 8, f"a plain box should have 8 vertices, got {base}"
+
+    bpy.ops.seamless.add_primitive(type='REVOLVE')
+    rev = utils_props().primitives[-1]
+    rev.target_uuid = ""
+    rev.pattern_axis = 'Y'
+    rev.distance = 130.0
+
+    after = _result_vertex_count(col)
+    assert after == base,         f"a REVOLVE with no target must leave the box alone; {base} -> {after}"
+
+
 def utils_props():
     from CAD_8_1_5_1 import utils
     return utils.get_active_props(bpy.context)
@@ -2169,6 +2261,8 @@ def main():
     check("dispatch signature keeps user precision", t_dispatch_signature_precision)
     check("FILLET rounds edges", t_fillet_rounds_edges)
     check("CHAMFER cuts edges", t_chamfer_cuts_edges)
+    check("REVOLVE sweeps a profile", t_revolve_sweeps_a_profile)
+    check("REVOLVE without a target is inert", t_revolve_ignores_a_missing_target)
     check("measure part", t_measure_part)
     check("measure selected entity", t_measure_entity)
     check("measure while retargeting", t_measure_during_retargeting)
