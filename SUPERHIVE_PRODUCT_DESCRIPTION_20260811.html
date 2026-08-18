@@ -82,6 +82,26 @@
         measured from the raw cursor. The difference — up to the width of the snap radius — was applied
         as real movement on the first frame, so the shape shifted slightly the moment you grabbed it.</p>
 
+        <p style="margin:8px 0 0 0;"><strong>Rev builds a revolved solid.</strong> Pointing Rev at a
+        profile produced nothing at all — the target went in and the model did not change, with no
+        error to explain it. Every closed profile, including a finished sketch, was being handed to
+        the revolve as a solid rather than as the flat outline it started as, and a solid cannot be
+        swept. Rev now revolves the profile, so a sketched cross-section turns into a lathed shape
+        the way it reads on the button.</p>
+
+        <p style="margin:8px 0 0 0;">The eyedropper beside <strong>Target UUID</strong> could not pick
+        a sketch either. Sketches are drawn by the overlay and had nothing behind them for the click
+        to land on, so it reported that there was no CAD object under the mouse while picking a box
+        worked — which made it look as though a sketch was the wrong kind of target. Clicking a
+        sketch now selects it.</p>
+
+        <p style="margin:8px 0 0 0;">One thing worth knowing about Rev, now documented in the manual:
+        <strong>the axis has to lie in the plane of the profile</strong>. A sketch drawn flat on the
+        ground and revolved around the vertical axis sweeps within its own plane and encloses nothing.
+        Draw the cross-section standing up, or pick an axis that lies in the plane you drew on — the
+        same way a lathe profile is drawn beside its centreline. The axis itself passes through the
+        Rev feature's own Location, not the profile's.</p>
+
         <p style="margin:12px 0 4px 0;"><strong>Previously, in 8.1.5.7</strong> — deleting a Feature Tree
         row cleared the shape straight away, Inset began saying that it needs a flat face, and the
         Offset/Inset eyedropper started measuring the face itself:</p>
