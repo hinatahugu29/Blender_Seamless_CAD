@@ -59,8 +59,13 @@ cd Blender_CAD_V_8_1_5_1/src_rust && cargo build --release && cd .. && py deploy
 ## 3. 検証
 
 ```bash
-"C:\Program Files\Blender Foundation\Blender 5.1\blender.exe" --background --factory-startup --python Blender_CAD_V_8_1_5_1/regression_test.py
+"C:\Program Files (x86)\Steam\steamapps\common\Blender\blender.exe" --background --factory-startup --python Blender_CAD_V_8_1_5_1/regression_test.py
 ```
+
+**Blender は Steam 版**（5.1.2）。`C:\Program Files\Blender Foundation\` の下には
+`Blender 4.2` 〜 `4.4` のデータフォルダだけが残っていて **実行ファイルは無い**。
+`.blend` の関連付けも消えた 3.6 を指したまま。ここを探して「Blender が入っていない」と
+判断しかけたことがある（2026-08-18）。
 
 終了コード 0 = 全パス。**ただしこれで確認できないものがある**：
 ドラッグ追従・確定後の描画・WGPU Overlay OFF 時の挙動。
@@ -127,8 +132,11 @@ occ_*.cpp  →  occ_*.hpp  →  api/*.rs（ロックはここ）  →  main.rs�
 
 ### 参考（現行だが用途が限定的）
 
-`EZPZ_CAPABILITIES.md`（拘束ソルバの仕様）／`LISTING_PREP.md`（出品準備）／
-`LOC_STATS_V8_1_5.md`（行数統計）／`PROJECT_COMPLEXITY_GUIDE.md`（対外説明資料）
+`EZPZ_CAPABILITIES.md`（拘束ソルバの仕様）／`LOC_STATS_V8_1_5.md`（行数統計）／
+`PROJECT_COMPLEXITY_GUIDE.md`（対外説明資料）
+
+出品ページの現物は root の `SUPERHIVE_PRODUCT_DESCRIPTION_20260811.html`（商品説明）／
+`SUPERHIVE_FAQ.html`／`SUPERHIVE_CUSTOMER_NOTE.html`（購入後の案内）。手で Superhive へ貼る。
 
 ### 歴史的資料（**計画の根拠に使わない**）
 
@@ -136,7 +144,9 @@ occ_*.cpp  →  occ_*.hpp  →  api/*.rs（ロックはここ）  →  main.rs�
 `ROADMAP_V1_4_0.md`／`2D_CAD_ROADMAP.md`／`INVENTORY_V8_1_4.md`／
 `V_1_2_0_PLAN.md`／`V_1_2_1_PLAN.md`／`V_1_3_0_PLAN.md`／`V_1_3_2_PLAN.md`／
 `roadmap_v_2_0_4.md`／`bottleneck_analysis_report.md`／
-`implementation_plan_sweep_loft.md`／`implementation_plan_v7_0_6_refactor.md`
+`implementation_plan_sweep_loft.md`／`implementation_plan_v7_0_6_refactor.md`／
+`LISTING_PREP.md`（8.1.0 期の出品準備メモ。出品は済んでいる。
+**`.gitignore` 対象で手元にしか無い** — clone しても見つからないのは正常）
 
 **`implementation_plan_ナイフモード.md` だけは歴史的資料ではなく「未実装の提案」。**
 `IMPLEMENTATION_ROADMAP.md` フェーズ2.3（Split）と同じ主題。
