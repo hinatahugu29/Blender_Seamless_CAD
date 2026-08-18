@@ -581,6 +581,82 @@ def t_revolve_ignores_a_missing_target():
     assert after == base,         f"a REVOLVE with no target must leave the box alone; {base} -> {after}"
 
 
+def t_no_import_shadowing():
+    """関数内 import が、その関数の前半で使っている同名モジュールを隠していないか。
+
+    Python は関数内に代入(import も代入)があると、その名前を**関数全体で**
+    ローカル扱いにする。モジュール先頭で import 済みの名前を関数の途中で
+    import し直すと、それより前の行での参照が UnboundLocalError になる。
+
+    ops_visual_snap.py が実際にこれで壊れた(2026-08-18 利用者報告)。
+    modal() 末尾の `from .. import utils` は初回コミットからあったが無害で、
+    8.1.5.8 で modal() の冒頭に utils.is_viewport_nav_event() を足した瞬間に
+    「Visual Snap がどのイベントでも例外」になった。追加したコードは正しく、
+    離れた場所にある無害だったはずの import が牙を剥く形。
+
+    grep では見つけにくい(両方とも普通の import 文にしか見えない)ので
+    構文木で見る。実行は要らないのでヘッドレスで完全に検証できる。
+    """
+    import ast
+
+    addon_dir = os.path.join(ADDON_PARENT, "CAD_8_1_5_1")
+    hits = []
+
+    for root, dirs, files in os.walk(addon_dir):
+        # libs/ は同梱サードパーティ。こちらの責任ではないので見ない
+        dirs[:] = [d for d in dirs if d not in {"__pycache__", "libs"}]
+        for fn in files:
+            if not fn.endswith(".py"):
+                continue
+            path = os.path.join(root, fn)
+            with open(path, encoding="utf-8") as fh:
+                src = fh.read()
+            try:
+                tree = ast.parse(src)
+            except SyntaxError:
+                continue
+
+            module_names = set()
+            for node in tree.body:
+                if isinstance(node, (ast.Import, ast.ImportFrom)):
+                    for a in node.names:
+                        module_names.add(a.asname or a.name.split(".")[0])
+            if not module_names:
+                continue
+
+            for fnode in ast.walk(tree):
+                if not isinstance(fnode, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    continue
+                # ネストした関数は別スコープなので、この関数の分だけを集める
+                local_imports = {}
+                for n in ast.walk(fnode):
+                    if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n is not fnode:
+                        continue
+                    if isinstance(n, (ast.Import, ast.ImportFrom)):
+                        for a in n.names:
+                            nm = a.asname or a.name.split(".")[0]
+                            if nm in module_names:
+                                local_imports.setdefault(nm, n.lineno)
+                if not local_imports:
+                    continue
+                for n in ast.walk(fnode):
+                    if not (isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load)):
+                        continue
+                    shadowed_at = local_imports.get(n.id)
+                    if shadowed_at is not None and n.lineno < shadowed_at:
+                        rel = os.path.relpath(path, ADDON_PARENT)
+                        hits.append(
+                            f"{rel}:{n.lineno} reads '{n.id}' in {fnode.name}(), "
+                            f"but line {shadowed_at} re-imports it into the same scope"
+                        )
+                        break
+
+    assert not hits, (
+        "a function-level import shadows a module-level one it reads earlier; "
+        "delete the inner import:" + "".join("\n  " + h for h in sorted(hits))
+    )
+
+
 def utils_props():
     from CAD_8_1_5_1 import utils
     return utils.get_active_props(bpy.context)
@@ -2263,6 +2339,7 @@ def main():
     check("CHAMFER cuts edges", t_chamfer_cuts_edges)
     check("REVOLVE sweeps a profile", t_revolve_sweeps_a_profile)
     check("REVOLVE without a target is inert", t_revolve_ignores_a_missing_target)
+    check("no function-level import shadowing", t_no_import_shadowing)
     check("measure part", t_measure_part)
     check("measure selected entity", t_measure_entity)
     check("measure while retargeting", t_measure_during_retargeting)

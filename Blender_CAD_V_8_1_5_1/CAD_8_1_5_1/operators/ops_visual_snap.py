@@ -367,7 +367,10 @@ class CAD_OT_visual_snap(bpy.types.Operator):
                 if self._preview_location:
                     # Move Object
                     diff = self._preview_location - self._source_point
-                    from .. import utils
+                    # ここで from .. import utils をやり直さないこと。関数内に代入が
+                    # あると Python はその名前を関数全体でローカル扱いにするため、
+                    # この行より前にある utils.is_viewport_nav_event(modal 冒頭)が
+                    # UnboundLocalError になる。モジュール先頭で import 済み。
                     self._source_obj.location = utils.smart_round(self._source_obj.location + diff)
                     
                     # Ensure proxy updates
