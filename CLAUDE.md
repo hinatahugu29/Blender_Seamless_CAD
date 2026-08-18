@@ -24,8 +24,12 @@ Blender_CAD_V_8_1_5_1/          ← 正本。ここだけを編集する
 > **8.1.5.8**。ディレクトリ名は版が上がっても変えていない。
 
 リポジトリ直下には `Blender_CAD_V_8_1_0` 〜 `V_8_1_5` など**過去版が20以上**
-残っている。`MAC_LINUX/` `PAST_20260609/` `temp_extract/` `_removed_from_addon/`
-も同様。**これらは読むだけ。編集しない。**
+残っている。`PAST_20260609/` `temp_extract/` `_removed_from_addon/` も同様。
+**これらは読むだけ。編集しない。**
+
+`MAC_LINUX/` だけは別で、**macOS / Linux 版 ZIP の保管庫として現役**。
+CI（`build-kernel.yml`）の成果物をここへ置く。命名規則と現在の中身は
+`MAC_LINUX/README.md`。`.gitignore` 対象なので clone しても入っていない。
 
 grep を仕掛けるときはリポジトリ全体ではなく `Blender_CAD_V_8_1_5_1/` を
 対象にすること。全体だと過去版の同名ファイルが大量にヒットして、
