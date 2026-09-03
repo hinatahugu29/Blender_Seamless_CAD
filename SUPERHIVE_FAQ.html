@@ -19,6 +19,9 @@
     <div style="margin-bottom: 24px;">
         <h3>Q2: Which Blender versions are compatible?</h3>
         <p><strong>A:</strong> <strong>Blender 4.2 LTS through 5.1.</strong> Tested on 4.2, 4.3, 4.4 and 5.1.</p>
+        <p>A user has since reported it running on <strong>5.2</strong> as well. That is one person's
+        report rather than testing done here, so 5.2 is not on the supported list — but nothing is
+        known to be broken on it.</p>
     </div>
 
     <!-- FAQ 3 -->
@@ -103,6 +106,28 @@
         <p>
             If you find a navigation key that a mode swallows, please report it. That is a bug, not
             intended behaviour, and the 8.1.5.8 fixes came from exactly such a report.
+        </p>
+    </div>
+
+    <!-- FAQ 11 -->
+    <div style="margin-bottom: 24px;">
+        <h3>Q11: Faces and edges light up when I hover, but I cannot select them. What am I missing?</h3>
+        <p>
+            <strong>A:</strong> <strong>Add the modifier first, then pick.</strong> Press
+            <strong>Fillet</strong> (or Chamfer, Shell, Draft, Offset, Inset) and Selection Mode
+            starts on its own, already set to edges or faces as that modifier needs. Click from
+            there and the picks stick.
+        </p>
+        <p>
+            A selection is stored inside the modifier, so until one exists there is nowhere to put
+            it. Entering Selection Mode with an ordinary box or cylinder active and clicking
+            selects nothing — the hover highlight still follows the cursor, which makes it look as
+            though selection is broken rather than out of order.
+        </p>
+        <p>
+            Two things changed in <strong>8.1.5.9</strong> because of this: the add-on now tells you
+            what it needs instead of ignoring the click, and the Quick Start — which had the two
+            steps the wrong way round, and was the reason people ran into it — has been corrected.
         </p>
     </div>
 </body>

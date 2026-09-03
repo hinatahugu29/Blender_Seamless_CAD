@@ -39,8 +39,44 @@
 <p><br></p>
 <p>We sincerely appreciate your cooperation.</p>
 <br><br></div>
-        <div style="background-color:#e7f5ef;border-left:6px solid #2e9e6b;padding:14px 18px;margin-bottom:24px;border-radius:4px;color:#14532d;">        <strong>🔄 Latest update — version 8.1.5.8 (August 2026)</strong><br>
-        <strong>Your own keymap survives inside sketch and selection modes.</strong> The numpad view
+        <div style="background-color:#e7f5ef;border-left:6px solid #2e9e6b;padding:14px 18px;margin-bottom:24px;border-radius:4px;color:#14532d;">        <strong>🔄 Latest update — version 8.1.5.9 (September 2026)</strong><br>
+        <strong>Cylinders and spheres are the size the wireframe says.</strong> The wireframe box you
+        drag into place is a stand-in; the real solid is built by the CAD kernel. For round shapes
+        the two had never agreed — the kernel read the size field as a <em>radius</em> while the
+        wireframe drew it as a <em>width</em>, so every cylinder and sphere came out at twice the
+        diameter you had just lined up. Boring a hole through a box cut something twice as wide as
+        the guide. Cones and tori were further out still: their size comes from Radius, which the
+        wireframe was not reading at all. All four now match the solid exactly, measured against the
+        kernel rather than by eye. Existing files are unaffected — the shapes were always the ones
+        the kernel built, and it is the guide that has moved.
+
+        <p style="margin:8px 0 0 0;"><strong>A crash in the geometry kernel no longer ends the
+        session.</strong> The kernel runs as its own process. If it stopped, the add-on restarted it
+        but went on asking for a workspace that had died with it, so every rebuild after that failed
+        and the part sat frozen until Blender itself was restarted — one stumble became a dead
+        session. The workspace is now rebuilt on the next update, and because the full history is
+        sent each time, the shape comes straight back. Reported by a user whose kernel went down
+        during Inset.</p>
+
+        <p style="margin:8px 0 0 0;"><strong>And the kernel is much harder to bring down in the first
+        place.</strong> OpenCASCADE can install a handler that turns an internal fault into an
+        ordinary error the add-on already knows how to catch. The catching code was all in place, but
+        the handler was never switched on, so any fault took the whole process with it instead. It is
+        switched on now, on every thread that touches geometry. An operation that would have killed
+        the kernel should now simply fail and leave everything else standing.</p>
+
+        <p style="margin:8px 0 0 0;"><strong>Selection Mode says what it needs.</strong> Clicking a
+        face or an edge with an ordinary shape active did nothing at all, while the hover highlight
+        kept following the cursor — so it read as broken selection rather than the wrong order. Add
+        the Fillet, Chamfer, Shell, Draft, Offset or Inset first and Selection Mode starts by itself,
+        ready for the picks; that is where a selection is stored. The add-on now says so instead of
+        dropping the click, and the Quick Start, which had those two steps reversed, has been
+        corrected in all four languages.</p>
+
+        <p style="margin:12px 0 4px 0;"><strong>Previously, in 8.1.5.8</strong> — the keymap
+        pass-through was fixed, vertex snapping became optional, and Rev started building revolved
+        solids:</p>
+        <p style="margin:8px 0 0 0;"><strong>Your own keymap survives inside sketch and selection modes.</strong> The numpad view
         keys did nothing while Sketch Mode or Selection Mode was running. The pass-through for them
         had been written, but it tested for a key name Blender does not have — a spelling error, so
         it never matched and never once fired. It is fixed, and the same pass-through now covers the
@@ -48,7 +84,7 @@
         mouse button. Selection Mode is the one place that shares Alt with the add-on, for gizmo
         axis drags; it now decides by what sits under the cursor — on an axis or a control point you
         grab it, anywhere else you orbit. Reported by a user who works in the Industry Compatible
-        keymap and could not get out of it.
+        keymap and could not get out of it.</p>
 
         <p style="margin:8px 0 0 0;"><strong>Vertex snapping can be turned off.</strong> Drawing near
         an existing point always reused that point and joined the new geometry to it, with no way to
