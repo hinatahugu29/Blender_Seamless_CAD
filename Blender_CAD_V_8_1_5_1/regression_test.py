@@ -1357,6 +1357,112 @@ def t_inset_needs_a_flat_face():
          "the note in the Inset panel and the entry in limitations.md")
 
 
+def t_proxy_matches_the_real_shape():
+    """ワイヤーのプロキシと、カーネルが実際に作る形状の寸法が一致すること。
+
+    8.1.5.8 まで、丸物のプロキシは半径 0.5 の単位形状を prim.size で
+    スケールしていた。ところが occ_primitives.cpp の make_cylinder /
+    make_sphere は size.x を**半径**として読む。つまり実体は常にプロキシの
+    **直径2倍**で、ボックスに円柱で穴を開けると、掴んで位置を合わせた
+    ワイヤーの倍の穴が開いていた(2026-09-03, Fedora の利用者報告
+    「the cylinder's blue geometry is much bigger than the cylinder」)。
+    CONE と TORUS はカーネルが size を見ないので、そもそも無関係だった。
+
+    プロキシの見た目は自動では検証できない、と長く放置されていた領域だが、
+    **寸法だけはこうして突き合わせられる**。ドラッグの追従(手動 C)とは別の話。
+
+    対称な値では符号や軸の取り違えが素通りするので、各ケースに非対称な
+    size を混ぜてある(CLAUDE.md §4)。
+    """
+    from CAD_8_1_5_1 import core_bridge
+
+    cases = [
+        ('BOX',      {'size': (1.0, 3.0, 2.0)}),
+        ('CYLINDER', {'size': (1.0, 3.0, 2.0)}),
+        ('SPHERE',   {'size': (1.0, 2.0, 0.5)}),
+        # CONE / TORUS の XY はカーネルが radius だけで決める。size をわざと
+        # 大きく振って、プロキシがそれに釣られないことも同時に見る。
+        ('CONE',     {'size': (4.0, 4.0, 3.0), 'radius': 1.0, 'radius2': 0.5}),
+        ('TORUS',    {'size': (2.0, 5.0, 7.0), 'radius': 1.0, 'minor_radius': 0.2}),
+    ]
+
+    for p_type, values in cases:
+        col, props = _fresh_part()
+        bpy.ops.seamless.add_primitive(type=p_type)
+        prim = props.primitives[-1]
+        for key, val in values.items():
+            setattr(prim, key, val)
+        core_bridge.update_cad_preview_forced(bpy.context)
+
+        stack_ptr = int(col.seamless_cad_stack_ptr)
+        m = core_bridge.measure_stack(stack_ptr)
+        assert m, f"{p_type}: the kernel returned no measurement"
+        kernel = m["size"]
+
+        proxy = next((o for o in col.all_objects
+                      if o.get("primitive_uuid") == prim.uuid), None)
+        assert proxy is not None, f"{p_type}: no proxy object was created"
+        # bound_box ではなく頂点から測る。背景実行では depsgraph が回らないと
+        # bound_box が作り直し前の値を返すことがあり、CONE / TORUS のように
+        # メッシュ自体が寸法で変わる型で嘘をつく。
+        corners = [proxy.matrix_world @ v.co for v in proxy.data.vertices]
+        assert corners, f"{p_type}: the proxy mesh has no vertices"
+        proxy_size = tuple(
+            max(c[axis] for c in corners) - min(c[axis] for c in corners)
+            for axis in range(3)
+        )
+
+        for axis, name in enumerate("XYZ"):
+            assert abs(proxy_size[axis] - kernel[axis]) < 5e-3,                 (f"{p_type} {name}: the wireframe proxy is {proxy_size[axis]:.4f} but the "
+                 f"kernel builds {kernel[axis]:.4f}. The proxy is what the user drags "
+                 f"into place, so a mismatch means the cut lands somewhere else.")
+
+
+def t_kernel_restart_recovers_the_stack():
+    """カーネルが落ちても、次の更新でスタックが作り直されること。
+
+    8.1.5.8 まで、start_server() は再起動時に _created_stack_pointers を
+    消していなかった。get_or_create_stack_ptr はこの集合だけで ptr の有効性を
+    判断するので、死んだ ptr を返し続け、以降の update が全部
+    "unknown or already-deleted stack_ptr" で落ちた。**カーネルが一度でも
+    落ちると、その CAD パートは Blender を再起動するまで二度と更新されない。**
+    (2026-09-03, Linux 8.1.5.7 で Face Inset がサーバーを落とした報告)
+
+    クラッシュそのものの原因が何であれ、この検査が通っていれば被害は
+    「一瞬の失敗」で止まる。原因側の修正とは独立に価値がある。
+    """
+    from CAD_8_1_5_1 import core_bridge
+
+    col, props = _fresh_part()
+    bpy.ops.seamless.add_primitive(type='BOX')
+    # 対称な箱だと、復元されたのが本当に同じ形かどうかが分からない
+    props.primitives[-1].size = (1.0, 3.0, 2.0)
+    core_bridge.update_cad_preview_forced(bpy.context)
+
+    old_ptr = int(col.seamless_cad_stack_ptr)
+    before = core_bridge.measure_stack(old_ptr)
+    assert before and before["volume"] > 0.0, "the box should measure before the kill"
+
+    proc = core_bridge._server_process
+    if proc is None or proc.poll() is not None:
+        raise Skip("no cad_server process of our own to kill (a foreign one is on the port)")
+    proc.kill()
+    proc.wait(timeout=30)
+
+    # 更新1回で戻ること。get_or_create_stack_ptr が ptr の有効性を見る前に
+    # start_server() を呼ぶのはこのため。順序が逆だと2回目までずれる。
+    core_bridge.update_cad_preview_forced(bpy.context)
+
+    new_ptr = int(col.seamless_cad_stack_ptr)
+    assert new_ptr != 0, "the stack was not recreated after the kernel died"
+    assert new_ptr not in (0,) and old_ptr not in core_bridge._created_stack_pointers,         "the dead stack pointer is still being treated as valid"
+
+    after = core_bridge.measure_stack(new_ptr)
+    assert after, "the recreated stack returned no measurement"
+    assert abs(after["volume"] - before["volume"]) < 1e-6,         (f"the shape did not come back after the kernel restart: "
+         f"{before['volume']:.6f} -> {after['volume']:.6f}")
+
+
 def t_offset_pick_reference_is_exact():
     """スポイトの基準が、テセレーションではなくカーネルの厳密な幾何から来ること。
 
@@ -2352,6 +2458,8 @@ def main():
     check("F: delete sync", t_f_delete_sync)
     check("delete updates the shape at once", t_delete_updates_the_shape_at_once)
     check("inset needs a flat face", t_inset_needs_a_flat_face)
+    check("proxy matches the real shape", t_proxy_matches_the_real_shape)
+    check("kernel restart recovers", t_kernel_restart_recovers_the_stack)
     check("E: numeric edit is not a drag", t_e_single_edit_is_not_a_drag)
     check("settle drops the drag flags", t_settle_contract)
     check("settle is a no-op mid-drag", t_settle_is_a_noop_when_nothing_ended)
