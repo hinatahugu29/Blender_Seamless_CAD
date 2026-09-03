@@ -636,6 +636,16 @@ def start_server():
         # 新サーバでは全 stack が作り直され ptr が再利用されうるので内容シグネチャを破棄。
         _last_dispatched_sig.clear()
         _serialize_cache.clear()
+        # 前のサーバーが持っていた stack は、そのプロセスと一緒に消えている。
+        # get_or_create_stack_ptr はこの集合だけを見て ptr の有効性を判断するので、
+        # ここを消さないと死んだ ptr を返し続け、以降の update が全部
+        # "unknown or already-deleted stack_ptr" で落ちる。カーネルが一度でも
+        # 落ちるとそのセッションが Blender の再起動まで復旧しなくなっていた
+        # (2026-09-03, Linux 8.1.5.7 の Face Inset クラッシュ報告)。
+        # 消しておけば次の get_or_create_stack_ptr が create_stack からやり直し、
+        # 履歴は毎回フル送信なので形状もそのまま復元される。
+        _created_stack_pointers.clear()
+        _stack_ptr_to_col.clear()
         utils.info_print(
             f"Seamless CAD server launched: generation={_server_generation}, exe={exe_path}, log={_cad_server_log_path}"
         )
@@ -1223,6 +1233,16 @@ def measure_entity(stack_ptr, lineage, is_face):
 def get_or_create_stack_ptr(scene_or_col):
     if not scene_or_col:
         return 0
+
+    # 有効性を判定する前にサーバーの生死を確かめる。落ちていればここで
+    # 再起動が走り、_created_stack_pointers が空になるので、下の判定が
+    # 「この ptr はもう無い」と正しく答える。
+    #
+    # 順序が逆だと、1回目の update は再起動前に取った古い ptr を掴んだまま
+    # 送られて必ず失敗し、復旧が2回目までずれる。生きているときの
+    # start_server() は poll() を1回見るだけなので、毎回呼んでも負荷は無い。
+    start_server()
+
     ptr_str = getattr(scene_or_col, "seamless_cad_stack_ptr", "0")
     try:
         ptr = int(ptr_str)
