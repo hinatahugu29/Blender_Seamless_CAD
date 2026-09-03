@@ -30,7 +30,10 @@
         <li><strong>Find it:</strong> In the 3D viewport, press <strong>N</strong> to open the sidebar and choose the <strong>Seamless</strong> tab.</li>
     </ol>
 
-    <p><em>The first launch starts a background geometry server. If Windows Defender or your firewall asks about it, that is the CAD kernel talking to Blender on your own machine — nothing leaves your computer.</em></p>
+    <p><em>The first launch starts a background geometry server. If Windows Defender, or a firewall prompt on any platform, asks about it, that is the CAD kernel talking to Blender on your own machine — nothing leaves your computer.</em></p>
+
+    <p><em><strong>On macOS:</strong> the kernel is ad-hoc signed but not notarised by Apple. It usually runs anyway, because Blender unpacks the zip itself. If the add-on loads but no geometry ever appears, run this in Terminal and restart Blender — then please tell me you had to, because that is something I cannot find out from here:</em></p>
+    <p><code>xattr -dr com.apple.quarantine ~/Library/Application\ Support/Blender/*/scripts/addons/CAD_8_1_5_1</code></p>
 
     <hr>
 
@@ -39,8 +42,15 @@
         <strong>⚠️ A word about the Beta:</strong><br>
         This is an active work in progress. Please save often, and keep a backup of important files.
         If something behaves strangely, it is worth reporting — that is how it gets fixed.<br><br>
-        <strong>System requirement:</strong> Windows 10 / 11 (64-bit). Everything the add-on needs is bundled,
-        so there is no separate runtime to install.
+        <strong>System requirements:</strong> Windows 10 / 11 (64-bit), Linux x86-64 (glibc 2.34+, so
+        Ubuntu 22.04 / Debian 12 / RHEL 9 or later), or macOS on Apple Silicon. Intel Macs are not
+        supported. Everything the add-on needs is bundled, so there is no separate runtime to install.<br><br>
+        <strong>If you are on Linux or macOS, please read this bit.</strong> Those builds come from the
+        same source and the same automated pipeline as the Windows one, and the pipeline checks that
+        each compiles, bundles its libraries, starts and answers. Beyond that they are unproven: the
+        test suite runs on Windows only, and no feature has been verified inside Blender on either
+        platform by me. If something does not work, it is worth reporting — on those two platforms
+        your report is the only thing there is.
     </div>
 
     <hr>

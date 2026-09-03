@@ -14,8 +14,8 @@ not go the way it should.
 |---|---|
 | Blender | 4.2 or newer. Tested on 4.2, 4.3, 4.4 and 5.1 |
 | Windows | 10 or 11, 64-bit. This is the released product |
-| macOS | Apple Silicon, macOS 11+. [Testing build](testing-builds.md), not on sale |
-| Linux | x86-64, glibc 2.34+. [Testing build](testing-builds.md), not on sale |
+| macOS | Apple Silicon, macOS 11+. Included in the release, but unverified in use — see [Testing builds](testing-builds.md) |
+| Linux | x86-64, glibc 2.34+. Included in the release, but unverified in use — see [Testing builds](testing-builds.md) |
 | Disk | About 135 MB once installed |
 
 No separate CAD software, no CAD licence, and no runtime to install alongside.

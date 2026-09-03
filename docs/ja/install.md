@@ -18,8 +18,8 @@ Seamless CAD は他の Blender アドオンと同じく `.zip` からインス�
 |---|---|
 | Blender | 4.2 以上。4.2 / 4.3 / 4.4 / 5.1 で検証 |
 | Windows | 10 または 11 の 64bit。これが製品版です |
-| macOS | Apple Silicon、macOS 11 以上。[テストビルド](testing-builds.md)であり販売品ではありません |
-| Linux | x86-64、glibc 2.34 以上。[テストビルド](testing-builds.md)であり販売品ではありません |
+| macOS | Apple Silicon、macOS 11 以上。製品に同梱していますが、実機での検証は済んでいません（[テストビルド](testing-builds.md)参照） |
+| Linux | x86-64、glibc 2.34 以上。製品に同梱していますが、実機での検証は済んでいません（[テストビルド](testing-builds.md)参照） |
 | ディスク | インストール後で約 135 MB |
 
 別途の CAD ソフトも、CAD のライセンスも、追加のランタイムも要りません。
