@@ -159,6 +159,10 @@ fn send_update_result(stream: &mut TcpStream, r: seamless_core::AsyncResult) {
 // Each stack gets its own worker thread. Tasks are thinned: only the latest
 // queued task is executed, older ones are cancelled with status byte 2.
 fn run_stack_worker(rx: mpsc::Receiver<UpdateTask>) {
+    // OCCT のハンドラ状態はスレッドローカル。実際の幾何計算はすべてこの
+    // スレッドで走るので、ここで設置しないと OCC_CATCH_SIGNALS が効かない。
+    seamless_core::api::utils::install_occ_signal_handler();
+
     loop {
         let mut latest_task = match rx.recv() {
             Ok(t) => t,
@@ -225,6 +229,10 @@ fn run_stack_worker(rx: mpsc::Receiver<UpdateTask>) {
 }
 
 fn handle_client(mut stream: TcpStream, workers: StackWorkers) {
+    // 接続ごとの新しいスレッド。pick_* / measure_* / export はワーカーを
+    // 通らずこのスレッドで OCCT を呼ぶので、ここでも設置する。
+    seamless_core::api::utils::install_occ_signal_handler();
+
     let mut len_buf = [0u8; 4];
     if stream.read_exact(&mut len_buf).is_err() { return; }
     let msg_len = u32::from_le_bytes(len_buf) as usize;
@@ -852,6 +860,11 @@ fn main() {
         "Starting Seamless CAD Server v1.7.0 (parallel stacks + CSG preview: SUB/ADD/INT) [{}] on port 8080...",
         seamless_core::api::utils::get_version()
     );
+
+    // スレッドローカルなので、OCCT を触るスレッド全部で呼ぶ必要がある。
+    // ここ(main)、run_stack_worker(update の計算)、handle_client
+    // (pick_* / measure_* / export など、ワーカーを通らない同期処理)の3箇所。
+    seamless_core::api::utils::install_occ_signal_handler();
 
     // argv[1] (if present) is the path to Python's 64MB shared-memory file.
     // argv[2] (if present) is the launching Blender PID for the parent watchdog.

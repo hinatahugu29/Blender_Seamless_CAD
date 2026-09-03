@@ -1,5 +1,32 @@
 use cpp::cpp;
 
+/// OCCT のシグナルハンドラを **呼んだスレッドに** 設置する。
+///
+/// コード中の `OCC_CATCH_SIGNALS` は、これを一度も呼んでいないと**完全な
+/// no-op** で、OCCT 内部のアクセス違反やゼロ除算はそのままプロセスを殺す。
+/// 8.1.5.8 まで `OSD::SetSignal` はソースのどこにも無く、`apply_face_inset`
+/// のような「呼び出し元が try/catch で囲んである」処理でさえ、フォルトが
+/// 起きればサーバーごと落ちていた (2026-09-03, Linux での Face Inset)。
+///
+/// 設置するとフォルトは `Standard_Failure` に化け、既にある catch が拾う。
+/// 演算は失敗するが**プロセスは生き残る**。履歴は毎回フル送信で組み直す
+/// 設計なので、次のリクエストからは何事も無かったように続けられる。
+///
+/// **スレッドごとに呼ぶこと。** OCCT のハンドラ状態はスレッドローカルで、
+/// main で1回呼んでもワーカースレッドには効かない。実際の計算はすべて
+/// `run_stack_worker` の中で走るので、そちらが本命。
+///
+/// 引数の `Standard_False` は「浮動小数点例外は捕まえない」。OCCT の通常の
+/// 幾何計算は inf/NaN を正常な中間値として使うので、有効にすると健全な
+/// 演算まで落ちる。
+pub fn install_occ_signal_handler() {
+    unsafe {
+        cpp!([] {
+            OSD::SetSignal(Standard_False);
+        })
+    }
+}
+
 pub fn get_version() -> String {
 
     let res = unsafe { cpp!([] -> *const std::ffi::c_char as "const char*" { static std::string v = occ_core::get_version(); return v.c_str(); }) };

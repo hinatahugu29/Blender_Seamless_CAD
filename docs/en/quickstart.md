@@ -97,13 +97,19 @@ everything above it. Order matters — this is a history, not a layer stack.
 
 ## 7. Round the edges
 
-1. Enter selection mode: **Selection Mode > ENTER Selection Mode**
-2. Choose whether you are picking faces or edges using the selection type buttons
-3. Click the edges you want in the viewport
-4. Open **Modify & Pattern** and press **Fillet**
+1. Open **Modify & Pattern** and press **Fillet**
+2. Selection mode starts on its own, already set to edges
+3. Click the edges you want in the viewport — they turn orange and stay selected
+4. Set the radius in the **Active Property Editor**
+
+**Add the modifier first, then pick.** A selection is stored *into* the Fillet,
+so the Fillet has to exist before there is anywhere to put it. Entering
+selection mode with an ordinary shape active and clicking will not select
+anything — the add-on now says so instead of ignoring the click.
 
 > **Hint:** while in selection mode, hold <kbd>Alt</kbd> to use the normal
-> Blender gizmo without leaving the mode.
+> Blender gizmo without leaving the mode. Shift-click adds to the selection
+> instead of replacing it.
 
 **Chamf** does the same with a flat cut instead of a round.
 

@@ -19,6 +19,7 @@ pub mod csg;
 cpp!{{
     #include <Standard_DefineAlloc.hxx>
     #include <Standard_Handle.hxx>
+    #include <OSD.hxx>
     #include <gp_Pnt.hxx>
     #include <TopoDS.hxx>
     #include <TopoDS_Shape.hxx>
