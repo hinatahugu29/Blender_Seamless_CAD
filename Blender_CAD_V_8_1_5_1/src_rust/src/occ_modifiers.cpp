@@ -1346,12 +1346,25 @@ TopoDS_Shape apply_face_inset(const TopoDS_Shape& result_shape, const std::strin
             // 方法B: フォールバック - 面の中心基準でスケーリング
             TopoDS_Face inner_f;
             if (offset_success) {
-                BRepBuilderAPI_MakeFace mkFace(BRep_Tool::Surface(f), inner_wires.front(), true);
-                for (size_t wire_idx = 1; wire_idx < inner_wires.size(); ++wire_idx) {
-                    mkFace.Add(inner_wires[wire_idx]);
-                }
-                if (mkFace.IsDone()) {
-                    inner_f = mkFace.Face();
+                // 前後のブロック(MakeOffset / フォールバック / Extrude /
+                // SplitShape)は囲ってあるのに、ここだけ素だった。オフセットが
+                // 返したワイヤーが自己交差していると MakeFace は Standard_Failure
+                // を投げる。呼び出し元(occ_core.cpp の catch(...))には届くので
+                // 即死はしないが、[FACE_INSET] のログが1行も残らず「何も
+                // 起きなかった」ようにしか見えない。
+                try {
+                    OCC_CATCH_SIGNALS
+                    BRepBuilderAPI_MakeFace mkFace(BRep_Tool::Surface(f), inner_wires.front(), true);
+                    for (size_t wire_idx = 1; wire_idx < inner_wires.size(); ++wire_idx) {
+                        mkFace.Add(inner_wires[wire_idx]);
+                    }
+                    if (mkFace.IsDone()) {
+                        inner_f = mkFace.Face();
+                    }
+                } catch (Standard_Failure const& e) {
+                    log_debug(std::string("[FACE_INSET] MakeFace failed: ") + e.GetMessageString());
+                } catch (...) {
+                    log_debug("[FACE_INSET] MakeFace unknown exception");
                 }
             } else {
                 try {
