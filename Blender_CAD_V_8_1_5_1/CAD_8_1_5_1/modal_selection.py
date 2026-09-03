@@ -761,7 +761,24 @@ class SEAMLESS_OT_SelectionModal(bpy.types.Operator):
                         # Always sync global for highlighting
                         if props.selection_type == 'EDGE': props.selected_edges_str = "|".join(current_ids_list)
                         else: props.selected_faces_str = new_str
-                    
+                    else:
+                        # 選択の保存先はモディファイアの target_lineages しか無い。
+                        # 標準プリミティブがアクティブなままだと、拾った lid を
+                        # 書く場所が無いのでクリックは捨てられる。
+                        #
+                        # ホバーのハイライト(下の MOUSEMOVE)は型を問わず出るので、
+                        # 黙って捨てると「色は変わるのに選べない」という、原因の
+                        # 見当がまったく付かない症状になる (2026-09-03 顧客報告)。
+                        # 仮に事前選択を憶えても properties.py の
+                        # update_gizmo_callback がモディファイア追加時にクリアする
+                        # ので、順序そのものが逆。何が要るのかをここで言う。
+                        want = "edges" if props.selection_type == 'EDGE' else "faces"
+                        self.report(
+                            {'WARNING'},
+                            f"Add a modifier first (Fillet, Chamfer, Shell, Draft, Offset or Inset), "
+                            f"then pick the {want} for it"
+                        )
+
                 context.area.tag_redraw()
             return {'RUNNING_MODAL'}
 
