@@ -323,18 +323,39 @@ def _build_box_proxy_mesh():
     faces = [(0, 1, 2, 3), (4, 5, 6, 7), (0, 4, 7, 3), (1, 5, 6, 2), (0, 1, 5, 4), (3, 2, 6, 7)]
     return verts, faces
 
-def _build_cylinder_proxy_mesh(segments=20):
+# プロキシのメッシュは「_get_prim_display_scale() を掛けたら、カーネルが実際に
+# 作る形状と同じ寸法になる」ように作る。
+#
+# **表示スケールは prim.size のままにすること。** ビューポートで S を押して
+# プロキシを拡大すると、その obj.matrix_world.to_scale() が下の
+# sync_active_primitive_from_active_object でそのまま prim.size へ書き戻される。
+# 表示スケールを prim.size 以外にすると、この往復が恒等でなくなり、掴んで離す
+# たびに形が育つ/縮む。だから寸法の違いはスケールではなく **メッシュ側** で吸収する。
+#
+# カーネルの実際の解釈 (occ_primitives.cpp):
+#   make_box(sx, sy, sz)          sx が「全幅」        → 単位立方体でよい
+#   make_cylinder(sx, sy, sz)     sx が「半径」        → 半径1のメッシュが要る
+#   make_sphere(sx, sy, sz)       sx が「半径」        → 半径1のメッシュが要る
+#   make_cone(radius, radius2, sz)  XY は size を見ない → メッシュに radius を織り込む
+#   make_torus(radius, minor_radius) size を全く見ない  → 同上
+#
+# 8.1.5.8 まで、丸物のプロキシはすべて半径 0.5 の単位形状だった。つまり
+# **実体は常にプロキシの2倍の直径**で、ボックスに円柱で穴を開けると、掴んで
+# 合わせたワイヤーの倍の穴が開いていた (2026-09-03, 顧客報告)。
+# CONE と TORUS に至っては size と実寸に何の関係も無かった。
+
+def _build_cylinder_proxy_mesh(segments=20, rx=1.0, ry=1.0, half_h=0.5):
     verts = []
     top = []
     bottom = []
     for i in range(segments):
         ang = (math.pi * 2.0 * i) / segments
-        x = math.cos(ang) * 0.5
-        y = math.sin(ang) * 0.5
+        x = math.cos(ang) * rx
+        y = math.sin(ang) * ry
         bottom.append(len(verts))
-        verts.append((x, y, -0.5))
+        verts.append((x, y, -half_h))
         top.append(len(verts))
-        verts.append((x, y, 0.5))
+        verts.append((x, y, half_h))
 
     faces = [tuple(bottom), tuple(reversed(top))]
     for i in range(segments):
@@ -342,31 +363,78 @@ def _build_cylinder_proxy_mesh(segments=20):
         faces.append((bottom[i], bottom[n], top[n], top[i]))
     return verts, faces
 
-def _build_cone_proxy_mesh(segments=20):
+def _build_cone_proxy_mesh(segments=20, rx=1.0, ry=1.0, top_rx=0.0, top_ry=0.0, half_h=0.5):
     verts = []
     base = []
     for i in range(segments):
         ang = (math.pi * 2.0 * i) / segments
-        x = math.cos(ang) * 0.5
-        y = math.sin(ang) * 0.5
+        x = math.cos(ang) * rx
+        y = math.sin(ang) * ry
         base.append(len(verts))
-        verts.append((x, y, -0.5))
-    apex_idx = len(verts)
-    verts.append((0.0, 0.0, 0.5))
+        verts.append((x, y, -half_h))
 
-    faces = [tuple(base)]
+    # make_cone は上面半径 0 を許す。その場合だけ本物の錐にする。
+    if top_rx <= 1e-9 and top_ry <= 1e-9:
+        apex_idx = len(verts)
+        verts.append((0.0, 0.0, half_h))
+        faces = [tuple(base)]
+        for i in range(segments):
+            n = (i + 1) % segments
+            faces.append((base[i], base[n], apex_idx))
+        return verts, faces
+
+    top = []
+    for i in range(segments):
+        ang = (math.pi * 2.0 * i) / segments
+        top.append(len(verts))
+        verts.append((math.cos(ang) * top_rx, math.sin(ang) * top_ry, half_h))
+
+    faces = [tuple(base), tuple(reversed(top))]
     for i in range(segments):
         n = (i + 1) % segments
-        faces.append((base[i], base[n], apex_idx))
+        faces.append((base[i], base[n], top[n], top[i]))
     return verts, faces
+
+
+def _build_torus_proxy_mesh(rx, ry, minor_x, minor_y, minor_z, rings=12, segments=16):
+    """トーラスのワイヤー。rx/ry が芯円の半径、minor_* が管の半径。
+
+    軸ごとに別の値を取るのは、表示スケール (= prim.size) で割り戻した値が
+    入ってくるため。カーネルの make_torus は size を一切見ないので、
+    スケールを掛けた結果が size に依存しないようにここで打ち消す。
+    """
+    verts = []
+    for r in range(rings):
+        u = (math.pi * 2.0 * r) / rings
+        cu, su = math.cos(u), math.sin(u)
+        for s in range(segments):
+            v = (math.pi * 2.0 * s) / segments
+            cv, sv = math.cos(v), math.sin(v)
+            verts.append((
+                (rx + minor_x * cv) * cu,
+                (ry + minor_y * cv) * su,
+                minor_z * sv,
+            ))
+
+    faces = []
+    for r in range(rings):
+        rn = (r + 1) % rings
+        for s in range(segments):
+            sn = (s + 1) % segments
+            faces.append((
+                r * segments + s, rn * segments + s,
+                rn * segments + sn, r * segments + sn,
+            ))
+    return verts, faces
+
 
 def _build_sphere_proxy_mesh(rings=8, segments=16):
     verts = []
     faces = []
     for r in range(rings + 1):
         phi = math.pi * r / rings
-        z = math.cos(phi) * 0.5
-        radius = math.sin(phi) * 0.5
+        z = math.cos(phi)
+        radius = math.sin(phi)
         for s in range(segments):
             ang = (math.pi * 2.0 * s) / segments
             x = math.cos(ang) * radius
@@ -424,10 +492,33 @@ def _get_proxy_mesh_data(prim):
     if prim_type in _TRANSFORMLESS_MODIFIER_TYPES:
         return _build_empty_proxy_mesh(), prim_type
     if prim_type in {'CYLINDER', 'PIPE'}:
+        # make_cylinder は sx/sy を半径として読む。表示スケールも sx/sy なので
+        # メッシュ半径 1.0 で直径 2*sx になり、実体と一致する。
         return _build_cylinder_proxy_mesh(), prim_type
+
+    # 以下の2つはカーネルが size を(XY について)見ないので、表示スケールで
+    # 割り戻した値をメッシュに焼き込む。掛け直すと size が消えて実寸が残る。
+    sx, sy, sz = _get_prim_display_scale(prim)
+
     if prim_type == 'CONE':
-        return _build_cone_proxy_mesh(), prim_type
-    if prim_type in {'SPHERE', 'TORUS'}:
+        r1 = max(0.001, abs(float(getattr(prim, "radius", 1.0))))
+        r2 = max(0.0, abs(float(getattr(prim, "radius2", 0.0))))
+        mesh = _build_cone_proxy_mesh(
+            rx=r1 / sx, ry=r1 / sy,
+            top_rx=r2 / sx, top_ry=r2 / sy,
+        )
+        return mesh, f"{prim_type}:{r1 / sx:.5f}:{r1 / sy:.5f}:{r2 / sx:.5f}:{r2 / sy:.5f}"
+
+    if prim_type == 'TORUS':
+        R = max(0.01, abs(float(getattr(prim, "radius", 1.0))))
+        mr = max(0.01, abs(float(getattr(prim, "minor_radius", 0.2))))
+        mesh = _build_torus_proxy_mesh(
+            rx=R / sx, ry=R / sy,
+            minor_x=mr / sx, minor_y=mr / sy, minor_z=mr / sz,
+        )
+        return mesh, f"{prim_type}:{R / sx:.5f}:{R / sy:.5f}:{mr / sx:.5f}:{mr / sy:.5f}:{mr / sz:.5f}"
+
+    if prim_type == 'SPHERE':
         return _build_sphere_proxy_mesh(), prim_type
     return _build_box_proxy_mesh(), prim_type
 
@@ -437,6 +528,8 @@ def _sync_proxy_mesh_geometry(obj, prim):
         return
 
     (verts, faces), shape_key = _get_proxy_mesh_data(prim)
+    # shape_key に寸法が入る型がある(CONE / TORUS)。頂点数は変わらないので、
+    # ここに寸法を含めないと Radius を動かしてもメッシュが作り直されない。
     signature = f"{shape_key}:{len(verts)}:{len(faces)}"
     if obj.get("proxy_mesh_signature") == signature:
         return
