@@ -730,8 +730,29 @@ static std::mutex g_occ_mutex;
                     }
 
                     for (size_t c_idx_loop = 0; c_idx_loop < current_clusters.size(); ++c_idx_loop) {
-                        ensure_cluster_index(current_clusters[c_idx_loop]);
-                        ensure_cluster_bbox(current_clusters[c_idx_loop]);
+                        // 索引と bbox の構築も OCCT の幾何を触る (BRepGProp::
+                        // SurfaceProperties, BRepBndLib::Add)。直前のモディファイアが
+                        // 壊れた面を残していると、ここでフォールトしうる。下の
+                        // try に入っていなかったので、OCC_CATCH_SIGNALS の外だった。
+                        bool cluster_ready = true;
+                        try {
+                            OCC_CATCH_SIGNALS
+                            ensure_cluster_index(current_clusters[c_idx_loop]);
+                            ensure_cluster_bbox(current_clusters[c_idx_loop]);
+                        } catch (Standard_Failure const& e) {
+                            cluster_ready = false;
+                            log_debug(std::string("[MOD_CLUSTER] index build failed: ") + e.GetMessageString());
+                        } catch (...) {
+                            cluster_ready = false;
+                            log_debug("[MOD_CLUSTER] index build failed: unknown exception");
+                        }
+                        if (!cluster_ready) {
+                            // 索引が半分だけ出来た状態で当てない。このクラスタは
+                            // モディファイアを飛ばして素通しする。形は変わらないが、
+                            // 落ちるよりは良い。
+                            new_clusters.push_back({current_clusters[c_idx_loop].raw});
+                            continue;
+                        }
                         TopoDS_Shape mod_c = current_clusters[c_idx_loop].fused;
                         try {
                             // Find which targets in target_lineages belong to this specific cluster
