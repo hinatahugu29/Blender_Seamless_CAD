@@ -1242,7 +1242,7 @@ TopoDS_Shape apply_face_offset(const TopoDS_Shape& result_shape, const std::stri
                         }
                         if (radius > 0) {
                             BRepAlgoAPI_Fuse op(out_shape, m_shape);
-                            op.SetRunParallel(Standard_True);
+                            op.SetRunParallel(Standard_False);  // 並列オフの理由は apply_face_inset の Fuse を参照
                             op.SetFuzzyValue(1e-5);
                             op.Build();
                             if (op.IsDone()) {
@@ -1251,7 +1251,7 @@ TopoDS_Shape apply_face_offset(const TopoDS_Shape& result_shape, const std::stri
                             }
                         } else {
                             BRepAlgoAPI_Cut op(out_shape, m_shape);
-                            op.SetRunParallel(Standard_True);
+                            op.SetRunParallel(Standard_False);  // 並列オフの理由は apply_face_inset の Fuse を参照
                             op.SetFuzzyValue(1e-5);
                             op.Build();
                             if (op.IsDone()) {
@@ -1447,7 +1447,27 @@ TopoDS_Shape apply_face_inset(const TopoDS_Shape& result_shape, const std::strin
                                 }
                                 if (extrude_dist > 0) {
                                     BRepAlgoAPI_Fuse op(out_shape, m_shape);
-                                    op.SetRunParallel(Standard_True);
+// 並列オフ。**性能ではなく生存のための設定**。
+                                    //
+                                    // OCCT のブーリアンを RunParallel で走らせると、実際の計算は
+                                    // OCCT のスレッドプールのワーカースレッドで起きる。そこで
+                                    // アクセス違反が出た場合、Linux の OSD::SetSignal は
+                                    // sigaction (プロセス全体) なのでフォールト自体は捕まえるが、
+                                    // 変換先を探す Standard_ErrorHandler のスタックは
+                                    // **スレッドローカル**で、ワーカースレッドでは空。結果
+                                    // "*** Abort *** an exception was raised, but no catch was
+                                    // found." でプロセスごと落ちる。呼び出し元 (occ_core.cpp の
+                                    // OCC_CATCH_SIGNALS) は同じスレッドに無いので届かない。
+                                    //
+                                    // 直列で回せばフォールトは呼び出し元スレッドで起き、既にある
+                                    // ハンドラが拾う。**演算は失敗するがカーネルは生き残る**。
+                                    // (2026-09-05, Fedora 44 / 8.1.5.9 の Face Inset クラッシュ報告)
+                                    //
+                                    // ここで失うものは小さい。対象はモディファイアが作った小さな
+                                    // 中間ソリッド2つで、並列化の利得はスレッド起動費用に埋もれる。
+                                    // 本体のブーリアン (occ_booleans.cpp) は形状が大きく利得が
+                                    // 実在するので、そちらは並列のまま残してある。
+                                    op.SetRunParallel(Standard_False);
                                     op.SetFuzzyValue(1e-5);
                                     op.Build();
                                     if (op.IsDone()) {
@@ -1456,7 +1476,7 @@ TopoDS_Shape apply_face_inset(const TopoDS_Shape& result_shape, const std::strin
                                     }
                                 } else {
                                     BRepAlgoAPI_Cut op(out_shape, m_shape);
-                                    op.SetRunParallel(Standard_True);
+                                    op.SetRunParallel(Standard_False);  // 上の Fuse と同じ理由
                                     op.SetFuzzyValue(1e-5);
                                     op.Build();
                                     if (op.IsDone()) {
@@ -1797,7 +1817,7 @@ TopoDS_Shape apply_shell(const TopoDS_Shape& result_shape, const std::string& ta
                 if (s.IsDone()) {
                     TopoDS_Shape inner_solid = s.Shape();
                     BRepAlgoAPI_Cut cut_op(result_shape, inner_solid);
-                    cut_op.SetRunParallel(Standard_True);
+                    cut_op.SetRunParallel(Standard_False);  // 並列オフの理由は apply_face_inset の Fuse を参照
                     cut_op.Build();
                     if (cut_op.IsDone()) {
                         TopoDS_Shape hollow_shape = cut_op.Shape();
