@@ -488,6 +488,58 @@ def close_shm():
 _SERVER_PROBE_TIMEOUT = 2.0
 _foreign_port_warned = False
 
+# --- カーネルを殺すリクエストのサーキットブレーカ ---------------------------
+#
+# 履歴は毎回フル送信する設計なので、カーネルを落とす計算が1つ混ざると
+# 「送る → 落ちる → 復旧して同じものを送る」が止まらない。8.1.5.9 で復旧を
+# 入れたぶんプロセスは生き返り続け、利用者からは無限に重いだけに見える
+# (2026-09-05, Fedora 44 の Face Inset 報告のログがこのループそのものだった)。
+#
+# 同じ内容の update が続けてカーネルを殺したら、その内容だけ送るのをやめる。
+# 鍵は履歴の中身から作るので、利用者が値を1つ動かせば別の鍵になり自動的に
+# 再開する。stack_ptr は再起動のたびに変わるため鍵から外してある。
+_UPDATE_FATAL_THRESHOLD = 2
+_update_kill_counts = {}
+_update_fatal_signatures = set()
+
+
+def _update_request_signature(req_dict):
+    """update リクエストの「内容」を表す鍵。stack_ptr など揮発値は除く。"""
+    import hashlib
+    volatile = ("stack_ptr", "binary_payload")
+    try:
+        body = {k: v for k, v in req_dict.items() if k not in volatile}
+        raw = json.dumps(body, sort_keys=True, default=str).encode("utf-8", "replace")
+        payload = req_dict.get("binary_payload")
+        if payload:
+            raw += bytes(payload)
+        return hashlib.sha1(raw).hexdigest()
+    except Exception:
+        # 鍵が作れないなら遮断もしない。ここで例外を出して通常の描画を
+        # 巻き込むほうが害が大きい。
+        return None
+
+
+def _note_kernel_death(sig):
+    """このリクエストがカーネルを殺した、と記録する。閾値に達したら遮断。"""
+    if not sig:
+        return
+    n = _update_kill_counts.get(sig, 0) + 1
+    _update_kill_counts[sig] = n
+    if n >= _UPDATE_FATAL_THRESHOLD and sig not in _update_fatal_signatures:
+        _update_fatal_signatures.add(sig)
+        utils.error_print(
+            "Seamless: this shape is crashing the geometry kernel, so it will not be "
+            "sent again. Undo the last change, or adjust the value that caused it "
+            f"(details in {_cad_server_log_path}). Changing any parameter resumes updates."
+        )
+
+
+def _forget_kernel_deaths():
+    """遮断の記録を捨てる。テストと、明示的なやり直しのため。"""
+    _update_kill_counts.clear()
+    _update_fatal_signatures.clear()
+
 
 def _is_port_open(timeout=1.0):
     s = None
@@ -861,6 +913,12 @@ def pick_edge_from_stack(stack_ptr, stack_idx, origin, direction, tolerance=0.6)
 _SEND_RECEIVE_TIMEOUT_SECONDS = 60.0
 
 def send_and_receive(req_dict):
+    # update だけを遮断の対象にする。measure や export はカーネルを殺した
+    # 実績が無いうえ、遮断すると失敗が別の形で表に出て紛らわしい。
+    _sig = _update_request_signature(req_dict) if req_dict.get("action") == "update" else None
+    if _sig is not None and _sig in _update_fatal_signatures:
+        return None
+
     start_server()
     s = None
     try:
@@ -1005,6 +1063,11 @@ def send_and_receive(req_dict):
 
     except Exception as e:
         utils.error_print(f"Seamless: Socket communication error: {e}")
+        # 自分が起動したカーネルが死んでいれば、このリクエストが殺した可能性が
+        # 高い。タイムアウトや一時的な切断と違い、プロセスが消えているかどうかは
+        # poll() で確実に分かる。
+        if _sig is not None and _server_process is not None and _server_process.poll() is not None:
+            _note_kernel_death(_sig)
         return None
     finally:
         # 例外パスでもソケットを必ず閉じる(以前は各分岐の s.close() 任せで、

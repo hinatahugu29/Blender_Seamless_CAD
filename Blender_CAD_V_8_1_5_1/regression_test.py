@@ -1357,6 +1357,43 @@ def t_inset_needs_a_flat_face():
          "the note in the Inset panel and the entry in limitations.md")
 
 
+def t_kernel_crash_circuit_breaker():
+    """カーネルを殺す update を、2回目以降は送らない。
+
+    履歴は毎回フル送信なので、落とす計算が1つ混ざると「送る→落ちる→復旧して
+    同じものを送る」が止まらない。8.1.5.9 で復旧を入れたぶんプロセスは生き
+    返り続け、利用者からは無限に重いだけに見える(2026-09-05, Fedora 44 の
+    Face Inset 報告)。
+
+    ここで固定するのは3つ: stack_ptr は鍵に入らないこと(再起動で変わるため
+    毎回別物になってしまう)、内容が変われば別の鍵になること(値を動かせば
+    自動的に再開する)、そして閾値に達したら送信自体を諦めること。
+    """
+    from CAD_8_1_5_1 import core_bridge
+
+    core_bridge._forget_kernel_deaths()
+    try:
+        req = {"action": "update", "stack_ptr": 1, "n_prims": 2, "types": ["CYLINDER", "FACE_INSET"]}
+        sig = core_bridge._update_request_signature(req)
+        assert sig, "an update request must produce a signature"
+
+        assert core_bridge._update_request_signature(dict(req, stack_ptr=99999)) == sig,             "stack_ptr changes on every kernel restart; it must not be part of the key"
+        assert core_bridge._update_request_signature(dict(req, n_prims=3)) != sig,             "a different history must be a different key, or the user could never recover"
+
+        core_bridge._note_kernel_death(sig)
+        assert sig not in core_bridge._update_fatal_signatures,             "one crash must not block: a single kill can be a fluke"
+
+        core_bridge._note_kernel_death(sig)
+        assert sig in core_bridge._update_fatal_signatures,             "the second kill by the same history must trip the breaker"
+
+        # 遮断中は送信そのものをしない。ここで socket に触れば
+        # (サーバーが落ちている状況では)例外や待ちが出るので、None が
+        # 即座に返ること自体が「送っていない」ことの証拠になる。
+        assert core_bridge.send_and_receive(req) is None,             "a blocked history must not be sent to the kernel"
+    finally:
+        core_bridge._forget_kernel_deaths()
+
+
 def t_proxy_matches_the_real_shape():
     """ワイヤーのプロキシと、カーネルが実際に作る形状の寸法が一致すること。
 
@@ -2460,6 +2497,7 @@ def main():
     check("inset needs a flat face", t_inset_needs_a_flat_face)
     check("proxy matches the real shape", t_proxy_matches_the_real_shape)
     check("kernel restart recovers", t_kernel_restart_recovers_the_stack)
+    check("kernel crash circuit breaker", t_kernel_crash_circuit_breaker)
     check("E: numeric edit is not a drag", t_e_single_edit_is_not_a_drag)
     check("settle drops the drag flags", t_settle_contract)
     check("settle is a no-op mid-drag", t_settle_is_a_noop_when_nothing_ended)
