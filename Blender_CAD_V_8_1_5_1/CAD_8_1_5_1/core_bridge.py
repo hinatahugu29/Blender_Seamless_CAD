@@ -630,12 +630,30 @@ def start_server():
     # ここで強制的に失敗させないのは、重い演算中のサーバーが probe に
     # 応答できず誤判定するリスクを避けるため。
     if _is_port_open():
-        if not _foreign_port_warned and not is_server_alive():
+        if not _foreign_port_warned:
             _foreign_port_warned = True
-            utils.error_print(
-                f"Seamless: port {_SERVER_PORT} responded but does not look like {_SERVER_EXE_NAME}. "
-                "If CAD operations fail, free that port and re-enable the addon."
-            )
+            if is_server_alive():
+                # cad_server ではあるが、**どの版かは分からない**。プロトコルに
+                # 版を名乗る手立てが無く、is_server_alive() は「CAD の言葉で
+                # 喋るか」しか見ていない。前のセッションが残したカーネルや、
+                # アドオンを入れ替える前から動いていたカーネルをそのまま
+                # 引き継ぐと、bl_info だけ新しく中身は古い、という状態になる。
+                # 2026-09-05 の Face Inset 報告では、この線を潰すのに丸一日
+                # かかった。黙って再利用するのはやめる。
+                # info_print は既定で無効(utils.INFO_LOGS = False)なので
+                # error_print で出す。版の取り違えは静かに一日溶かす類の事故で、
+                # 出さないなら書く意味が無い。
+                utils.error_print(
+                    f"Seamless: warning: reusing a {_SERVER_EXE_NAME} that was already on port {_SERVER_PORT}. "
+                    "Its version cannot be checked. If you just updated the addon, quit every "
+                    f"Blender window (or kill {_SERVER_EXE_NAME}) and start again, or you may be "
+                    "running an older kernel than the addon reports."
+                )
+            else:
+                utils.error_print(
+                    f"Seamless: port {_SERVER_PORT} responded but does not look like {_SERVER_EXE_NAME}. "
+                    "If CAD operations fail, free that port and re-enable the addon."
+                )
         return True
 
 
@@ -672,6 +690,28 @@ def start_server():
 
     try:
         log_file = open(_cad_server_log_path, "a", encoding="utf-8", errors="replace")
+        # 起動したバイナリの素性をログの先頭に打っておく。不具合報告で必ず
+        # 送ってもらうのがこのファイルなので、ここに書いておけば「アドオンは
+        # 8.1.5.9 だがカーネルは 8.1.5.8」を一目で判定できる。Linux では
+        # 実行中のバイナリを上書きできない(ETXTBSY)ため、Blender を開いたまま
+        # アドオンを入れ替えると実際にその状態になる (2026-09-05)。
+        try:
+            _st = os.stat(exe_path)
+            _exe_info = (f"{_st.st_size} bytes, mtime="
+                         f"{datetime.datetime.fromtimestamp(_st.st_mtime):%Y-%m-%d %H:%M:%S}")
+        except OSError:
+            _exe_info = "stat failed"
+        try:
+            _addon_version = sys.modules[__package__].bl_info["version"]
+        except Exception:
+            _addon_version = "unknown"
+        try:
+            log_file.write(
+                f"[addon] launching {exe_path} ({_exe_info}) for addon {_addon_version}" + chr(10)
+            )
+            log_file.flush()
+        except Exception:
+            pass
         # Pass our (Blender's) PID so the server self-terminates if Blender
         # crashes without running atexit — otherwise the orphaned server keeps
         # port 8080 and the next session reuses it, drawing stale geometry.
