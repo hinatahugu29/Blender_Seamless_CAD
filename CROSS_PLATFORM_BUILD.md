@@ -432,18 +432,39 @@ Windows は MSVC が SE translator から直接投げるので、この定義な
 2. **Metal での実描画** — `renderer.rs` は `wgpu::Backends::PRIMARY` なので
    Metal / Vulkan は自動選択されるが、**カーネルが応答することと、wgpu が正しく
    描くことは別問題**。CI では原理的に確認できず、実機が要る
-3. **Blender 上での実動作確認** — 「動いた」という報告は数件あるが、内容が
-   分からないので壁としては残る（§1 参照）。ヘッドレス回帰テストは Windows でしか
-   走らせていない。C/D/H（ドラッグ追従・確定後の固まり・WGPU Overlay OFF）は
-   そもそもヘッドレスでは検証できない。**報告を集めるなら「何をしたか」を
-   具体的に聞くこと。**「動いた」だけでは壁は動かない
+3. **Blender 上での実動作確認** — 一部は壁でなくなった。2026-09-06、WSL2 の
+   Ubuntu 26.04 + Blender 5.2.1 で、**配布 ZIP の Linux カーネルに対して
+   回帰テストを初めて走らせた: 51 passed / 1 skipped**（`tools/wsl/`）。
+   幾何・測定・STEP/IGES/STL 書き出し・スケッチソルバ・保存再読込は、
+   Linux のカーネルでも Windows と同じ結果を返す。
+
+   残るのは3つ。**C/D/H（ドラッグ追従・確定後の固まり・WGPU Overlay OFF）は
+   そもそもヘッドレスでは検証できない**。**macOS は依然として1件も走らせて
+   いない**（Apple Silicon の実機が無い。CI はカーネルの生死しか見ない）。
+   そして **undo（チェックリスト I）は Linux で飛ばしている** — 下記 6
 4. **Linux の動作要件** — 成果物を実測した下限は **glibc 2.34 / GLIBCXX 3.4.30
    / CXXABI 1.3.9**。Ubuntu 22.04、Debian 12、RHEL 9 以降に相当する。
    ホスト任せの依存は `libc` `libstdc++` `libgcc_s` `libm` `ld-linux` `libX11`
    `libfontconfig` `libfreetype` で、いずれも Blender 自身が要求するもの。
    下限を下げたいなら `libstdc++` の同梱が候補になる（カーネルは別プロセスなので
    Blender 側との衝突は起きない）。未検証
-5. **Intel Mac** — 現在対象外。必要なら `macos-14` 上でクロスビルドできるが
+5. **Linux の undo** — バックグラウンドで `ed.undo()` を呼ぶと
+   **Blender 5.2.1 / Ubuntu 26.04 で落ちる**。Windows の 5.1.2 では通るので
+   「5.x なら安全」ではなかった。Python 側のトレースは
+   `depsgraph_update_handler` → `_find_proxy_cad_collection` →
+   `obj.users_collection` を指しており、**undo の最中に走ったハンドラが
+   入れ替え途中のデータを触っている**。`update.id.original` に変えても直らず、
+   Blender 内部の `std::bad_optional_access` に変わるだけだった。
+
+   検査単独では落ちず、前段の検査を通した後だけ落ちる。回帰テストでは
+   4.x と同じ扱いで飛ばしている（落とすと残り51件を道連れにするため）。
+
+   **GUI の Ctrl+Z が Linux で安全かどうかは、これでは分からない。**
+   バックグラウンドの undo は window も screen も無い文脈で走るので、
+   そのまま実機の話にはならない。**利用者から undo でのクラッシュ報告が
+   来たら、まずここを疑うこと。**
+
+6. **Intel Mac** — 現在対象外。必要なら `macos-14` 上でクロスビルドできるが
    （`CMAKE_OSX_ARCHITECTURES=x86_64` + `cargo --target x86_64-apple-darwin`）、
    arm64 上で x86_64 バイナリは起動できないため、**スモークテストの関門が
    Intel 版だけ効かなくなる**
