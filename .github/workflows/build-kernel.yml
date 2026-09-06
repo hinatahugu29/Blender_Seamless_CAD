@@ -202,3 +202,20 @@ jobs:
           name: CAD-${{ matrix.label }}
           path: CAD_${{ matrix.label }}_install.zip
           if-no-files-found: error
+
+      # 実機を持たずに Face Inset のクラッシュを追いかけるための関門。
+      # Windows で録った本物の update リクエストを、ここで焼いたカーネルへ
+      # そのまま投げ直し、**プロセスが生き残るか**だけを見る。
+      #
+      # 2026-09-05 の Fedora 44 報告 (8.1.5.9 でも SIGSEGV) は Windows では
+      # 再現せず、報告者に何度も試してもらう以外に確かめる手段が無かった。
+      # 同じ計算をランナー上で走らせれば、環境依存かどうかの判定と修正の
+      # 検証を、こちらの手元で完結できる。
+      #
+      # アーティファクトの後に置いてある。ここが落ちても ZIP は取り出せる
+      # ようにしておかないと、調査用のビルドが手に入らなくなる。
+      - name: Replay the Face Inset sweep against the kernel
+        run: |
+          set -euo pipefail
+          cd "$ADDON_ROOT"
+          python3 tools/replay_kernel_requests.py "CAD_8_1_5_1/cad_server"
