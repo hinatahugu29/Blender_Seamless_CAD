@@ -2447,24 +2447,23 @@ def t_one_undo_is_one_step():
     if bpy.app.version < (5, 0, 0):
         raise Skip(f"background undo crashes Blender {bpy.app.version_string}; check Ctrl+Z by hand")
 
-    # Linux でも落ちる (2026-09-06, Blender 5.2.1 / Ubuntu 26.04 / WSL2 で確認)。
-    # Windows の 5.1.2 では通るので「5.x なら安全」ではなかった。落ち方:
+    # Linux でも Blender ごと落ちるのを何度か見ている (2026-09-06, Blender 5.2.1 /
+    # Ubuntu 26.04 / WSL2)。掴んだトレースは
     #
-    #   utils.py:141 _find_proxy_cad_collection  <- obj.users_collection
-    #   utils.py     depsgraph_update_handler
+    #   utils.py _find_proxy_cad_collection  <- obj.users_collection
+    #   utils.py depsgraph_update_handler
     #
-    # つまり undo の最中に走った depsgraph ハンドラが、入れ替わっている途中の
-    # データを触っている。**この検査単独では落ちない。**前段の検査を通した後だと
-    # 落ちる(この関数の docstring にある「実行位置に敏感」がここでも効く)。
-    # `update.id.original` を使う形に変えても直らず、Blender 内部の
-    # std::bad_optional_access に変わるだけだった。
+    # で、depsgraph が渡す ID をそのまま users_collection に通すのは確かに
+    # 危険なので、その触り方は直した (utils.py で bpy.data から引き直す)。
     #
-    # 落とすと残り51件を道連れにするので、4.x と同じ扱いで飛ばす。**GUI の
-    # Ctrl+Z が Linux で安全かどうかは、これでは分からない。** バックグラウンドの
-    # undo は window も screen も無い文脈で走るため、そのまま実機の話には
-    # ならない。チェックリスト I は Linux でも手動のまま。
-    if sys.platform.startswith("linux") and bpy.app.background:
-        raise Skip("background undo crashes Blender on Linux (5.2.1 confirmed); check Ctrl+Z by hand")
+    # **ただし、その後は一度も再現していない。** 素の版で 20/20、この検査を
+    # 単独で 5/5、フルスイートで 52/52 を3回。落ちたのは調査中に Blender と
+    # カーネルを何重にも走らせていた時だけで、原因は特定できていない。
+    # 一時は Linux で飛ばしていたが、**再現しないものを飛ばしても検出力を
+    # 落とすだけ**なので戻した。
+    #
+    # ここが Linux で落ちたら、それは本物の手がかり。CROSS_PLATFORM_BUILD.md
+    # §8-5 に経緯がある。
 
     col, props = _fresh_part()
     bpy.ops.seamless.add_primitive(type='BOX')
