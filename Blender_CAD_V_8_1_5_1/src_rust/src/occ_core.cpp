@@ -502,8 +502,14 @@ static std::mutex g_occ_mutex;
                     auto t_mod_start = std::chrono::high_resolution_clock::now();
                     auto t_target_assign_start = std::chrono::high_resolution_clock::now();
                     const std::string target_lineage_str = target_lineages[i] ? target_lineages[i] : "";
+                    // [MOD_TRACE] は Linux/macOS でしか落ちない Face Inset の
+                    // クラッシュを CI で追うための道しるべ。ログはここで途切れた
+                    // 場所がそのまま犯行現場になる (2026-09-06)。
+                    log_debug("[MOD_TRACE] targets_str=" + target_lineage_str);
                     std::vector<std::string> targets = split_target_tokens(target_lineage_str);
+                    log_debug("[MOD_TRACE] split ok n=" + std::to_string(targets.size()));
                     const std::string assign_cache_key = build_modifier_target_assignment_cache_key(p_type, target_lineage_str, current_clusters);
+                    log_debug("[MOD_TRACE] cache_key ok");
                     auto assign_cache_it = stack->modifier_target_assignment_cache.find(assign_cache_key);
                     const bool has_cached_assignment = (
                         assign_cache_it != stack->modifier_target_assignment_cache.end() &&
@@ -519,9 +525,12 @@ static std::mutex g_occ_mutex;
                         VoxelGrid cluster_grid;
                         cluster_grid.voxel_size = 2.5;
                         for (size_t c_idx = 0; c_idx < current_clusters.size(); ++c_idx) {
+                            log_debug("[MOD_TRACE] grid index c=" + std::to_string(c_idx));
                             ensure_cluster_index(current_clusters[c_idx]);
+                            log_debug("[MOD_TRACE] grid index ok c=" + std::to_string(c_idx));
                             ensure_cluster_bbox(current_clusters[c_idx]);
                             cluster_grid.add_bbox(current_clusters[c_idx].bbox, c_idx);
+                            log_debug("[MOD_TRACE] grid bbox ok c=" + std::to_string(c_idx));
                         }
 
                         for (const auto& target_t : targets) {
@@ -763,6 +772,7 @@ static std::mutex g_occ_mutex;
                             if (!sub_target_lineage.empty() || p_type == "SHELL" || p_type == "CLEANUP") {
                                 auto t_mod_apply_start = std::chrono::high_resolution_clock::now();
                                 OCC_CATCH_SIGNALS
+                                log_debug("[MOD_TRACE] dispatch " + p_type + " sub=" + sub_target_lineage);
                                 if (p_type == "FILLET" || p_type == "CHAMFER" || p_type == "CLEANUP") {
                                     log_debug(std::string("[MOD_CLUSTER] ") + p_type + " sub_target_lineage=" + sub_target_lineage);
                                 }

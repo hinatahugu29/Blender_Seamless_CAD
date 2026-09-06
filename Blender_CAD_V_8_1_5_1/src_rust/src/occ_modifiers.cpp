@@ -1286,11 +1286,15 @@ TopoDS_Shape apply_face_offset(const TopoDS_Shape& result_shape, const std::stri
 TopoDS_Shape apply_face_inset(const TopoDS_Shape& result_shape, const std::string& target_lineage, double inset_dist, double extrude_dist, std::map<std::string, TopoDS_Shape>* face_map) {
     if (result_shape.IsNull()) return result_shape;
     if (inset_dist < 1e-6) return result_shape;
+    log_debug("[FACE_INSET] enter inset=" + std::to_string(inset_dist) + " extrude=" + std::to_string(extrude_dist));
     TopoDS_Shape out_shape = result_shape;
     std::string t = target_lineage; TopTools_IndexedMapOfShape fm; TopExp::MapShapes(out_shape, TopAbs_FACE, fm); size_t pos = 0;
+    log_debug("[FACE_INSET] faces mapped n=" + std::to_string(fm.Extent()));
     while ((pos = t.find("Face:")) != std::string::npos) {
         size_t end = t.find("|", pos); std::string lid = t.substr(pos, (end == std::string::npos) ? std::string::npos : end - pos);
+        log_debug("[FACE_INSET] resolving " + lid);
         std::vector<TopoDS_Face> target_faces = resolve_faces_for_token(out_shape, lid, fm);
+        log_debug("[FACE_INSET] resolved n=" + std::to_string(target_faces.size()));
         if (!target_faces.empty()) {
             TopoDS_Face f = target_faces.front();
             // --- Step 1: オフセットされた内側ワイヤーを取得 ---
@@ -1300,8 +1304,10 @@ TopoDS_Shape apply_face_inset(const TopoDS_Shape& result_shape, const std::strin
             // 方法A: BRepOffsetAPI_MakeOffset（面を渡す方式のみ。AddWireは呼ばない）
             try {
                 OCC_CATCH_SIGNALS
+                log_debug("[FACE_INSET] MakeOffset begin");
                 BRepOffsetAPI_MakeOffset makeOffset(f, GeomAbs_Arc);
                 makeOffset.Perform(-inset_dist);
+                log_debug("[FACE_INSET] MakeOffset done=" + std::to_string(makeOffset.IsDone() ? 1 : 0));
                 
                 if (makeOffset.IsDone()) {
                     TopoDS_Shape offset_result = makeOffset.Shape();
@@ -1403,6 +1409,7 @@ TopoDS_Shape apply_face_inset(const TopoDS_Shape& result_shape, const std::strin
                         if (extrude_dist != 0.0) {
                 try {
                     OCC_CATCH_SIGNALS
+                    log_debug("[FACE_INSET] extrude begin inner_null=" + std::to_string(inner_f.IsNull() ? 1 : 0));
                     if (!inner_f.IsNull()) {
                         inner_f.Orientation(f.Orientation());
                         BRepAdaptor_Surface s(inner_f); double u = (s.FirstUParameter() + s.LastUParameter()) / 2.0, v = (s.FirstVParameter() + s.LastVParameter()) / 2.0;
