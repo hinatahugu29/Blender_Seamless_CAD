@@ -73,10 +73,32 @@ fn main() {
 
     // MSVC と GCC/Clang でフラグの綴りが違う。/utf-8 に相当するものは
     // Unix 側では不要 (ソースも実行環境も UTF-8 が前提)。
+    //
+    // `-DOCC_CONVERT_SIGNALS` は Unix 側の生命線。OCCT の
+    // Standard_ErrorHandler.hxx は、このマクロが**定義されていなければ
+    // `OCC_CATCH_SIGNALS` を空に展開する**:
+    //
+    //     #if defined(OCC_CONVERT_SIGNALS)
+    //       #define OCC_CATCH_SIGNALS Standard_ErrorHandler _aHandler; ...
+    //     #else
+    //       #define OCC_CATCH_SIGNALS
+    //     #endif
+    //
+    // 定義していなかったため、コード中に13箇所ある OCC_CATCH_SIGNALS は
+    // Linux / macOS では**1つも存在していなかった**。OSD::SetSignal が
+    // SIGSEGV を例外に変換しても飛び先が無く、"*** Abort *** an exception
+    // was raised, but no catch was found." でプロセスが死ぬ。呼び出し元の
+    // try/catch も無力で、Unix では C のシグナルハンドラから C++ 例外を
+    // 投げられないため、この longjmp 経路が唯一の手段になる
+    // (2026-09-06, CI の Linux/macOS ランナーで再現して特定)。
+    //
+    // Windows では定義しない。MSVC は SE translator から直接 C++ 例外を
+    // 投げられるので不要で、ヘッダにもそう書いてある。現に動いている側の
+    // 仕組みを、必要も無いのに setjmp 経路へ変える理由が無い。
     let cpp_flags: Vec<&str> = if is_windows {
         vec!["/std:c++17", "/utf-8"]
     } else {
-        vec!["-std=c++17"]
+        vec!["-std=c++17", "-DOCC_CONVERT_SIGNALS"]
     };
 
     // C++ ブリッジのビルド設定
