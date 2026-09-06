@@ -448,21 +448,41 @@ Windows は MSVC が SE translator から直接投げるので、この定義な
    `libfontconfig` `libfreetype` で、いずれも Blender 自身が要求するもの。
    下限を下げたいなら `libstdc++` の同梱が候補になる（カーネルは別プロセスなので
    Blender 側との衝突は起きない）。未検証
-5. **Linux の undo** — バックグラウンドで `ed.undo()` を呼ぶと
-   **Blender 5.2.1 / Ubuntu 26.04 で落ちる**。Windows の 5.1.2 では通るので
-   「5.x なら安全」ではなかった。Python 側のトレースは
-   `depsgraph_update_handler` → `_find_proxy_cad_collection` →
-   `obj.users_collection` を指しており、**undo の最中に走ったハンドラが
-   入れ替え途中のデータを触っている**。`update.id.original` に変えても直らず、
-   Blender 内部の `std::bad_optional_access` に変わるだけだった。
+5. **Linux の undo（未解決）** — バックグラウンドで `ed.undo()` を呼ぶと
+   **Blender 5.2.1 / Ubuntu 26.04 で落ちることがある**。Windows の 5.1.2 では
+   通るので「5.x なら安全」ではなかった。
 
-   検査単独では落ちず、前段の検査を通した後だけ落ちる。回帰テストでは
-   4.x と同じ扱いで飛ばしている（落とすと残り51件を道連れにするため）。
+   **断続的で、実測は 5回中1回。** ここを読み違えないこと。最初に掴んだ
+   Python トレースは
 
-   **GUI の Ctrl+Z が Linux で安全かどうかは、これでは分からない。**
-   バックグラウンドの undo は window も screen も無い文脈で走るので、
-   そのまま実機の話にはならない。**利用者から undo でのクラッシュ報告が
-   来たら、まずここを疑うこと。**
+   ```
+   _bpy_types.py users_collection
+   utils.py _find_proxy_cad_collection
+   utils.py depsgraph_update_handler
+   ```
+
+   を指しており、`depsgraph.updates` が渡す ID をそのまま
+   `users_collection`（`bpy.data.collections` を総なめする）に通すのは
+   確かに危険なので、**名前で `bpy.data` から引き直す形に直した**（8.1.5.11 以降）。
+   ただし **A/B を各5回取ったところ、素の版も修正版も 4/5 生存で差が出なかった**。
+   直したのは危険な触り方であって、クラッシュそのものではない。
+
+   残る失敗は Python フレームを持たない `std::bad_optional_access` で、
+   **ハンドラに足跡ログを足すと消える**。use-after-free 系で、他の何かが
+   変わるとタイミングがずれる類のもの。`update.id.original` を使う形、
+   `undo_pre`/`undo_post` でハンドラを止める形、いずれも効かなかった
+   （後者が効かないのは、問題の depsgraph 更新が `undo_post` の**後**に
+   来るため）。
+
+   **1回だけの実行を根拠にしないこと。** 「ハンドラを無効化したら生き残った」も
+   1回の観測で、発生率 20% ならほとんど情報が無い。潰しにかかるなら、まず
+   ASAN か valgrind の下で走らせる（どちらも apt が要る）。
+
+   回帰テストでは 4.x と同じ扱いで飛ばしている（落とすと残り51件を
+   道連れにするため）。**GUI の Ctrl+Z が Linux で安全かどうかは、これでは
+   分からない。** バックグラウンドの undo は window も screen も無い文脈で
+   走るので、そのまま実機の話にはならない。**利用者から undo でのクラッシュ
+   報告が来たら、まずここを疑うこと。**
 
 6. **Intel Mac** — 現在対象外。必要なら `macos-14` 上でクロスビルドできるが
    （`CMAKE_OSX_ARCHITECTURES=x86_64` + `cargo --target x86_64-apple-darwin`）、
