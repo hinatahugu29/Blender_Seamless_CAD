@@ -328,9 +328,25 @@ bash tools/wsl/verify_linux_build.sh ../MAC_LINUX/CAD_8.1.5.11_install_LINUX.zip
 - `tools/replay_kernel_requests.py` の再生（カーネルが生き残るか）
 
 CI との違いは、**配布する ZIP そのものを展開して動かす**点。CI はビルドツリーの
-カーネルを叩くので、ZIP に詰める過程で壊れた場合を見られない。第2引数に Linux 版
-Blender のパスを渡せば、回帰テスト52件を**Linux のカーネルで**回せる。
+カーネルを叩くので、ZIP に詰める過程で壊れた場合を見られない。
+
+Blender を渡せば、回帰テスト52件を**Linux のカーネルで**回せる。
 これは現時点で一度も実施していない（§8）。
+
+```bash
+bash tools/wsl/verify_linux_build.sh <zip> --download-blender       # 既定 5.2 系の最新
+bash tools/wsl/verify_linux_build.sh <zip> --download-blender 5.1.2 # 版を指定
+bash tools/wsl/verify_linux_build.sh <zip> --blender /path/to/blender
+```
+
+`--download-blender` は blender.org の公式アーカイブからのみ取得し、
+**同じ場所が公開している `blender-<版>.sha256` と必ず照合する**（検証用に
+落としたものを検証せずに使っては意味が無い。後で「Blender が壊れていたのか
+こちらのカーネルが壊れていたのか」を切り分けられなくなる）。約 300MB を
+`~/.cache/seamless-cad/blender` に置き、2回目以降は再取得しない。
+
+既定を 5.2 系にしてあるのは、**利用者の報告がこの系列で来ているから**。
+手元の Windows は Steam の 5.1.2 で、そこと揃えることに意味は無い。
 
 **WSL2 の GPU は実機の Mesa と同じではない。** 描画まわりの検証には使えない。
 カーネル（`cad_server`）の検証には十分で、これまでの不具合はすべてそこだった。

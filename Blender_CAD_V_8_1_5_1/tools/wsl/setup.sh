@@ -19,7 +19,7 @@ sudo apt-get update -qq
 
 echo "[setup] installing packages"
 sudo apt-get install -y -qq \
-    unzip python3 \
+    unzip python3 curl ca-certificates xz-utils \
     libx11-6 libxi6 libxxf86vm1 libxfixes3 libxrender1 libsm6 libice6 \
     libgl1 libegl1 libxkbcommon0 \
     file binutils
@@ -28,3 +28,4 @@ echo "[setup] done"
 echo
 echo "next:"
 echo "  bash tools/wsl/verify_linux_build.sh <path to CAD_*_install_LINUX.zip>"
+echo "  bash tools/wsl/verify_linux_build.sh <zip> --download-blender   # + the 52 regression tests"
