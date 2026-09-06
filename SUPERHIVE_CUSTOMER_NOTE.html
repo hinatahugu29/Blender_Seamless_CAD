@@ -47,10 +47,12 @@
         supported. Everything the add-on needs is bundled, so there is no separate runtime to install.<br><br>
         <strong>If you are on Linux or macOS, please read this bit.</strong> Those builds come from the
         same source and the same automated pipeline as the Windows one, and the pipeline checks that
-        each compiles, bundles its libraries, starts and answers. Beyond that they are unproven: the
-        test suite runs on Windows only, and no feature has been verified inside Blender on either
-        platform by me. If something does not work, it is worth reporting — on those two platforms
-        your report is the only thing there is.
+        each compiles, bundles its libraries, starts and answers. Since 8.1.5.12 the Linux package is
+        also put through the full test suite — 52 checks — exactly as you receive it. <strong>macOS
+        has had none of that</strong>: no feature has been verified inside Blender on a Mac by me.
+        Neither platform has had the checks that need a real screen, which are done on Windows only.
+        If something does not work, it is worth reporting — on macOS especially, your report is the
+        only thing there is.
     </div>
 
     <hr>
