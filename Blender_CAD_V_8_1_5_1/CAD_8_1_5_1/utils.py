@@ -1512,7 +1512,15 @@ def depsgraph_update_handler(scene, depsgraph):
     for update in depsgraph.updates:
         if isinstance(update.id, bpy.types.Object) and (update.id.get("is_seamless_proxy") or update.id.name.endswith("_Seamless_Proxy")):
             has_proxy_update = True
-            owner_col = _find_proxy_cad_collection(update.id)
+            # depsgraph が渡してくる ID をそのまま持ち回らない。名前で
+            # bpy.data から引き直す。undo の直後に走ると、この ID は既に
+            # 差し替わったデータを指していることがあり、users_collection
+            # (bpy.data.collections を総なめして自分を探す) の中で Blender
+            # ごと落ちる。名前の参照までは無事なので、そこから取り直す。
+            # 2026-09-06, Blender 5.2.1 / Linux で再現・確認。Windows の
+            # 5.1.2 では落ちないが、安全な使い方ではないのは同じ。
+            live_obj = bpy.data.objects.get(update.id.name)
+            owner_col = _find_proxy_cad_collection(live_obj) if live_obj else None
             if owner_col:
                 touched_col_names.add(owner_col.name)
             continue
