@@ -155,7 +155,14 @@ Windows 依存は5ファイルに閉じている。増やさないこと。
   Windows ドロップは `inc` / `win64/vc14/lib`、cmake の Unix レイアウトは
   `include/opencascade` / `lib`。決め打ちすると「ヘッダが無い」という遠い場所の
   コンパイルエラーになって原因を追いにくい
-- コンパイラフラグ: MSVC は `/std:c++17 /utf-8`、それ以外は `-std=c++17`
+- コンパイラフラグ: MSVC は `/std:c++17 /utf-8`、それ以外は
+  `-std=c++17 -DOCC_CONVERT_SIGNALS`
+- **`-DOCC_CONVERT_SIGNALS` は Unix 側の生命線。** OCCT の
+  `Standard_ErrorHandler.hxx` は、これが定義されていなければ
+  `OCC_CATCH_SIGNALS` を**空に展開する**。8.1.5.10 まで付けていなかったため、
+  コード中の13箇所は Linux / macOS では1つも存在せず、OCCT 内部のフォールトが
+  そのままカーネルを殺していた。Windows は MSVC が SE translator から直接
+  C++ 例外を投げるので不要（ヘッダにもそう書いてある）。詳細は §7
 - MSVC / Windows SDK の include パスは Windows でのみ渡す
 - [Unix の rpath](Blender_CAD_V_8_1_5_1/src_rust/build.rs:114) — `$ORIGIN`（macOS は `@loader_path`）
 
@@ -297,13 +304,44 @@ macOS 側も同じ趣旨で、`install_name` に `@loader_path` / `/usr/lib` / `
 CI を通すためにこれを緩めてはいけない。numpy が無くて落ちたときも、検査ではなく
 CI 側の環境を Blender に合わせて直した。
 
+### 手元で Linux を動かす（WSL）
+
+CI は1周 3〜40分かかる。**Unix でしか出ない不具合を追うときは、手元に Linux が
+無いこと自体が最大の障害**になる（2026-09-05 の Face Inset クラッシュでは、
+利用者に何度も試してもらう以外に確かめる手段が無かった）。WSL2 を入れると
+同じ検証が数秒で回る。
+
+```powershell
+wsl --install -d Ubuntu     # 管理者 PowerShell。再起動が要る
+```
+
+```bash
+bash tools/wsl/setup.sh                                        # 一度だけ
+bash tools/wsl/verify_linux_build.sh ../MAC_LINUX/CAD_8.1.5.11_install_LINUX.zip
+```
+
+`verify_linux_build.sh` が見るもの:
+
+- `bl_info` とカーネルのサイズ（版の取り違えの検出）
+- `LD_LIBRARY_PATH` **無し**での `ldd`（"not found" が残っていないか）
+- `libs/svgpathtools` と `libs/svgwrite` の同梱
+- `tools/replay_kernel_requests.py` の再生（カーネルが生き残るか）
+
+CI との違いは、**配布する ZIP そのものを展開して動かす**点。CI はビルドツリーの
+カーネルを叩くので、ZIP に詰める過程で壊れた場合を見られない。第2引数に Linux 版
+Blender のパスを渡せば、回帰テスト52件を**Linux のカーネルで**回せる。
+これは現時点で一度も実施していない（§8）。
+
+**WSL2 の GPU は実機の Mesa と同じではない。** 描画まわりの検証には使えない。
+カーネル（`cad_server`）の検証には十分で、これまでの不具合はすべてそこだった。
+
 ---
 
 ## 7. 実際に踏んだ罠
 
 移植そのものより、ここで時間を使った。同じ穴に落ちないための記録。
 
-### C++（1件だけ）
+### C++
 
 `occ_modifiers.cpp` の[二段階名前解決](Blender_CAD_V_8_1_5_1/src_rust/src/occ_modifiers.cpp:399)。
 テンプレート関数が、70行下で定義される関数を呼んでいた。Clang / GCC は非依存名を
@@ -315,6 +353,38 @@ MSVC だけが後方の定義を拾うため、Windows でしか成り立って�
 
 手元に Clang / GCC が無いのでこの種は CI 往復でしか潰せない。テンプレート本体から
 後方定義の関数を呼ぶ箇所を機械的に走査したところ、検出はこの1件だけだった。
+
+#### `OCC_CATCH_SIGNALS` が Unix では丸ごと消えていた（2026-09-06）
+
+**移植で一番高くついた罠。** 利用者から Linux でカーネルが落ちる報告が来て、
+版を跨いで3回追いかけた。
+
+`OCC_CATCH_SIGNALS` は OCCT が用意しているフォールト捕捉の入口で、この
+コードベースには13箇所ある。ところが `Standard_ErrorHandler.hxx` の定義は:
+
+```c
+#if defined(OCC_CONVERT_SIGNALS)
+  #define OCC_CATCH_SIGNALS Standard_ErrorHandler _aHandler;     if (setjmp(_aHandler.Label())) { _aHandler.Raise(); }
+#else
+  #define OCC_CATCH_SIGNALS
+#endif
+```
+
+`OCC_CONVERT_SIGNALS` を渡していなかったので、**Linux / macOS では13箇所すべてが
+空文字列**だった。`OSD::SetSignal`（8.1.5.9 で追加）はフォールトを例外に変換
+できていたが、飛び先が存在しないため
+`*** Abort *** an exception was raised, but no catch was found.` でプロセスごと死ぬ。
+囲ってある `try/catch` も無力で、**Unix では C のシグナルハンドラから C++ 例外を
+投げられない**ため、この longjmp 経路が唯一の手段になる。
+
+Windows は MSVC が SE translator から直接投げるので、この定義なしで成立していた。
+つまり**「Windows でだけ例外処理が効いている」**状態が、移植の当初から続いていた。
+
+追い方も記録しておく。症状が出るのは Linux/macOS だけで、手元では一切再現しない。
+`tools/record_face_inset_sweep.py`（Windows で本物のリクエストを録音）と
+`tools/replay_kernel_requests.py`（Blender 無しでカーネルへ再生）を作って CI に
+組み込み、`[MOD_TRACE]` のログを足しては CI を回して、ログが途切れる場所を
+詰めた。OCCT がキャッシュ済みなら1周3分で、この方法なら実機なしでも追える。
 
 ### CI
 
