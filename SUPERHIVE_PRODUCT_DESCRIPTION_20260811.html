@@ -2,9 +2,9 @@
         <p style="margin:0;font-size:1.2em;font-weight:bold;">            The Superhive sale has ended. Seamless CAD is now <span style="font-size:1.4em;text-decoration:underline;color:#ffeb3b;">$9.90</span> — the regular price.        </p>
         <p style="margin:6px 0 0 0;font-size:0.95em;">            It is staying at $9.90 for roughly the next 100 copies. This is still a beta-stage price and it will go up as the add-on matures, but there is no countdown running here — if you see $9.90, that is what you pay.        </p>
     </div>
-        <div style="background-color:#fff3cd;border-left:6px solid #ffc107;padding:14px 18px;margin-bottom:24px;border-radius:4px;color:#664d03;">        <strong>⚠️ Please read before buying — this is a Beta release.</strong><br>        Seamless CAD is under active development and is priced to reflect that.        Your purchase now includes builds for <strong>Windows 10 / 11 (64-bit)</strong>, <strong>Linux x86-64</strong> and <strong>macOS (Apple Silicon)</strong> — one download, all three.        <strong>They are not equally proven.</strong> Windows is the platform that is developed and tested on, and it is the one to buy for if you want the safe choice. The Linux and macOS builds are made by the same automated pipeline from the same source and are checked as far as a build machine can check them, but <strong>the test suite has never been run on them and no feature has been verified on either by me</strong> — real reports from users are what they have instead. macOS also has <strong>no Apple notarisation</strong> and may need one Terminal command to run; see the FAQ. Intel Macs are not supported.        Expect rough edges, and expect things to change between updates.    </div>
+        <div style="background-color:#fff3cd;border-left:6px solid #ffc107;padding:14px 18px;margin-bottom:24px;border-radius:4px;color:#664d03;">        <strong>⚠️ Please read before buying — this is a Beta release.</strong><br>        Seamless CAD is under active development and is priced to reflect that.        Your purchase now includes builds for <strong>Windows 10 / 11 (64-bit)</strong>, <strong>Linux x86-64</strong> and <strong>macOS (Apple Silicon)</strong> — one download, all three.        <strong>They are not equally proven.</strong> Windows is the platform that is developed on, and it is the one to buy for if you want the safe choice. Linux is second: as of 8.1.5.12 the full test suite is run against the Linux build that is actually shipped, and it passes. <strong>macOS is the one that has never been tested by me</strong> — it is built by the same pipeline from the same source and checked as far as a build machine can check it, but no feature has been confirmed working inside Blender on a Mac. Real reports from users are what it has instead. macOS also has <strong>no Apple notarisation</strong> and may need one Terminal command to run; see the FAQ. Intel Macs are not supported.        Expect rough edges, and expect things to change between updates.    </div>
 <div style="background-color:#fff3cd;border-left:6px solid #ffc107;padding:14px 18px;margin-bottom:24px;border-radius:4px;color:#664d03;"><p><strong>❗️Linux and macOS are now part of the download, and what that does and does not mean.</strong></p>
-<p>They are built by the same GitHub Actions pipeline from the same source as the Windows release, against the same version of the OpenCASCADE geometry kernel, so that a bug cannot hide on one platform and not another. The pipeline checks that each one compiles, that its libraries are bundled, that the kernel starts and answers, and that nothing is missing from the package. <strong>That is the whole of what has been verified.</strong> The headless test suite — 51 checks — runs on Windows only, and no feature has been confirmed working inside Blender on a Mac or a Linux box by me. Several users have reported earlier builds running on both, which is why they are here rather than still behind a tester link, but nobody recorded how far they took it. If you use one of these, <strong>please tell me what worked and what did not</strong> — that is the only thing that will move either platform from "builds" to "tested".</p>
+<p>They are built by the same GitHub Actions pipeline from the same source as the Windows release, against the same version of the OpenCASCADE geometry kernel, so that a bug cannot hide on one platform and not another. The pipeline checks that each one compiles, that its libraries are bundled, that the kernel starts and answers, and that nothing is missing from the package. <strong>For macOS, that is the whole of what has been verified.</strong> For Linux it is no longer true: since 8.1.5.12 the headless test suite — 52 checks covering geometry, measurement, STEP/IGES/STL export, the sketch solver, undo and save-and-reload — is run against the Linux package itself, unzipped and started the way you would, and it passes. What that does not cover on either platform is anything needing a screen: dragging, redraw, the GPU overlay. No feature has been confirmed working inside Blender on a Mac by me. Several users have reported earlier builds running on both, which is why they are here rather than still behind a tester link, but nobody recorded how far they took it. If you use one of these, <strong>please tell me what worked and what did not</strong> — that is the only thing that will move either platform from "builds" to "tested".</p>
 <p>For macOS Users</p>
 <p></p>
 <p>Since this build has not been notarized by Apple, macOS security features may prevent it from running. (On the other hand, since Blender unpacks the ZIP file on its own, it may run without any issues.) We would appreciate it if you could let us know which scenario you encounter.</p>
@@ -39,7 +39,42 @@
 <p><br></p>
 <p>We sincerely appreciate your cooperation.</p>
 <br><br></div>
-        <div style="background-color:#e7f5ef;border-left:6px solid #2e9e6b;padding:14px 18px;margin-bottom:24px;border-radius:4px;color:#14532d;">        <strong>🔄 Latest update — version 8.1.5.9 (September 2026)</strong><br>
+        <div style="background-color:#e7f5ef;border-left:6px solid #2e9e6b;padding:14px 18px;margin-bottom:24px;border-radius:4px;color:#14532d;">        <strong>🔄 Latest update — version 8.1.5.12 (September 2026)</strong><br>
+        <strong>Inset no longer takes the geometry kernel down on Linux and macOS.</strong> A user on
+        Fedora reported that pushing an Inset in a little further killed the kernel every time. It
+        did — and not only Inset. The kernel guards every geometry call so that a fault becomes an
+        error the add-on can absorb, and 8.1.5.9 turned on the handler that converts one into the
+        other. On Windows that combination has always worked. On Linux and macOS the guards were
+        being compiled out entirely, because the build never defined the flag that makes them exist,
+        so the fault was converted and then had nothing to catch it and the process died. The flag
+        is set now. The same operation that used to end the kernel is caught, reported, and the work
+        continues.</p>
+
+        <p style="margin:12px 0 4px 0;">This also corrects what 8.1.5.9 claimed here. "An operation
+        that would have killed the kernel should now simply fail and leave everything else standing"
+        was true on Windows and not true on Linux or macOS, and I did not know that when I wrote it.</p>
+
+        <p style="margin:12px 0 4px 0;"><strong>A shape that kills the kernel is no longer sent to it
+        over and over.</strong> The whole history goes to the kernel on every update, so once 8.1.5.9
+        had taught the add-on to restart a kernel that died, a fatal shape became a loop: restart,
+        resend, die, restart. Blender stayed open and simply went slow for good, which is how the
+        Fedora report described it. After the second time the same history brings the kernel down,
+        it stops being sent and the add-on says so. Change any value and updates resume.</p>
+
+        <p style="margin:12px 0 4px 0;"><strong>You can tell which kernel you are running.</strong>
+        The geometry kernel is a separate program inside the add-on, and on Linux it cannot be
+        overwritten while it is running — so installing an update with Blender open could leave the
+        version number saying one thing and the kernel being another. Every launch now records which
+        binary was started, with its size and date, in the log file. If the add-on adopts a kernel it
+        did not start, it now says that too, instead of using it silently.</p>
+
+        <p style="margin:12px 0 4px 0;"><strong>The test suite now runs on Linux.</strong> All 52
+        checks, against the Linux package as shipped rather than a development copy. They pass. This
+        was the plain reason the Fedora report was hard to place: until now nothing had ever been run
+        on that platform except the build itself.</p>
+
+        <p style="margin:12px 0 4px 0;"><strong>Previously, in 8.1.5.9</strong> — round primitives
+        matched their wireframe, and a kernel crash stopped ending the session:<br>
         <strong>Cylinders and spheres are the size the wireframe says.</strong> The wireframe box you
         drag into place is a stand-in; the real solid is built by the CAD kernel. For round shapes
         the two had never agreed — the kernel read the size field as a <em>radius</em> while the
@@ -256,7 +291,7 @@
     </ul>
     <hr>
         <h2>💻 Compatibility &amp; System Requirements</h2>
-    <div style="background-color:#fff3cd;border-left:6px solid #ffc107;padding:14px 18px;margin-bottom:20px;border-radius:4px;color:#664d03;">        <strong>⚠️ Important Notice regarding OS Support:</strong><br>        Seamless CAD ships for <strong>Windows 10 / 11 (64-bit)</strong>, <strong>Linux x86-64</strong> and <strong>macOS on Apple Silicon</strong>, in one download.<br>        <em>Windows is the platform that is developed and tested on. Linux and macOS come from the same source through the same automated build, but the test suite has never been run on them and no feature has been verified on either — treat them as beta within a beta. macOS is ad-hoc signed and <strong>not notarised by Apple</strong>, so Gatekeeper may need one Terminal command (given above). <strong>Intel Macs are not supported</strong> — Apple Silicon only.</em>    </div>
+    <div style="background-color:#fff3cd;border-left:6px solid #ffc107;padding:14px 18px;margin-bottom:20px;border-radius:4px;color:#664d03;">        <strong>⚠️ Important Notice regarding OS Support:</strong><br>        Seamless CAD ships for <strong>Windows 10 / 11 (64-bit)</strong>, <strong>Linux x86-64</strong> and <strong>macOS on Apple Silicon</strong>, in one download.<br>        <em>Windows is the platform that is developed on. Linux comes from the same source through the same automated build, and since 8.1.5.12 the test suite is run against the Linux package as shipped and passes. macOS comes the same way but <strong>has never been tested by me</strong> — treat it as beta within a beta. Neither platform has had the checks that need a real screen, which are done on Windows only. macOS is ad-hoc signed and <strong>not notarised by Apple</strong>, so Gatekeeper may need one Terminal command (given above). <strong>Intel Macs are not supported</strong> — Apple Silicon only.</em>    </div>
     <ul>
         <li><strong>Blender Version:</strong> 4.2 LTS through 5.1 (tested on 4.2, 4.3, 4.4 and 5.1). A user reports 5.2 working; that is their report, not testing done here.</li>
         <li><strong>Supported OS:</strong> Windows 10 / 11 (64-bit) — developed and tested on. Linux x86-64 and macOS on Apple Silicon are included and build cleanly, but are unverified in use (see the notice above).</li>

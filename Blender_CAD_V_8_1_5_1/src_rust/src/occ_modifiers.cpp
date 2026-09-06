@@ -1242,7 +1242,7 @@ TopoDS_Shape apply_face_offset(const TopoDS_Shape& result_shape, const std::stri
                         }
                         if (radius > 0) {
                             BRepAlgoAPI_Fuse op(out_shape, m_shape);
-                            op.SetRunParallel(Standard_True);
+                            op.SetRunParallel(Standard_False);  // 並列オフの理由は apply_face_inset の Fuse を参照
                             op.SetFuzzyValue(1e-5);
                             op.Build();
                             if (op.IsDone()) {
@@ -1251,7 +1251,7 @@ TopoDS_Shape apply_face_offset(const TopoDS_Shape& result_shape, const std::stri
                             }
                         } else {
                             BRepAlgoAPI_Cut op(out_shape, m_shape);
-                            op.SetRunParallel(Standard_True);
+                            op.SetRunParallel(Standard_False);  // 並列オフの理由は apply_face_inset の Fuse を参照
                             op.SetFuzzyValue(1e-5);
                             op.Build();
                             if (op.IsDone()) {
@@ -1286,11 +1286,15 @@ TopoDS_Shape apply_face_offset(const TopoDS_Shape& result_shape, const std::stri
 TopoDS_Shape apply_face_inset(const TopoDS_Shape& result_shape, const std::string& target_lineage, double inset_dist, double extrude_dist, std::map<std::string, TopoDS_Shape>* face_map) {
     if (result_shape.IsNull()) return result_shape;
     if (inset_dist < 1e-6) return result_shape;
+    log_debug("[FACE_INSET] enter inset=" + std::to_string(inset_dist) + " extrude=" + std::to_string(extrude_dist));
     TopoDS_Shape out_shape = result_shape;
     std::string t = target_lineage; TopTools_IndexedMapOfShape fm; TopExp::MapShapes(out_shape, TopAbs_FACE, fm); size_t pos = 0;
+    log_debug("[FACE_INSET] faces mapped n=" + std::to_string(fm.Extent()));
     while ((pos = t.find("Face:")) != std::string::npos) {
         size_t end = t.find("|", pos); std::string lid = t.substr(pos, (end == std::string::npos) ? std::string::npos : end - pos);
+        log_debug("[FACE_INSET] resolving " + lid);
         std::vector<TopoDS_Face> target_faces = resolve_faces_for_token(out_shape, lid, fm);
+        log_debug("[FACE_INSET] resolved n=" + std::to_string(target_faces.size()));
         if (!target_faces.empty()) {
             TopoDS_Face f = target_faces.front();
             // --- Step 1: オフセットされた内側ワイヤーを取得 ---
@@ -1300,8 +1304,10 @@ TopoDS_Shape apply_face_inset(const TopoDS_Shape& result_shape, const std::strin
             // 方法A: BRepOffsetAPI_MakeOffset（面を渡す方式のみ。AddWireは呼ばない）
             try {
                 OCC_CATCH_SIGNALS
+                log_debug("[FACE_INSET] MakeOffset begin");
                 BRepOffsetAPI_MakeOffset makeOffset(f, GeomAbs_Arc);
                 makeOffset.Perform(-inset_dist);
+                log_debug("[FACE_INSET] MakeOffset done=" + std::to_string(makeOffset.IsDone() ? 1 : 0));
                 
                 if (makeOffset.IsDone()) {
                     TopoDS_Shape offset_result = makeOffset.Shape();
@@ -1403,6 +1409,7 @@ TopoDS_Shape apply_face_inset(const TopoDS_Shape& result_shape, const std::strin
                         if (extrude_dist != 0.0) {
                 try {
                     OCC_CATCH_SIGNALS
+                    log_debug("[FACE_INSET] extrude begin inner_null=" + std::to_string(inner_f.IsNull() ? 1 : 0));
                     if (!inner_f.IsNull()) {
                         inner_f.Orientation(f.Orientation());
                         BRepAdaptor_Surface s(inner_f); double u = (s.FirstUParameter() + s.LastUParameter()) / 2.0, v = (s.FirstVParameter() + s.LastVParameter()) / 2.0;
@@ -1447,7 +1454,36 @@ TopoDS_Shape apply_face_inset(const TopoDS_Shape& result_shape, const std::strin
                                 }
                                 if (extrude_dist > 0) {
                                     BRepAlgoAPI_Fuse op(out_shape, m_shape);
-                                    op.SetRunParallel(Standard_True);
+// 並列オフ。**性能ではなく生存のための設定**。
+                                    //
+                                    // OCCT のブーリアンを RunParallel で走らせると、実際の計算は
+                                    // OCCT のスレッドプールのワーカースレッドで起きる。そこで
+                                    // アクセス違反が出た場合、Linux の OSD::SetSignal は
+                                    // sigaction (プロセス全体) なのでフォールト自体は捕まえるが、
+                                    // 変換先を探す Standard_ErrorHandler のスタックは
+                                    // **スレッドローカル**で、ワーカースレッドでは空。結果
+                                    // "*** Abort *** an exception was raised, but no catch was
+                                    // found." でプロセスごと落ちる。呼び出し元 (occ_core.cpp の
+                                    // OCC_CATCH_SIGNALS) は同じスレッドに無いので届かない。
+                                    //
+                                    // 直列で回せばフォールトは呼び出し元スレッドで起き、既にある
+                                    // ハンドラが拾う。**演算は失敗するがカーネルは生き残る**。
+                                    //
+                                    // **これは 2026-09-05 の Face Inset クラッシュの原因では
+                                    // なかった。** 真因は build.rs で `OCC_CONVERT_SIGNALS` を
+                                    // 定義しておらず、Unix では `OCC_CATCH_SIGNALS` が13箇所とも
+                                    // 空に展開されていたこと (CROSS_PLATFORM_BUILD.md §7)。
+                                    // この直列化はその誤診から入れたもので、実測でも発生率を
+                                    // 動かさなかった。**それでも残してある**: ハンドラの
+                                    // スタックがスレッドローカルである以上、OCCT のワーカー
+                                    // スレッドで落ちれば今でも誰も拾えないのは事実で、
+                                    // 失うものが無い場所だから。
+                                    //
+                                    // ここで失うものは小さい。対象はモディファイアが作った小さな
+                                    // 中間ソリッド2つで、並列化の利得はスレッド起動費用に埋もれる。
+                                    // 本体のブーリアン (occ_booleans.cpp) は形状が大きく利得が
+                                    // 実在するので、そちらは並列のまま残してある。
+                                    op.SetRunParallel(Standard_False);
                                     op.SetFuzzyValue(1e-5);
                                     op.Build();
                                     if (op.IsDone()) {
@@ -1456,7 +1492,7 @@ TopoDS_Shape apply_face_inset(const TopoDS_Shape& result_shape, const std::strin
                                     }
                                 } else {
                                     BRepAlgoAPI_Cut op(out_shape, m_shape);
-                                    op.SetRunParallel(Standard_True);
+                                    op.SetRunParallel(Standard_False);  // 上の Fuse と同じ理由
                                     op.SetFuzzyValue(1e-5);
                                     op.Build();
                                     if (op.IsDone()) {
@@ -1797,7 +1833,7 @@ TopoDS_Shape apply_shell(const TopoDS_Shape& result_shape, const std::string& ta
                 if (s.IsDone()) {
                     TopoDS_Shape inner_solid = s.Shape();
                     BRepAlgoAPI_Cut cut_op(result_shape, inner_solid);
-                    cut_op.SetRunParallel(Standard_True);
+                    cut_op.SetRunParallel(Standard_False);  // 並列オフの理由は apply_face_inset の Fuse を参照
                     cut_op.Build();
                     if (cut_op.IsDone()) {
                         TopoDS_Shape hollow_shape = cut_op.Shape();

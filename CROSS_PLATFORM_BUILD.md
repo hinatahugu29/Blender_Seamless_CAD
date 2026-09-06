@@ -155,7 +155,14 @@ Windows 依存は5ファイルに閉じている。増やさないこと。
   Windows ドロップは `inc` / `win64/vc14/lib`、cmake の Unix レイアウトは
   `include/opencascade` / `lib`。決め打ちすると「ヘッダが無い」という遠い場所の
   コンパイルエラーになって原因を追いにくい
-- コンパイラフラグ: MSVC は `/std:c++17 /utf-8`、それ以外は `-std=c++17`
+- コンパイラフラグ: MSVC は `/std:c++17 /utf-8`、それ以外は
+  `-std=c++17 -DOCC_CONVERT_SIGNALS`
+- **`-DOCC_CONVERT_SIGNALS` は Unix 側の生命線。** OCCT の
+  `Standard_ErrorHandler.hxx` は、これが定義されていなければ
+  `OCC_CATCH_SIGNALS` を**空に展開する**。8.1.5.10 まで付けていなかったため、
+  コード中の13箇所は Linux / macOS では1つも存在せず、OCCT 内部のフォールトが
+  そのままカーネルを殺していた。Windows は MSVC が SE translator から直接
+  C++ 例外を投げるので不要（ヘッダにもそう書いてある）。詳細は §7
 - MSVC / Windows SDK の include パスは Windows でのみ渡す
 - [Unix の rpath](Blender_CAD_V_8_1_5_1/src_rust/build.rs:114) — `$ORIGIN`（macOS は `@loader_path`）
 
@@ -297,13 +304,60 @@ macOS 側も同じ趣旨で、`install_name` に `@loader_path` / `/usr/lib` / `
 CI を通すためにこれを緩めてはいけない。numpy が無くて落ちたときも、検査ではなく
 CI 側の環境を Blender に合わせて直した。
 
+### 手元で Linux を動かす（WSL）
+
+CI は1周 3〜40分かかる。**Unix でしか出ない不具合を追うときは、手元に Linux が
+無いこと自体が最大の障害**になる（2026-09-05 の Face Inset クラッシュでは、
+利用者に何度も試してもらう以外に確かめる手段が無かった）。WSL2 を入れると
+同じ検証が数秒で回る。
+
+```powershell
+wsl --install -d Ubuntu     # 管理者 PowerShell。再起動が要る
+```
+
+```bash
+bash tools/wsl/setup.sh                                        # 一度だけ
+bash tools/wsl/verify_linux_build.sh ../MAC_LINUX/CAD_8.1.5.11_install_LINUX.zip
+```
+
+`verify_linux_build.sh` が見るもの:
+
+- `bl_info` とカーネルのサイズ（版の取り違えの検出）
+- `LD_LIBRARY_PATH` **無し**での `ldd`（"not found" が残っていないか）
+- `libs/svgpathtools` と `libs/svgwrite` の同梱
+- `tools/replay_kernel_requests.py` の再生（カーネルが生き残るか）
+
+CI との違いは、**配布する ZIP そのものを展開して動かす**点。CI はビルドツリーの
+カーネルを叩くので、ZIP に詰める過程で壊れた場合を見られない。
+
+Blender を渡せば、回帰テスト52件を**Linux のカーネルで**回せる。
+これは現時点で一度も実施していない（§8）。
+
+```bash
+bash tools/wsl/verify_linux_build.sh <zip> --download-blender       # 既定 5.2 系の最新
+bash tools/wsl/verify_linux_build.sh <zip> --download-blender 5.1.2 # 版を指定
+bash tools/wsl/verify_linux_build.sh <zip> --blender /path/to/blender
+```
+
+`--download-blender` は blender.org の公式アーカイブからのみ取得し、
+**同じ場所が公開している `blender-<版>.sha256` と必ず照合する**（検証用に
+落としたものを検証せずに使っては意味が無い。後で「Blender が壊れていたのか
+こちらのカーネルが壊れていたのか」を切り分けられなくなる）。約 300MB を
+`~/.cache/seamless-cad/blender` に置き、2回目以降は再取得しない。
+
+既定を 5.2 系にしてあるのは、**利用者の報告がこの系列で来ているから**。
+手元の Windows は Steam の 5.1.2 で、そこと揃えることに意味は無い。
+
+**WSL2 の GPU は実機の Mesa と同じではない。** 描画まわりの検証には使えない。
+カーネル（`cad_server`）の検証には十分で、これまでの不具合はすべてそこだった。
+
 ---
 
 ## 7. 実際に踏んだ罠
 
 移植そのものより、ここで時間を使った。同じ穴に落ちないための記録。
 
-### C++（1件だけ）
+### C++
 
 `occ_modifiers.cpp` の[二段階名前解決](Blender_CAD_V_8_1_5_1/src_rust/src/occ_modifiers.cpp:399)。
 テンプレート関数が、70行下で定義される関数を呼んでいた。Clang / GCC は非依存名を
@@ -315,6 +369,38 @@ MSVC だけが後方の定義を拾うため、Windows でしか成り立って�
 
 手元に Clang / GCC が無いのでこの種は CI 往復でしか潰せない。テンプレート本体から
 後方定義の関数を呼ぶ箇所を機械的に走査したところ、検出はこの1件だけだった。
+
+#### `OCC_CATCH_SIGNALS` が Unix では丸ごと消えていた（2026-09-06）
+
+**移植で一番高くついた罠。** 利用者から Linux でカーネルが落ちる報告が来て、
+版を跨いで3回追いかけた。
+
+`OCC_CATCH_SIGNALS` は OCCT が用意しているフォールト捕捉の入口で、この
+コードベースには13箇所ある。ところが `Standard_ErrorHandler.hxx` の定義は:
+
+```c
+#if defined(OCC_CONVERT_SIGNALS)
+  #define OCC_CATCH_SIGNALS Standard_ErrorHandler _aHandler;     if (setjmp(_aHandler.Label())) { _aHandler.Raise(); }
+#else
+  #define OCC_CATCH_SIGNALS
+#endif
+```
+
+`OCC_CONVERT_SIGNALS` を渡していなかったので、**Linux / macOS では13箇所すべてが
+空文字列**だった。`OSD::SetSignal`（8.1.5.9 で追加）はフォールトを例外に変換
+できていたが、飛び先が存在しないため
+`*** Abort *** an exception was raised, but no catch was found.` でプロセスごと死ぬ。
+囲ってある `try/catch` も無力で、**Unix では C のシグナルハンドラから C++ 例外を
+投げられない**ため、この longjmp 経路が唯一の手段になる。
+
+Windows は MSVC が SE translator から直接投げるので、この定義なしで成立していた。
+つまり**「Windows でだけ例外処理が効いている」**状態が、移植の当初から続いていた。
+
+追い方も記録しておく。症状が出るのは Linux/macOS だけで、手元では一切再現しない。
+`tools/record_face_inset_sweep.py`（Windows で本物のリクエストを録音）と
+`tools/replay_kernel_requests.py`（Blender 無しでカーネルへ再生）を作って CI に
+組み込み、`[MOD_TRACE]` のログを足しては CI を回して、ログが途切れる場所を
+詰めた。OCCT がキャッシュ済みなら1周3分で、この方法なら実機なしでも追える。
 
 ### CI
 
@@ -346,18 +432,58 @@ MSVC だけが後方の定義を拾うため、Windows でしか成り立って�
 2. **Metal での実描画** — `renderer.rs` は `wgpu::Backends::PRIMARY` なので
    Metal / Vulkan は自動選択されるが、**カーネルが応答することと、wgpu が正しく
    描くことは別問題**。CI では原理的に確認できず、実機が要る
-3. **Blender 上での実動作確認** — 「動いた」という報告は数件あるが、内容が
-   分からないので壁としては残る（§1 参照）。ヘッドレス回帰テストは Windows でしか
-   走らせていない。C/D/H（ドラッグ追従・確定後の固まり・WGPU Overlay OFF）は
-   そもそもヘッドレスでは検証できない。**報告を集めるなら「何をしたか」を
-   具体的に聞くこと。**「動いた」だけでは壁は動かない
+3. **Blender 上での実動作確認** — 一部は壁でなくなった。2026-09-06、WSL2 の
+   Ubuntu 26.04 + Blender 5.2.1 で、**配布 ZIP の Linux カーネルに対して
+   回帰テストを初めて走らせた: 52 passed（3回連続）**（`tools/wsl/`）。
+   幾何・測定・STEP/IGES/STL 書き出し・スケッチソルバ・保存再読込は、
+   Linux のカーネルでも Windows と同じ結果を返す。
+
+   残るのは3つ。**C/D/H（ドラッグ追従・確定後の固まり・WGPU Overlay OFF）は
+   そもそもヘッドレスでは検証できない**。**macOS は依然として1件も走らせて
+   いない**（Apple Silicon の実機が無い。CI はカーネルの生死しか見ない）。
+   そして **undo（チェックリスト I）は Linux で飛ばしている** — 下記 6
 4. **Linux の動作要件** — 成果物を実測した下限は **glibc 2.34 / GLIBCXX 3.4.30
    / CXXABI 1.3.9**。Ubuntu 22.04、Debian 12、RHEL 9 以降に相当する。
    ホスト任せの依存は `libc` `libstdc++` `libgcc_s` `libm` `ld-linux` `libX11`
    `libfontconfig` `libfreetype` で、いずれも Blender 自身が要求するもの。
    下限を下げたいなら `libstdc++` の同梱が候補になる（カーネルは別プロセスなので
    Blender 側との衝突は起きない）。未検証
-5. **Intel Mac** — 現在対象外。必要なら `macos-14` 上でクロスビルドできるが
+5. **Linux の undo（再現しなくなった／原因不明のまま）** —
+   2026-09-06 の調査中、バックグラウンドの `ed.undo()` で Blender ごと落ちるのを
+   何度か見た。掴んだトレースは
+
+   ```
+   _bpy_types.py users_collection
+   utils.py _find_proxy_cad_collection
+   utils.py depsgraph_update_handler
+   ```
+
+   で、`depsgraph.updates` が渡す ID をそのまま `users_collection`
+   （`bpy.data.collections` を総なめする）に通すのは危険なので、**名前で
+   `bpy.data` から引き直す形に直した**（8.1.5.11 以降）。
+
+   **その後は一度も再現していない。** 実測: 素の版で 20/20 生存、undo 検査を
+   単独で 5/5、**フルスイートで 52/52 を3回連続**（undo を実際に走らせて）。
+   修正版と素の版で発生率に差は出なかったので、**直したのは危険な触り方で
+   あって、クラッシュの原因ではない**。
+
+   検証した仮説と、その結末:
+
+   | 仮説 | 結果 |
+   |---|---|
+   | ハンドラが原因 | 無効化しても 20/20。**1回の観測で「確定」と書いたのは誤り** |
+   | `users_collection` が原因 | 触らない版も 20/20 |
+   | `undo_pre`/`undo_post` で止めれば防げる | 効かない（問題の更新は `undo_post` の**後**に来る） |
+   | 古い `cad_server` が 8080 に残っていると落ちる | 残した状態でも 5/5。**外れ** |
+
+   落ちたのは、Blender とカーネルを何重にも走らせていた時だけ。**Linux で
+   落ちる条件は分かっていない。** 回帰テストでは飛ばさず、走らせている
+   （再現しないものを飛ばしても検出力を落とすだけ）。ここが Linux で落ちたら
+   本物の手がかりなので、その時は上の表から先へ進めること。次の一手は
+   valgrind（配布 Blender はシンボルが無いので、こちらのハンドラに足跡を
+   打って突き合わせる）。
+
+6. **Intel Mac** — 現在対象外。必要なら `macos-14` 上でクロスビルドできるが
    （`CMAKE_OSX_ARCHITECTURES=x86_64` + `cargo --target x86_64-apple-darwin`）、
    arm64 上で x86_64 バイナリは起動できないため、**スモークテストの関門が
    Intel 版だけ効かなくなる**
