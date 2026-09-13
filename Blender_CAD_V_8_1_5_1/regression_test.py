@@ -1457,6 +1457,41 @@ def t_bindings_survive_duplicate_and_rename():
     assert rename_in_expression("max(w,w2)*w", "w", "k") == "max(k,w2)*k"
 
 
+def t_parameter_change_during_drag_is_not_lost():
+    """ドラッグ中に変数を変えても、ドラッグが終われば式の値になる。
+
+    ドラッグ中は sync_proxies がプロキシを書かないので、書いた値は
+    depsgraph ハンドラに巻き戻される。以前はそれきりで、変数は 4.6 なのに
+    形は 2.2 のまま残った。背景実行ではタイマーが回らないので、
+    タイマーが呼ぶ関数を直接呼ぶ。
+    """
+    from CAD_8_1_5_1.core import parameters as P
+    col, props = _fresh_part()
+    bpy.ops.seamless.add_primitive(type='BOX')
+    props = utils_props()
+    props.active_primitive_index = 0
+    bpy.ops.seamless.add_parameter(name="width", expression="2.2")
+    bpy.ops.seamless.add_binding(field='size_x', expression="width")
+    bpy.context.view_layer.update()
+
+    props.is_dragging = True
+    props.parameters[0].expression = "4.6"
+    bpy.context.view_layer.update()  # ここでハンドラが 2.2 へ巻き戻す
+    assert col.name in P._pending_retry, "a write during a drag must schedule a retry"
+    # update のあいだにハンドラの確定処理が is_dragging を下ろすことがあるので、
+    # 「まだドラッグ中」の状態を明示的に作ってから待つことを確かめる
+    props = utils_props()
+    props.is_dragging = True
+    assert P.resume_after_drag(col.name) == 0.2, "the retry must wait while still dragging"
+
+    props.is_dragging = False
+    assert P.resume_after_drag(col.name) is None
+    b = _result_bounds(col)
+    sx = b[0][1] - b[0][0]
+    assert abs(utils_props().primitives[0].size[0] - 4.6) < 1e-6 and abs(sx - 4.6) < 1e-3, \
+        f"parameter says 4.6 but the shape is {sx} after the drag ended"
+
+
 def t_inset_needs_a_flat_face():
     """Inset が曲面で効かないことを、既知の制限として固定する。
 
@@ -2701,6 +2736,7 @@ def main():
     check("expression evaluator is safe", t_expression_evaluator_is_safe)
     check("parameter drives the shape", t_parameter_drives_the_shape)
     check("bindings survive duplicate + rename", t_bindings_survive_duplicate_and_rename)
+    check("parameter change during drag not lost", t_parameter_change_during_drag_is_not_lost)
     check("panels registered", t_panels_registered)
     check("bake to mesh", t_bake_to_mesh)
     check("STEP export", t_step_export)
