@@ -20,10 +20,15 @@ Each row is one operation, and carries these controls, left to right:
 | Name and icon | Also makes the entry active. The icon reflects the operation type |
 | Duplicate | Copies the entry and makes the copy active |
 | **X** | Deletes the entry |
+| Eye | **Suppresses** the entry: it stays in the tree but is left out of the model (see below) |
 | Pin | Sets or clears the **rollback point** |
 
 Rows below an active rollback point are greyed out and their buttons are
-disabled.
+disabled. A suppressed row is dimmed but stays clickable.
+
+To **rename** an entry, make it active and edit the name at the top of the
+**Active Property Editor**. The proxy object in the outliner is renamed with it.
+If the name is already taken, Blender adds `.001` and the tree follows.
 
 Entries inside a group are indented, so nesting is visible at a glance.
 
@@ -57,6 +62,8 @@ the later entries, or to change what the existing entries do:
   often gets you where reordering would have
 - Use a **group** so a run of entries combines as one unit
 - Split into two parts with `Base` and **Separate Previous to New Part**
+- **Suppress** an entry to see or build the model without it, instead of
+  deleting it
 
 The one exception is **Edit Sketch**: re-editing a sketch rebuilds its entry in
 place and keeps its original position, so downstream fillets stay attached. That
@@ -111,6 +118,58 @@ Rollback has three distinct uses:
 Some controls are deliberately disabled while a rollback point hides their
 target — **Edit Sketch** is the one you will meet. The panel says "Hidden by
 rollback point" rather than doing nothing silently.
+
+## Suppress
+
+The eye icon takes **one** entry out of the model without deleting it. Press it
+again to bring the entry back.
+
+It differs from rollback in one way that matters: rollback stops everything
+below the pin, while suppress removes only that row. Everything below it keeps
+evaluating.
+
+A suppressed Mirror, Array or other entry that acts on a target no longer uses
+that target, so the original shape shows again.
+
+**Fillets and other edge or face picks below a suppressed row can change.**
+They refer to specific edges and faces, and removing a shape above them changes
+which edges exist. In testing, suppressing one of two fused boxes left a fillet
+on only some of its edges, and suppressing the box the fillet was picked on
+removed the fillet entirely, with no error. Un-suppressing restores both.
+
+## Parameters
+
+The **Parameters** panel (closed by default) holds named values for the active
+part, and lets any entry take a field from an expression.
+
+<!-- TODO(image): Parameters panel with width / hole parameters and a driven Size X -->
+
+**Add Parameter** creates a row with a name and an expression, and shows the
+value it evaluates to. Expressions may use:
+
+- numbers and other parameter names: `width / 4 + 1`
+- `+ - * / // % **` and parentheses
+- `sqrt sin cos tan radians degrees abs min max round floor ceil`, and `pi`
+
+Nothing else is accepted, on purpose — a `.blend` file may come from someone
+else, so an expression can never run code.
+
+Below the list, **Drive a Field** binds a field of the active entry to an
+expression: Size X/Y/Z, Location X/Y/Z, Rotation X/Y/Z (in degrees), Radius,
+Radius 2, Minor Radius, Pipe Radius, Extrude Height, Value/Angle, Count,
+Sides/Teeth, Turns, Module, Angle Start and Angle End. The expression starts as
+the field's current value, so binding a field does not change the shape.
+
+Things to know:
+
+- **A driven field follows its expression.** If you move it by hand — typing a
+  number, or dragging the proxy — it goes back to the expression's value the next
+  time any parameter changes. The panel says so when an entry has driven fields.
+- **Renaming a parameter updates the expressions that use it.** `width` becomes
+  `w` everywhere; `width2` is left alone.
+- **Errors do not break the model.** A circular reference, an unknown name or a
+  typo is shown in red on that row, and the field keeps its last good value.
+- Driven fields are kept when an entry is duplicated or grouped.
 
 ## Groups
 

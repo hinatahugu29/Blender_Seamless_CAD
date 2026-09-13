@@ -39,7 +39,29 @@
 <p><br></p>
 <p>We sincerely appreciate your cooperation.</p>
 <br><br></div>
-        <div style="background-color:#e7f5ef;border-left:6px solid #2e9e6b;padding:14px 18px;margin-bottom:24px;border-radius:4px;color:#14532d;">        <strong>🔄 Latest update — version 8.1.5.12 (September 2026)</strong><br>
+        <div style="background-color:#e7f5ef;border-left:6px solid #2e9e6b;padding:14px 18px;margin-bottom:24px;border-radius:4px;color:#14532d;">        <strong>🔄 Latest update — version 8.1.5.14 (September 2026)</strong><br>
+        <strong>Parameters: one number can drive the whole part.</strong> A new Parameters panel
+        holds named values — <code>width = 40</code>, <code>hole = width / 4</code> — and any
+        feature's size, position, rotation, radius, count and similar fields can be driven by an
+        expression. Change <code>width</code> and everything that depends on it follows. Renaming a
+        parameter updates the expressions that use it. A typo or a circular reference is shown on
+        its row and the model keeps its last good value instead of breaking. Expressions accept
+        arithmetic and a short list of maths functions and nothing else, so a .blend file you
+        receive from someone cannot run code through them.</p>
+
+        <p style="margin:12px 0 4px 0;"><strong>Suppress a single feature.</strong> An eye icon on
+        each Feature Tree row takes that one feature out of the model without deleting it. Unlike the
+        rollback pin, everything below it keeps working. One honest caveat: fillets and chamfers
+        picked on edges of a shape you suppress can lose those edges while it is suppressed. They
+        come back when you turn it on again.</p>
+
+        <p style="margin:12px 0 4px 0;"><strong>Rename features.</strong> The name at the top of the
+        property editor is now editable, and the object in the outliner follows it.</p>
+
+        <p style="margin:12px 0 4px 0;">No change to the geometry kernel in this release.</p>
+        </div>
+
+        <div style="background-color:#f3f4f6;border-left:6px solid #9ca3af;padding:14px 18px;margin-bottom:24px;border-radius:4px;color:#374151;">        <strong>Previous update — version 8.1.5.12 (September 2026)</strong><br>
         <strong>Inset no longer takes the geometry kernel down on Linux and macOS.</strong> A user on
         Fedora reported that pushing an Inset in a little further killed the kernel every time. It
         did — and not only Inset. The kernel guards every geometry call so that a fault becomes an
