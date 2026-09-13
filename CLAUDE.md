@@ -63,10 +63,12 @@ cd Blender_CAD_V_8_1_5_1/src_rust && cargo build --release && cd .. && py deploy
 ## 3. 検証
 
 ```bash
-"C:\Program Files (x86)\Steam\steamapps\common\Blender\blender.exe" --background --factory-startup --python Blender_CAD_V_8_1_5_1/regression_test.py
+"D:\SteamLibrary\steamapps\common\Blender\blender.exe" --background --factory-startup --python Blender_CAD_V_8_1_5_1/regression_test.py
 ```
 
-**Blender は Steam 版**（5.1.2）。`C:\Program Files\Blender Foundation\` の下には
+**Blender は Steam 版**。**D: の SteamLibrary にある**
+（2026-09-14 実測で 5.2.1 LTS。`C:\Program Files (x86)\Steam\...` には無かった。
+Steam が自動更新するので版は変わりうる）。`C:\Program Files\Blender Foundation\` の下には
 `Blender 4.2` 〜 `4.4` のデータフォルダだけが残っていて **実行ファイルは無い**。
 `.blend` の関連付けも消えた 3.6 を指したまま。ここを探して「Blender が入っていない」と
 判断しかけたことがある（2026-08-18）。
