@@ -9,7 +9,8 @@ from .ui_main_panel import (
     SEAMLESS_PT_CreatePanel,
     SEAMLESS_PT_ModifyPatternPanel,
     SEAMLESS_PT_FeatureTreePanel,
-    SEAMLESS_PT_PropertyEditorPanel
+    SEAMLESS_PT_PropertyEditorPanel,
+    SEAMLESS_PT_ParametersPanel,
 )
 from .ui_sketch_panel import SEAMLESS_PT_SketchPanel
 
@@ -25,5 +26,6 @@ __all__ = [
     "SEAMLESS_PT_ModifyPatternPanel",
     "SEAMLESS_PT_FeatureTreePanel",
     "SEAMLESS_PT_PropertyEditorPanel",
+    "SEAMLESS_PT_ParametersPanel",
     "SEAMLESS_PT_SketchPanel",
 ]

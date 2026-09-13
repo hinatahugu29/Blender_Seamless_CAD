@@ -111,14 +111,82 @@ class SeamlessFilletEdgeRadius(bpy.types.PropertyGroup):
     token: bpy.props.StringProperty(name="Edge Token", default="")
     radius: bpy.props.FloatProperty(name="Radius", default=-1.0, min=-1.0, max=100.0, step=1, update=update_primitive_numeric_preview)
 
+def _apply_parameters_for(self, context):
+    props = getattr(self.id_data, "seamless_props", None)
+    if props is not None:
+        from .core.parameters import apply_parameters
+        apply_parameters(props)
+
+
+class SeamlessParameter(bpy.types.PropertyGroup):
+    # 3.1 ユーザーパラメータ。value は評価結果の控えで、利用者は expression を書く。
+    def _update_name(self, context):
+        # 変数名を変えたら、それを参照している式も書き換える。
+        # 書き換えないと参照先が全部「unknown name」になる。
+        props = getattr(self.id_data, "seamless_props", None)
+        old = self.prev_name
+        if props is not None and old and old != self.name and self.name.isidentifier():
+            from .core.parameters import rename_in_expression
+            for p in props.parameters:
+                if p != self:
+                    new_expr = rename_in_expression(p.expression, old, self.name)
+                    if new_expr != p.expression:
+                        p.expression = new_expr
+            for prim in props.primitives:
+                for b in prim.bindings:
+                    new_expr = rename_in_expression(b.expression, old, self.name)
+                    if new_expr != b.expression:
+                        b.expression = new_expr
+        if self.prev_name != self.name:
+            self.prev_name = self.name
+        _apply_parameters_for(self, context)
+
+    name: bpy.props.StringProperty(name="Name", default="p", update=_update_name)
+    prev_name: bpy.props.StringProperty(default="", options={'HIDDEN'})
+    expression: bpy.props.StringProperty(name="Expression", default="1", update=_apply_parameters_for)
+    value: bpy.props.FloatProperty(name="Value", default=0.0)
+    error: bpy.props.StringProperty(name="Error", default="")
+
+
+class SeamlessBinding(bpy.types.PropertyGroup):
+    # プリミティブの1欄を式で駆動する。field は core/parameters.py の BINDABLE_FIELDS の識別子。
+    # EnumProperty にしないのは、欄を増減しても古い .blend の値が壊れないようにするため。
+    field: bpy.props.StringProperty(name="Field", default="")
+    expression: bpy.props.StringProperty(name="Expression", default="", update=_apply_parameters_for)
+    error: bpy.props.StringProperty(name="Error", default="")
+
+
+def _update_primitive_name(self, context):
+    # プロキシ→ツリーの同期(utils.py の「prim.name != obj.name」)は
+    # オブジェクト名を正として prim.name を上書きする。パネルで打った名前を
+    # 先にプロキシへ書いておかないと、次の depsgraph 更新で元に戻される。
+    col = self.id_data if isinstance(self.id_data, bpy.types.Collection) else None
+    objs = col.all_objects if col else bpy.data.objects
+    for obj in objs:
+        if obj.get("primitive_uuid") == self.uuid and self.uuid:
+            if obj.name != self.name:
+                obj.name = self.name
+                # 名前が衝突すると Blender が ".001" を付ける。そちらに揃える
+                if obj.name != self.name:
+                    self.name = obj.name
+            break
+
 class SeamlessPrimitive(bpy.types.PropertyGroup):
-    name: bpy.props.StringProperty(name="Name", default="Primitive")
+    name: bpy.props.StringProperty(name="Name", default="Primitive", update=_update_primitive_name)
     uuid: bpy.props.StringProperty(name="UUID", default="")
     # V8.1.5: スケッチ編集履歴 - このprimitiveがスケッチのfinalizeで生成された場合、
     # 元スケッチの sketch_snapshots エントリを指すuuid。スケッチ由来でないprimitiveや
     # 旧.blendファイルでは空文字列のまま(=編集不可として安全にデグレードする)。
     sketch_source_uuid: bpy.props.StringProperty(name="Sketch Source UUID", default="")
     group_selected: bpy.props.BoolProperty(name="Group Selected", default=False)
+    # 3.2 Suppress: この1行だけを履歴から外す。ロールバックと違い後続は生きている。
+    # 下流の lineage 参照(面・辺トークン)は外した分だけずれうる。それは他社 CAD と同じ扱い。
+    suppressed: bpy.props.BoolProperty(
+        name="Suppress",
+        description="Leave this feature out of the history without deleting it",
+        default=False,
+        update=update_cad_preview
+    )
     type: bpy.props.EnumProperty(
         name="Type",
         items=[
@@ -428,6 +496,7 @@ class SeamlessPrimitive(bpy.types.PropertyGroup):
     edge_radii_active_index: bpy.props.IntProperty(name="Active Edge Radius Index", default=-1)
     reference_ref_snapshot: bpy.props.StringProperty(name="Reference Face Snapshot", default="")
     points: bpy.props.CollectionProperty(type=SeamlessPoint)
+    bindings: bpy.props.CollectionProperty(type=SeamlessBinding)
     segments_json: bpy.props.StringProperty(name="Segments JSON", default="")
 class SeamlessSketchPoint(bpy.types.PropertyGroup):
     id: bpy.props.IntProperty(name="Point ID")
@@ -535,6 +604,7 @@ class SeamlessSketchConstraint(bpy.types.PropertyGroup):
 
 class SeamlessProperties(bpy.types.PropertyGroup):
     primitives: bpy.props.CollectionProperty(type=SeamlessPrimitive)
+    parameters: bpy.props.CollectionProperty(type=SeamlessParameter)
     # V8.1.5: スケッチ編集履歴 - finalize済みスケッチのパラメトリックスナップショット群。
     # プリミティブの sketch_source_uuid から該当エントリを引いて再編集する。
     sketch_snapshots: bpy.props.CollectionProperty(type=SeamlessSketchSnapshot)

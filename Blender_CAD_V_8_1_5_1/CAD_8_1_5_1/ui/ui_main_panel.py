@@ -425,6 +425,8 @@ class SEAMLESS_PT_FeatureTreePanel(bpy.types.Panel):
             if prim.type == 'CLEANUP': icon = 'MOD_DECIM'
             
             btn_row = row.row(align=True)
+            if is_rolled_back or prim.suppressed:
+                btn_row.active = False
             if is_rolled_back:
                 btn_row.enabled = False
             
@@ -459,6 +461,9 @@ class SEAMLESS_PT_FeatureTreePanel(bpy.types.Panel):
             remove_op = btn_row.operator("seamless.remove_primitive", text="", icon='X')
             remove_op.index = i
             
+            row.prop(prim, "suppressed", text="", emboss=False,
+                     icon='HIDE_ON' if prim.suppressed else 'HIDE_OFF')
+
             is_rollback_point = getattr(props, "rollback_index", -1) == i
             rb_icon = 'PINNED' if is_rollback_point else 'UNPINNED'
             rb_op = row.operator("seamless.set_rollback_index", text="", icon=rb_icon, depress=is_rollback_point)
@@ -488,7 +493,8 @@ class SEAMLESS_PT_PropertyEditorPanel(bpy.types.Panel):
         col = layout.column(align=True)
         
         row = col.row(align=True)
-        row.label(text=f"Active: {active_prim.name}", icon='EDITMODE_HLT')
+        row.prop(active_prim, "name", text="", icon='EDITMODE_HLT')
+        row.prop(active_prim, "suppressed", text="", icon='HIDE_ON' if active_prim.suppressed else 'HIDE_OFF')
         col.prop(active_prim, "operation") 
         
         if active_prim.operation == 'BASE' and idx > 0:
@@ -856,3 +862,61 @@ class SEAMLESS_PT_PropertyEditorPanel(bpy.types.Panel):
             # ただし引数の並びがずれると全プリミティブが壊れるので、やるなら慎重に。
             col.label(text="Merges coplanar faces and", icon='INFO')
             col.label(text="collinear edges. Always both.")
+
+
+class SEAMLESS_PT_ParametersPanel(bpy.types.Panel):
+    bl_label = "Parameters"
+    bl_idname = "SEAMLESS_PT_ParametersPanel"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = 'Seamless'
+    bl_options = {'DEFAULT_CLOSED'}
+
+    @classmethod
+    def poll(cls, context):
+        return poll_main(context)
+
+    def draw(self, context):
+        from ..core.parameters import BINDABLE_FIELDS, field_value
+        layout = self.layout
+        props = utils.get_active_props(context)
+        if props is None:
+            return
+
+        col = layout.column(align=True)
+        for i, p in enumerate(props.parameters):
+            row = col.row(align=True)
+            row.alert = bool(p.error)
+            row.prop(p, "name", text="")
+            row.prop(p, "expression", text="")
+            row.label(text="!" if p.error else f"= {p.value:.4g}")
+            op = row.operator("seamless.remove_parameter", text="", icon='X')
+            op.index = i
+            if p.error:
+                col.label(text=p.error, icon='ERROR')
+        col.operator("seamless.add_parameter", text="Add Parameter", icon='ADD')
+
+        if not (0 <= props.active_primitive_index < len(props.primitives)):
+            return
+        prim = props.primitives[props.active_primitive_index]
+        labels = {f[0]: f[3] for f in BINDABLE_FIELDS}
+        box = layout.box()
+        box.label(text=f"Driven fields: {prim.name}", icon='DRIVER')
+        if prim.bindings:
+            # 手で動かした値は、次に変数を評価したとき式の値へ戻る。黙って戻さないよう先に言う
+            note = box.column(align=True)
+            note.scale_y = 0.8
+            note.label(text="Moving a driven field by hand is", icon='INFO')
+            note.label(text="undone when a parameter changes.")
+        for i, b in enumerate(prim.bindings):
+            row = box.row(align=True)
+            row.alert = bool(b.error)
+            row.label(text=labels.get(b.field, b.field))
+            row.prop(b, "expression", text="")
+            if b.field in labels and not b.error:
+                row.label(text=f"= {field_value(prim, b.field):.4g}")
+            op = row.operator("seamless.remove_binding", text="", icon='X')
+            op.index = i
+            if b.error:
+                box.label(text=b.error, icon='ERROR')
+        box.operator_menu_enum("seamless.add_binding", "field", text="Drive a Field", icon='ADD')

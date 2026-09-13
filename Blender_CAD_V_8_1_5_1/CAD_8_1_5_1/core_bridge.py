@@ -1858,6 +1858,9 @@ def _update_cad_preview_internal_for_col(col, context, fast_preview=False, overr
     for i, prim in enumerate(props.primitives):
         if rollback_index >= 0 and i > rollback_index:
             continue
+        # 抑制した行はターゲットを消費しない。抑制した MIRROR の元形状は表に戻る
+        if getattr(prim, "suppressed", False):
+            continue
         if prim.target_uuid.strip() and prim.type != 'INSTANCE':
             consumed_uuids.add(prim.target_uuid.strip())
         if prim.type == 'LOFT':
@@ -1869,6 +1872,8 @@ def _update_cad_preview_internal_for_col(col, context, fast_preview=False, overr
     for i, prim in enumerate(props.primitives):
         if rollback_index >= 0 and i > rollback_index:
             break
+        if getattr(prim, "suppressed", False):
+            continue
         if prim.type == 'INSTANCE' and not prim.target_uuid.strip():
             continue
 

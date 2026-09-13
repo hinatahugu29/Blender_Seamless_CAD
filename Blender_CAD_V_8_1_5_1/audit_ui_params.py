@@ -44,7 +44,12 @@ SCALARS = ['radius', 'radius2', 'minor_radius', 'extrude_height', 'distance',
 # 「効かないから除外」ではなく「効かなくて当然だから除外」で判断すること。
 IGNORE = {'location', 'local_location', 'rotation', 'operation', 'name', 'uuid',
           'use_pipe', 'fill_closed', 'top_shape', 'bot_shape',
-          'use_independent_transform', 'sides'}
+          'use_independent_transform', 'sides',
+          # 履歴から行を外すスイッチ。この監査はプリミティブ1行だけで試すので、
+          # 外すと履歴が空になり、カーネルは直前の形を保持したまま返す
+          # (regression_test の t_delete_updates_the_shape_at_once の注記と同じ現象)。
+          # 効くことは t_suppress_leaves_one_feature_out が3行で確かめている。
+          'suppressed'}
 
 
 class FakeLayout:
