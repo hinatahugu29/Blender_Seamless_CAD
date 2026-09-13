@@ -1307,6 +1307,59 @@ def t_delete_updates_the_shape_at_once():
     # 表示の不具合とは別なので、ここでは固定しない。
 
 
+def t_suppress_leaves_one_feature_out():
+    """Suppress した1行だけが形状から消え、戻せば復活する。
+
+    ロールバックとの違いは「後ろの行が生きている」こと。だから抑制するのは
+    **真ん中**の行にして、後ろの行が残っているかまで見る。
+    位置は非対称(§4 の罠)。
+    """
+    col, props = _fresh_part()
+    bpy.ops.seamless.add_primitive(type='BOX')
+    bpy.ops.seamless.add_primitive(type='BOX')
+    bpy.ops.seamless.add_primitive(type='BOX')
+    props = utils_props()
+    base, mid, last = props.primitives[0], props.primitives[1], props.primitives[2]
+    for p in (mid, last):
+        p.operation = 'ADD'
+    base.location = (0.0, 0.0, 0.0)
+    mid.location = (3.7, 0.0, 0.0)
+    last.location = (0.0, -2.3, 0.0)
+
+    full = _result_bounds(col)
+    assert full is not None, "three boxes produced no geometry"
+    assert full[0][1] > 4.0 and full[1][0] < -2.5, f"setup did not place the boxes: {full}"
+
+    mid.suppressed = True
+    cut = _result_bounds(col)
+    assert cut is not None, "suppressing one row emptied the whole shape"
+    assert cut[0][1] < 2.0, f"suppressed box at x=3.7 is still in the shape: {cut}"
+    assert cut[1][0] < -2.5, f"the row after the suppressed one vanished too (acts like rollback): {cut}"
+
+    mid.suppressed = False
+    back = _result_bounds(col)
+    assert back[0][1] > 4.0, f"un-suppressing did not bring the box back: {back}"
+
+
+def t_rename_survives_proxy_sync():
+    """パネルで付けた名前が、プロキシ同期で元に戻されない。
+
+    utils の同期はオブジェクト名を正として prim.name を上書きするので、
+    名前の update でプロキシ側も書き換えていないと即座に巻き戻る。
+    """
+    col, props = _fresh_part()
+    bpy.ops.seamless.add_primitive(type='BOX')
+    prim = utils_props().primitives[0]
+    prim.name = "Bracket Base"
+    proxy = _proxy_for(col, prim)
+    assert proxy.name == "Bracket Base", f"proxy was not renamed: {proxy.name!r}"
+    from CAD_8_1_5_1 import utils
+    bpy.context.view_layer.update()
+    utils.sync_proxies(bpy.context)
+    assert utils_props().primitives[0].name == "Bracket Base", \
+        f"rename was reverted to {utils_props().primitives[0].name!r}"
+
+
 def t_inset_needs_a_flat_face():
     """Inset が曲面で効かないことを、既知の制限として固定する。
 
@@ -2546,6 +2599,8 @@ def main():
     check("sketch angle/equal actions", t_sketch_two_line_constraint_actions)
     check("sketch concentric + symmetric", t_sketch_concentric_and_symmetric)
     check("sketch finalize makes geometry", t_sketch_finalize_makes_geometry)
+    check("suppress leaves one feature out", t_suppress_leaves_one_feature_out)
+    check("rename survives proxy sync", t_rename_survives_proxy_sync)
     check("panels registered", t_panels_registered)
     check("bake to mesh", t_bake_to_mesh)
     check("STEP export", t_step_export)

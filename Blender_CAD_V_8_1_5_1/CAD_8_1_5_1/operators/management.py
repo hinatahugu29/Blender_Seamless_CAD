@@ -53,6 +53,7 @@ def _serialize_primitive(source):
         "unify_edges": getattr(source, "unify_edges", True),
         "use_independent_transform": getattr(source, "use_independent_transform", False),
         "group_selected": False,
+        "suppressed": getattr(source, "suppressed", False),
         "points": [{"co": pt.co[:], "use_fillet": getattr(pt, "use_fillet", True)} for pt in source.points],
     }
 
@@ -107,6 +108,8 @@ def _apply_primitive_data(item, data):
         item.unify_edges = data.get("unify_edges", True)
     if hasattr(item, "use_independent_transform"):
         item.use_independent_transform = data.get("use_independent_transform", False)
+    if hasattr(item, "suppressed"):
+        item.suppressed = data.get("suppressed", False)
     if hasattr(item, "group_selected"):
         item.group_selected = data.get("group_selected", False)
     for pt in data.get("points", []):

@@ -111,14 +111,37 @@ class SeamlessFilletEdgeRadius(bpy.types.PropertyGroup):
     token: bpy.props.StringProperty(name="Edge Token", default="")
     radius: bpy.props.FloatProperty(name="Radius", default=-1.0, min=-1.0, max=100.0, step=1, update=update_primitive_numeric_preview)
 
+def _update_primitive_name(self, context):
+    # プロキシ→ツリーの同期(utils.py の「prim.name != obj.name」)は
+    # オブジェクト名を正として prim.name を上書きする。パネルで打った名前を
+    # 先にプロキシへ書いておかないと、次の depsgraph 更新で元に戻される。
+    col = self.id_data if isinstance(self.id_data, bpy.types.Collection) else None
+    objs = col.all_objects if col else bpy.data.objects
+    for obj in objs:
+        if obj.get("primitive_uuid") == self.uuid and self.uuid:
+            if obj.name != self.name:
+                obj.name = self.name
+                # 名前が衝突すると Blender が ".001" を付ける。そちらに揃える
+                if obj.name != self.name:
+                    self.name = obj.name
+            break
+
 class SeamlessPrimitive(bpy.types.PropertyGroup):
-    name: bpy.props.StringProperty(name="Name", default="Primitive")
+    name: bpy.props.StringProperty(name="Name", default="Primitive", update=_update_primitive_name)
     uuid: bpy.props.StringProperty(name="UUID", default="")
     # V8.1.5: スケッチ編集履歴 - このprimitiveがスケッチのfinalizeで生成された場合、
     # 元スケッチの sketch_snapshots エントリを指すuuid。スケッチ由来でないprimitiveや
     # 旧.blendファイルでは空文字列のまま(=編集不可として安全にデグレードする)。
     sketch_source_uuid: bpy.props.StringProperty(name="Sketch Source UUID", default="")
     group_selected: bpy.props.BoolProperty(name="Group Selected", default=False)
+    # 3.2 Suppress: この1行だけを履歴から外す。ロールバックと違い後続は生きている。
+    # 下流の lineage 参照(面・辺トークン)は外した分だけずれうる。それは他社 CAD と同じ扱い。
+    suppressed: bpy.props.BoolProperty(
+        name="Suppress",
+        description="Leave this feature out of the history without deleting it",
+        default=False,
+        update=update_cad_preview
+    )
     type: bpy.props.EnumProperty(
         name="Type",
         items=[

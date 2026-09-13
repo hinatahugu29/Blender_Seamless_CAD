@@ -425,6 +425,8 @@ class SEAMLESS_PT_FeatureTreePanel(bpy.types.Panel):
             if prim.type == 'CLEANUP': icon = 'MOD_DECIM'
             
             btn_row = row.row(align=True)
+            if is_rolled_back or prim.suppressed:
+                btn_row.active = False
             if is_rolled_back:
                 btn_row.enabled = False
             
@@ -459,6 +461,9 @@ class SEAMLESS_PT_FeatureTreePanel(bpy.types.Panel):
             remove_op = btn_row.operator("seamless.remove_primitive", text="", icon='X')
             remove_op.index = i
             
+            row.prop(prim, "suppressed", text="", emboss=False,
+                     icon='HIDE_ON' if prim.suppressed else 'HIDE_OFF')
+
             is_rollback_point = getattr(props, "rollback_index", -1) == i
             rb_icon = 'PINNED' if is_rollback_point else 'UNPINNED'
             rb_op = row.operator("seamless.set_rollback_index", text="", icon=rb_icon, depress=is_rollback_point)
@@ -488,7 +493,8 @@ class SEAMLESS_PT_PropertyEditorPanel(bpy.types.Panel):
         col = layout.column(align=True)
         
         row = col.row(align=True)
-        row.label(text=f"Active: {active_prim.name}", icon='EDITMODE_HLT')
+        row.prop(active_prim, "name", text="", icon='EDITMODE_HLT')
+        row.prop(active_prim, "suppressed", text="", icon='HIDE_ON' if active_prim.suppressed else 'HIDE_OFF')
         col.prop(active_prim, "operation") 
         
         if active_prim.operation == 'BASE' and idx > 0:
