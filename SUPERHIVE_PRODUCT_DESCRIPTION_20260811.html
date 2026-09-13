@@ -39,7 +39,7 @@
 <p><br></p>
 <p>We sincerely appreciate your cooperation.</p>
 <br><br></div>
-        <div style="background-color:#e7f5ef;border-left:6px solid #2e9e6b;padding:14px 18px;margin-bottom:24px;border-radius:4px;color:#14532d;">        <strong>🔄 Latest update — version 8.1.5.14 (September 2026)</strong><br>
+        <div style="background-color:#e7f5ef;border-left:6px solid #2e9e6b;padding:14px 18px;margin-bottom:24px;border-radius:4px;color:#14532d;">        <strong>🔄 Latest update — version 8.1.5.15 (September 2026)</strong><br>
         <strong>Parameters: one number can drive the whole part.</strong> A new Parameters panel
         holds named values — <code>width = 40</code>, <code>hole = width / 4</code> — and any
         feature's size, position, rotation, radius, count and similar fields can be driven by an
@@ -57,6 +57,11 @@
 
         <p style="margin:12px 0 4px 0;"><strong>Rename features.</strong> The name at the top of the
         property editor is now editable, and the object in the outliner follows it.</p>
+
+        <p style="margin:12px 0 4px 0;">8.1.5.15 fixes one case found while testing 8.1.5.14:
+        changing a parameter in the moment a drag was still settling could leave the parameter
+        showing the new value while the shape kept the old one. The new value is now applied as
+        soon as the drag has ended.</p>
 
         <p style="margin:12px 0 4px 0;">No change to the geometry kernel in this release.</p>
         </div>
