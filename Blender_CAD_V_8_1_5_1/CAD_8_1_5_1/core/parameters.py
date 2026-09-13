@@ -283,6 +283,40 @@ def apply_parameters(props):
     finally:
         _applying = False
     if moved:
-        import bpy
-        from .. import utils
-        utils.sync_proxies(bpy.context, props=props)
+        if getattr(props, "is_dragging", False):
+            # ドラッグ中は sync_proxies がプロキシの行列を書かない(利用者の操作を優先する)ので、
+            # 書いた値はハンドラに巻き戻され、式と形状が黙って食い違ったまま残る
+            # (2026-09-14 に調査スクリプトで確認)。ドラッグが終わってから評価し直す。
+            _retry_after_drag(props)
+        else:
+            import bpy
+            from .. import utils
+            utils.sync_proxies(bpy.context, props=props)
+
+
+def _retry_after_drag(props):
+    import bpy
+    col = props.id_data
+    name = getattr(col, "name", None)
+    if not name or name in _pending_retry:
+        return
+    _pending_retry.add(name)
+    bpy.app.timers.register(lambda: resume_after_drag(name), first_interval=0.2)
+
+
+_pending_retry = set()
+
+
+def resume_after_drag(collection_name):
+    """ドラッグ終了を待ってからパラメータを評価し直す。タイマーから呼ぶ。"""
+    import bpy
+    col = bpy.data.collections.get(collection_name)
+    props = getattr(col, "seamless_props", None) if col else None
+    if props is None:
+        _pending_retry.discard(collection_name)
+        return None
+    if props.is_dragging:
+        return 0.2
+    _pending_retry.discard(collection_name)
+    apply_parameters(props)
+    return None
