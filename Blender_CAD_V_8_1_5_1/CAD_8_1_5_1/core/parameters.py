@@ -83,6 +83,32 @@ def referenced_names(expr):
     return names
 
 
+def rename_in_expression(expr, old, new):
+    """式中の変数名 old を new に置き換える。部分一致(width と width2)は触らない。
+
+    構文が壊れている式は tokenize が失敗しうるので、そのときは元のまま返す。
+    """
+    import io
+    import tokenize
+    if not expr or old not in expr:
+        return expr
+    try:
+        tokens = list(tokenize.generate_tokens(io.StringIO(expr).readline))
+    except (tokenize.TokenError, IndentationError, SyntaxError):
+        return expr
+    out = []
+    prev_end = 0
+    for tok in tokens:
+        if tok.type in (tokenize.NEWLINE, tokenize.NL, tokenize.ENDMARKER):
+            continue
+        start, end = tok.start[1], tok.end[1]
+        out.append(expr[prev_end:start])
+        out.append(new if tok.type == tokenize.NAME and tok.string == old else tok.string)
+        prev_end = end
+    out.append(expr[prev_end:])
+    return "".join(out)
+
+
 def _eval_node(node, env):
     if isinstance(node, ast.Expression):
         return _eval_node(node.body, env)

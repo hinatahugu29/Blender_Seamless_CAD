@@ -902,6 +902,12 @@ class SEAMLESS_PT_ParametersPanel(bpy.types.Panel):
         labels = {f[0]: f[3] for f in BINDABLE_FIELDS}
         box = layout.box()
         box.label(text=f"Driven fields: {prim.name}", icon='DRIVER')
+        if prim.bindings:
+            # 手で動かした値は、次に変数を評価したとき式の値へ戻る。黙って戻さないよう先に言う
+            note = box.column(align=True)
+            note.scale_y = 0.8
+            note.label(text="Moving a driven field by hand is", icon='INFO')
+            note.label(text="undone when a parameter changes.")
         for i, b in enumerate(prim.bindings):
             row = box.row(align=True)
             row.alert = bool(b.error)

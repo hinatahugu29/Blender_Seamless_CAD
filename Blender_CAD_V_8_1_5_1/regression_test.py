@@ -1422,6 +1422,41 @@ def t_parameter_drives_the_shape():
     assert abs(utils_props().primitives[0].size[0] - 5.1) < 1e-6, "an error must leave the last good value"
 
 
+def t_bindings_survive_duplicate_and_rename():
+    """複製で式が落ちず、変数名を変えると式の参照も追従する。
+
+    _serialize_primitive はグループ化などツリー全体の書き直しにも使われるので、
+    ここで落ちると「グループにしただけで式が消える」になる。
+    改名は部分一致(width と width2)を巻き込まないことまで見る。
+    """
+    col, props = _fresh_part()
+    bpy.ops.seamless.add_primitive(type='BOX')
+    props = utils_props()
+    props.active_primitive_index = 0
+    bpy.ops.seamless.add_parameter(name="width", expression="2.7")
+    bpy.ops.seamless.add_parameter(name="width2", expression="width * 2")
+    bpy.ops.seamless.add_binding(field='size_x', expression="width + width2")
+
+    bpy.ops.seamless.duplicate_primitive(index=0)
+    props = utils_props()
+    assert len(props.primitives) == 2, f"duplicate did not add a row: {len(props.primitives)}"
+    copy = props.primitives[1]
+    assert [(b.field, b.expression) for b in copy.bindings] == [('size_x', "width + width2")], \
+        f"bindings lost on duplicate: {[(b.field, b.expression) for b in copy.bindings]}"
+
+    props.parameters[0].name = "w"
+    props = utils_props()
+    assert props.parameters[1].expression == "w * 2", props.parameters[1].expression
+    for prim in props.primitives:
+        exprs = [b.expression for b in prim.bindings]
+        assert exprs == ["w + width2"], f"rename did not follow (or hit width2): {exprs}"
+    assert all(not p.error for p in props.parameters), [p.error for p in props.parameters]
+    assert abs(props.primitives[0].size[0] - 8.1) < 1e-6, tuple(props.primitives[0].size)
+
+    from CAD_8_1_5_1.core.parameters import rename_in_expression
+    assert rename_in_expression("max(w,w2)*w", "w", "k") == "max(k,w2)*k"
+
+
 def t_inset_needs_a_flat_face():
     """Inset が曲面で効かないことを、既知の制限として固定する。
 
@@ -2665,6 +2700,7 @@ def main():
     check("rename survives proxy sync", t_rename_survives_proxy_sync)
     check("expression evaluator is safe", t_expression_evaluator_is_safe)
     check("parameter drives the shape", t_parameter_drives_the_shape)
+    check("bindings survive duplicate + rename", t_bindings_survive_duplicate_and_rename)
     check("panels registered", t_panels_registered)
     check("bake to mesh", t_bake_to_mesh)
     check("STEP export", t_step_export)

@@ -120,7 +120,29 @@ def _apply_parameters_for(self, context):
 
 class SeamlessParameter(bpy.types.PropertyGroup):
     # 3.1 ユーザーパラメータ。value は評価結果の控えで、利用者は expression を書く。
-    name: bpy.props.StringProperty(name="Name", default="p", update=_apply_parameters_for)
+    def _update_name(self, context):
+        # 変数名を変えたら、それを参照している式も書き換える。
+        # 書き換えないと参照先が全部「unknown name」になる。
+        props = getattr(self.id_data, "seamless_props", None)
+        old = self.prev_name
+        if props is not None and old and old != self.name and self.name.isidentifier():
+            from .core.parameters import rename_in_expression
+            for p in props.parameters:
+                if p != self:
+                    new_expr = rename_in_expression(p.expression, old, self.name)
+                    if new_expr != p.expression:
+                        p.expression = new_expr
+            for prim in props.primitives:
+                for b in prim.bindings:
+                    new_expr = rename_in_expression(b.expression, old, self.name)
+                    if new_expr != b.expression:
+                        b.expression = new_expr
+        if self.prev_name != self.name:
+            self.prev_name = self.name
+        _apply_parameters_for(self, context)
+
+    name: bpy.props.StringProperty(name="Name", default="p", update=_update_name)
+    prev_name: bpy.props.StringProperty(default="", options={'HIDDEN'})
     expression: bpy.props.StringProperty(name="Expression", default="1", update=_apply_parameters_for)
     value: bpy.props.FloatProperty(name="Value", default=0.0)
     error: bpy.props.StringProperty(name="Error", default="")
