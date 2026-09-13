@@ -111,6 +111,29 @@ class SeamlessFilletEdgeRadius(bpy.types.PropertyGroup):
     token: bpy.props.StringProperty(name="Edge Token", default="")
     radius: bpy.props.FloatProperty(name="Radius", default=-1.0, min=-1.0, max=100.0, step=1, update=update_primitive_numeric_preview)
 
+def _apply_parameters_for(self, context):
+    props = getattr(self.id_data, "seamless_props", None)
+    if props is not None:
+        from .core.parameters import apply_parameters
+        apply_parameters(props)
+
+
+class SeamlessParameter(bpy.types.PropertyGroup):
+    # 3.1 ユーザーパラメータ。value は評価結果の控えで、利用者は expression を書く。
+    name: bpy.props.StringProperty(name="Name", default="p", update=_apply_parameters_for)
+    expression: bpy.props.StringProperty(name="Expression", default="1", update=_apply_parameters_for)
+    value: bpy.props.FloatProperty(name="Value", default=0.0)
+    error: bpy.props.StringProperty(name="Error", default="")
+
+
+class SeamlessBinding(bpy.types.PropertyGroup):
+    # プリミティブの1欄を式で駆動する。field は core/parameters.py の BINDABLE_FIELDS の識別子。
+    # EnumProperty にしないのは、欄を増減しても古い .blend の値が壊れないようにするため。
+    field: bpy.props.StringProperty(name="Field", default="")
+    expression: bpy.props.StringProperty(name="Expression", default="", update=_apply_parameters_for)
+    error: bpy.props.StringProperty(name="Error", default="")
+
+
 def _update_primitive_name(self, context):
     # プロキシ→ツリーの同期(utils.py の「prim.name != obj.name」)は
     # オブジェクト名を正として prim.name を上書きする。パネルで打った名前を
@@ -451,6 +474,7 @@ class SeamlessPrimitive(bpy.types.PropertyGroup):
     edge_radii_active_index: bpy.props.IntProperty(name="Active Edge Radius Index", default=-1)
     reference_ref_snapshot: bpy.props.StringProperty(name="Reference Face Snapshot", default="")
     points: bpy.props.CollectionProperty(type=SeamlessPoint)
+    bindings: bpy.props.CollectionProperty(type=SeamlessBinding)
     segments_json: bpy.props.StringProperty(name="Segments JSON", default="")
 class SeamlessSketchPoint(bpy.types.PropertyGroup):
     id: bpy.props.IntProperty(name="Point ID")
@@ -558,6 +582,7 @@ class SeamlessSketchConstraint(bpy.types.PropertyGroup):
 
 class SeamlessProperties(bpy.types.PropertyGroup):
     primitives: bpy.props.CollectionProperty(type=SeamlessPrimitive)
+    parameters: bpy.props.CollectionProperty(type=SeamlessParameter)
     # V8.1.5: スケッチ編集履歴 - finalize済みスケッチのパラメトリックスナップショット群。
     # プリミティブの sketch_source_uuid から該当エントリを引いて再編集する。
     sketch_snapshots: bpy.props.CollectionProperty(type=SeamlessSketchSnapshot)

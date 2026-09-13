@@ -862,3 +862,55 @@ class SEAMLESS_PT_PropertyEditorPanel(bpy.types.Panel):
             # ただし引数の並びがずれると全プリミティブが壊れるので、やるなら慎重に。
             col.label(text="Merges coplanar faces and", icon='INFO')
             col.label(text="collinear edges. Always both.")
+
+
+class SEAMLESS_PT_ParametersPanel(bpy.types.Panel):
+    bl_label = "Parameters"
+    bl_idname = "SEAMLESS_PT_ParametersPanel"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = 'Seamless'
+    bl_options = {'DEFAULT_CLOSED'}
+
+    @classmethod
+    def poll(cls, context):
+        return poll_main(context)
+
+    def draw(self, context):
+        from ..core.parameters import BINDABLE_FIELDS, field_value
+        layout = self.layout
+        props = utils.get_active_props(context)
+        if props is None:
+            return
+
+        col = layout.column(align=True)
+        for i, p in enumerate(props.parameters):
+            row = col.row(align=True)
+            row.alert = bool(p.error)
+            row.prop(p, "name", text="")
+            row.prop(p, "expression", text="")
+            row.label(text="!" if p.error else f"= {p.value:.4g}")
+            op = row.operator("seamless.remove_parameter", text="", icon='X')
+            op.index = i
+            if p.error:
+                col.label(text=p.error, icon='ERROR')
+        col.operator("seamless.add_parameter", text="Add Parameter", icon='ADD')
+
+        if not (0 <= props.active_primitive_index < len(props.primitives)):
+            return
+        prim = props.primitives[props.active_primitive_index]
+        labels = {f[0]: f[3] for f in BINDABLE_FIELDS}
+        box = layout.box()
+        box.label(text=f"Driven fields: {prim.name}", icon='DRIVER')
+        for i, b in enumerate(prim.bindings):
+            row = box.row(align=True)
+            row.alert = bool(b.error)
+            row.label(text=labels.get(b.field, b.field))
+            row.prop(b, "expression", text="")
+            if b.field in labels and not b.error:
+                row.label(text=f"= {field_value(prim, b.field):.4g}")
+            op = row.operator("seamless.remove_binding", text="", icon='X')
+            op.index = i
+            if b.error:
+                box.label(text=b.error, icon='ERROR')
+        box.operator_menu_enum("seamless.add_binding", "field", text="Drive a Field", icon='ADD')

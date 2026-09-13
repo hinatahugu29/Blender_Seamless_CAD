@@ -5,8 +5,13 @@ from .transform import SEAMLESS_OT_InteractivePlacement, SEAMLESS_OT_Interactive
 from .bake import SEAMLESS_OT_BakeMesh
 from .ops_visual_snap import CAD_OT_visual_snap
 from .ops_offset_pick import SEAMLESS_OT_InteractiveOffsetPick
+from .parameters import SEAMLESS_OT_AddParameter, SEAMLESS_OT_RemoveParameter, SEAMLESS_OT_AddBinding, SEAMLESS_OT_RemoveBinding
 
 __all__ = [
+    'SEAMLESS_OT_AddParameter',
+    'SEAMLESS_OT_RemoveParameter',
+    'SEAMLESS_OT_AddBinding',
+    'SEAMLESS_OT_RemoveBinding',
     'SEAMLESS_OT_AddPrimitive',
     'SEAMLESS_OT_AddDynamicLoftHole',
     'SEAMLESS_OT_AddCurvePoint',

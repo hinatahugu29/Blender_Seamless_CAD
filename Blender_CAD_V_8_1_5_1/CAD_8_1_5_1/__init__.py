@@ -330,6 +330,8 @@ classes = (
     ui.SEAMLESS_AddonPreferences,
     properties.SeamlessPoint,
     properties.SeamlessFilletEdgeRadius,
+    properties.SeamlessParameter,
+    properties.SeamlessBinding,
     properties.SeamlessPrimitive,
     properties.SeamlessSketchPoint,
     properties.SeamlessSketchLine,
@@ -377,6 +379,10 @@ classes = (
     operators.SEAMLESS_OT_StartCAD,
     operators.SEAMLESS_OT_AddPart,
     operators.SEAMLESS_OT_RemovePart,
+    operators.SEAMLESS_OT_AddParameter,
+    operators.SEAMLESS_OT_RemoveParameter,
+    operators.SEAMLESS_OT_AddBinding,
+    operators.SEAMLESS_OT_RemoveBinding,
     ui.SEAMLESS_PT_SketchPanel,
     ui.SEAMLESS_PT_WorkspacePanel,
     ui.SEAMLESS_PT_DisplayPanel,
@@ -388,6 +394,7 @@ classes = (
     ui.SEAMLESS_PT_ModifyPatternPanel,
     ui.SEAMLESS_PT_FeatureTreePanel,
     ui.SEAMLESS_PT_PropertyEditorPanel,
+    ui.SEAMLESS_PT_ParametersPanel,
 )
 
 def register():

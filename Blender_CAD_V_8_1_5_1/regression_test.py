@@ -1360,6 +1360,68 @@ def t_rename_survives_proxy_sync():
         f"rename was reverted to {utils_props().primitives[0].name!r}"
 
 
+def t_expression_evaluator_is_safe():
+    """式評価器が計算でき、コードは実行しない。
+
+    .blend は他人から受け取るファイルなので、式の文字列で任意コードが
+    走ってはならない(ROADMAP 3.1 の罠)。
+    """
+    from CAD_8_1_5_1.core import parameters as P
+    assert abs(P.evaluate("width / 4 + 1", {"width": 40.0}) - 11.0) < 1e-12
+    assert abs(P.evaluate("sqrt(2) * -3 ** 2", {}) - (-9 * 2 ** 0.5)) < 1e-9
+    for bad in ["__import__('os').system('echo x')", "(1).__class__",
+                "open('x')", "[1][0]", "a if 1 else 2", "'s'", "True", "9 ** 99999"]:
+        try:
+            P.evaluate(bad, {"a": 1.0})
+        except P.ExpressionError:
+            continue
+        raise AssertionError(f"expression {bad!r} should have been rejected")
+
+    values, errors = P.evaluate_parameters([
+        ("width", "40"), ("hole", "width / 4"), ("a", "b + 1"), ("b", "a"),
+        ("c", "nope * 2"), ("d", "hole - 3.5"),
+    ])
+    assert values.get("hole") == 10.0 and values.get("d") == 6.5, values
+    assert "circular" in errors.get("a", "") and "circular" in errors.get("b", ""), errors
+    assert "unknown name" in errors.get("c", ""), errors
+
+
+def t_parameter_drives_the_shape():
+    """変数を1つ変えると、バインドした欄と形状が追従する。
+
+    X と Y で別の式にして(非対称)、軸の取り違えを捕まえる。
+    """
+    col, props = _fresh_part()
+    bpy.ops.seamless.add_primitive(type='BOX')
+    props = utils_props()
+    props.active_primitive_index = 0
+    prim = props.primitives[0]
+    prim.location = (0.0, 0.0, 0.0)
+
+    assert bpy.ops.seamless.add_parameter(name="width", expression="3.3") == {'FINISHED'}
+    bpy.ops.seamless.add_binding(field='size_x', expression="width")
+    bpy.ops.seamless.add_binding(field='size_y', expression="width / 2 - 0.4")
+    prim = utils_props().primitives[0]
+    assert len(prim.bindings) == 2, f"bindings were not added: {len(prim.bindings)}"
+    assert [b.error for b in prim.bindings] == ["", ""], [b.error for b in prim.bindings]
+    assert abs(prim.size[0] - 3.3) < 1e-6, f"field was not written: size {tuple(prim.size)}"
+
+    b = _result_bounds(col)
+    sx, sy = b[0][1] - b[0][0], b[1][1] - b[1][0]
+    assert abs(sx - 3.3) < 1e-3 and abs(sy - 1.25) < 1e-3, f"binding not applied: size {sx}, {sy}"
+
+    utils_props().parameters[0].expression = "5.1"
+    b = _result_bounds(col)
+    sx, sy = b[0][1] - b[0][0], b[1][1] - b[1][0]
+    assert abs(sx - 5.1) < 1e-3 and abs(sy - 2.15) < 1e-3, \
+        f"changing the parameter did not follow through: size {sx}, {sy}"
+
+    utils_props().parameters[0].expression = "width + 1"
+    p = utils_props().parameters[0]
+    assert "circular" in p.error, f"self reference should be reported, got {p.error!r}"
+    assert abs(utils_props().primitives[0].size[0] - 5.1) < 1e-6, "an error must leave the last good value"
+
+
 def t_inset_needs_a_flat_face():
     """Inset が曲面で効かないことを、既知の制限として固定する。
 
@@ -2601,6 +2663,8 @@ def main():
     check("sketch finalize makes geometry", t_sketch_finalize_makes_geometry)
     check("suppress leaves one feature out", t_suppress_leaves_one_feature_out)
     check("rename survives proxy sync", t_rename_survives_proxy_sync)
+    check("expression evaluator is safe", t_expression_evaluator_is_safe)
+    check("parameter drives the shape", t_parameter_drives_the_shape)
     check("panels registered", t_panels_registered)
     check("bake to mesh", t_bake_to_mesh)
     check("STEP export", t_step_export)
