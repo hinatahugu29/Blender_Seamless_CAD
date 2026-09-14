@@ -94,6 +94,23 @@ not been removed.
 If an inset comes out looking wrong, reduce the distance. This is a real defect,
 not a design limit, and a report with the model is welcome.
 
+## A fillet can refuse an edge that ends tangent to another surface
+
+**Some edges cannot be filleted, and the result is that nothing happens.** The
+usual case is an edge that stops exactly where it meets a curved surface — for
+example a cut that runs up to the wall of a hole and ends on it. The blend has
+nowhere to terminate, and the geometry kernel returns a surface that runs off
+into space while reporting success.
+
+The add-on checks the result and discards it when it is not plausible, so the
+previous shape is kept. **A fillet that appears to do nothing on an edge like
+that has been refused, not ignored.** Reducing the radius usually does not help,
+because the problem is the edge rather than the size.
+
+What does help is not creating that edge in the first place — rounding the edge
+before the cut that makes it tangent. Today the Feature Tree cannot be
+reordered, so that means building in that order from the start.
+
 ## Cleanup (Unify) is destructive to references
 
 Merging coplanar faces destroys the face identities that Fillet, Chamfer, Offset,

@@ -39,7 +39,7 @@
 <p><br></p>
 <p>We sincerely appreciate your cooperation.</p>
 <br><br></div>
-        <div style="background-color:#e7f5ef;border-left:6px solid #2e9e6b;padding:14px 18px;margin-bottom:24px;border-radius:4px;color:#14532d;">        <strong>🔄 Latest update — version 8.1.5.15 (September 2026)</strong><br>
+        <div style="background-color:#e7f5ef;border-left:6px solid #2e9e6b;padding:14px 18px;margin-bottom:24px;border-radius:4px;color:#14532d;">        <strong>🔄 Latest update — version 8.1.5.16 (September 2026)</strong><br>
         <strong>Parameters: one number can drive the whole part.</strong> A new Parameters panel
         holds named values — <code>width = 40</code>, <code>hole = width / 4</code> — and any
         feature's size, position, rotation, radius, count and similar fields can be driven by an
@@ -58,12 +58,29 @@
         <p style="margin:12px 0 4px 0;"><strong>Rename features.</strong> The name at the top of the
         property editor is now editable, and the object in the outliner follows it.</p>
 
-        <p style="margin:12px 0 4px 0;">8.1.5.15 fixes one case found while testing 8.1.5.14:
-        changing a parameter in the moment a drag was still settling could leave the parameter
-        showing the new value while the shape kept the old one. The new value is now applied as
-        soon as the drag has ended.</p>
+        <p style="margin:12px 0 4px 0;">Also fixed along the way: changing a parameter in the
+        moment a drag was still settling could leave the parameter showing the new value while the
+        shape kept the old one. The new value is now applied as soon as the drag has ended.</p>
 
-        <p style="margin:12px 0 4px 0;">No change to the geometry kernel in this release.</p>
+        <p style="margin:12px 0 4px 0;"><strong>A fillet that cannot be built no longer wrecks the
+        shape.</strong> The geometry kernel can report success and hand back a fillet that runs off
+        into space — a spike where a rounded edge should be. It happens where the chosen edge ends
+        tangent to another surface, such as an edge that stops exactly on the wall of a hole. A
+        fillet or chamfer whose result is not plausible is now discarded and the previous shape is
+        kept, so the operation does nothing instead of doing damage. If a fillet appears to have no
+        effect on an edge like that, this is why.</p>
+
+        <p style="margin:12px 0 4px 0;"><strong>The add-on now checks which geometry kernel it is
+        talking to.</strong> The kernel runs as a separate program, and on Linux it cannot be
+        overwritten while it is running — so it was possible to install an update, see the new
+        version number, and still be running the old geometry code with nothing to tell you. The
+        add-on now asks the kernel which build it is and says so in the console if it does not
+        match. Quitting every Blender window before installing remains the reliable way to update.</p>
+
+        <p style="margin:12px 0 4px 0;">One honest caveat, unchanged by this release: a large Inset
+        on a face that has a fillet on it can still come out wrong. It is a defect rather than a
+        design limit, it is written up in the manual's Limitations page, and a report with the model
+        is welcome.</p>
         </div>
 
         <div style="background-color:#f3f4f6;border-left:6px solid #9ca3af;padding:14px 18px;margin-bottom:24px;border-radius:4px;color:#374151;">        <strong>Previous update — version 8.1.5.12 (September 2026)</strong><br>
