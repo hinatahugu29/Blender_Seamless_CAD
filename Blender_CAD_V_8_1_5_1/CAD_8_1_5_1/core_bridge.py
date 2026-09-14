@@ -558,6 +558,82 @@ def _is_port_open(timeout=1.0):
                 pass
 
 
+# カーネルを最後に変更したときのアドオンの版。**アドオンの版ではない。**
+# 例: 8.1.5.13〜15 は Python だけの変更だったので、正しいカーネルは 8.1.5.12 の
+# ままだった。8.1.5.16 でカーネルに kernel_info を足したので、ここが動く。
+# Python だけ直した版のたびに3プラットフォームのカーネルを作り直さずに済む。
+# カーネルを変えたら、ここと src_rust/src/main.rs の KERNEL_BUILD を両方上げる。
+_EXPECTED_KERNEL_BUILD = "8.1.5.16"
+
+
+def query_kernel_info(timeout=_SERVER_PROBE_TIMEOUT):
+    """8080 に居るカーネルに素性を名乗らせる。
+
+    返り値は dict (kernel_build / protocol / exe / size / pid) か None。
+    **None は「答えられなかった」であって「居ない」ではない。** kernel_info を
+    知らない古いカーネルは、未知のアクションとして素通りし、1バイトも書かずに
+    接続を閉じる。したがって空応答 = このアクションより古いカーネル。
+    """
+    s = None
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.settimeout(timeout)
+        s.connect((_SERVER_HOST, _SERVER_PORT))
+        req = json.dumps({"action": "kernel_info"}).encode('utf-8')
+        s.sendall(struct.pack('<I', len(req)) + req)
+        status = s.recv(1)
+        if not status or status[0] != 1:
+            return None
+        raw = s.recv(4)
+        if len(raw) != 4:
+            return None
+        n = struct.unpack('<I', raw)[0]
+        if n == 0 or n > 65536:
+            return None
+        buf = b''
+        while len(buf) < n:
+            chunk = s.recv(n - len(buf))
+            if not chunk:
+                return None
+            buf += chunk
+        return json.loads(buf.decode('utf-8'))
+    except Exception:
+        return None
+    finally:
+        if s is not None:
+            try: s.close()
+            except Exception: pass
+
+
+def _warn_if_kernel_mismatch(context):
+    """動いているカーネルが期待した版かを確かめ、違えば言う。
+
+    **落とさない。** そのカーネルは別の Blender セッションのものかもしれず、
+    殺すとその人の作業が壊れる。できるのは、黙って間違った版で動き続けるのを
+    やめさせることだけ。
+    """
+    info = query_kernel_info()
+    if info is None:
+        utils.error_print(
+            f"Seamless: the {_SERVER_EXE_NAME} on port {_SERVER_PORT} is older than this addon "
+            f"(it does not answer kernel_info; expected build {_EXPECTED_KERNEL_BUILD}). "
+            f"Quit every Blender window, make sure no {_SERVER_EXE_NAME} is left running, "
+            "and start again -- otherwise you are running old geometry code."
+        )
+        return False
+    build = str(info.get("kernel_build", "?"))
+    if build != _EXPECTED_KERNEL_BUILD:
+        utils.error_print(
+            f"Seamless: kernel build mismatch ({context}). Running {build}, "
+            f"this addon expects {_EXPECTED_KERNEL_BUILD}. "
+            f"Kernel: {info.get('exe', '?')} ({info.get('size', '?')} bytes, pid {info.get('pid', '?')}). "
+            f"Quit every Blender window, make sure no {_SERVER_EXE_NAME} is left running, "
+            "and start again."
+        )
+        return False
+    return True
+
+
 def is_server_alive(timeout=_SERVER_PROBE_TIMEOUT):
     """ポートに居るのが本当に cad_server かを確認する。
 
@@ -567,8 +643,8 @@ def is_server_alive(timeout=_SERVER_PROBE_TIMEOUT):
     1バイトが CAD プロトコルのステータス値かどうかで判定する。
     HTTP サーバー等なら 'H' などが返るので弾ける。
 
-    NOTE: 本来はマジックバイト+プロトコル版のハンドシェイクにすべきだが、
-    それは cad_server.exe 側の改修が必要なので暫定策。
+    これは「CAD の言葉で喋るか」までしか見ない。**どの版かは分からない。**
+    版は query_kernel_info() で別に聞く (カーネル側は 8.1.5.16 で実装)。
     """
     s = None
     try:
@@ -633,21 +709,19 @@ def start_server():
         if not _foreign_port_warned:
             _foreign_port_warned = True
             if is_server_alive():
-                # cad_server ではあるが、**どの版かは分からない**。プロトコルに
-                # 版を名乗る手立てが無く、is_server_alive() は「CAD の言葉で
-                # 喋るか」しか見ていない。前のセッションが残したカーネルや、
-                # アドオンを入れ替える前から動いていたカーネルをそのまま
-                # 引き継ぐと、bl_info だけ新しく中身は古い、という状態になる。
-                # 2026-09-05 の Face Inset 報告では、この線を潰すのに丸一日
-                # かかった。黙って再利用するのはやめる。
+                # 前のセッションが残したカーネルや、アドオンを入れ替える前から
+                # 動いていたカーネルをそのまま引き継ぐと、bl_info だけ新しく
+                # 中身は古い、という状態になる。2026-09-05 の Face Inset 報告
+                # では、この線を潰すのに丸一日かかった。
+                #
+                # 8.1.5.16 から版を実際に聞けるようになった。合っていれば何も
+                # 言わない — 正常時に出す警告は、次に本物が出たとき読まれない。
+                # 合わなければ _warn_if_kernel_mismatch が言う。
                 # info_print は既定で無効(utils.INFO_LOGS = False)なので
-                # error_print で出す。版の取り違えは静かに一日溶かす類の事故で、
-                # 出さないなら書く意味が無い。
-                utils.error_print(
-                    f"Seamless: warning: reusing a {_SERVER_EXE_NAME} that was already on port {_SERVER_PORT}. "
-                    "Its version cannot be checked. If you just updated the addon, quit every "
-                    f"Blender window (or kill {_SERVER_EXE_NAME}) and start again, or you may be "
-                    "running an older kernel than the addon reports."
+                # error_print で出している。版の取り違えは静かに一日溶かす類の
+                # 事故で、出さないなら書く意味が無い。
+                _warn_if_kernel_mismatch(
+                    f"reusing a {_SERVER_EXE_NAME} that was already on port {_SERVER_PORT}"
                 )
             else:
                 utils.error_print(
@@ -722,6 +796,12 @@ def start_server():
             **_POPEN_PLATFORM_KWARGS
         )
         time.sleep(0.5)
+        # 自分で起動したカーネルでも版を確かめる。Linux では動作中の実行ファイルを
+        # 上書きできない(ETXTBSY)ので、Blender を開いたままアドオンを入れ替えると
+        # .py だけ新しくなり、ディスク上のカーネルは古いまま残る。そのとき起動
+        # するのは古いバイナリで、パスもサイズも「正しい場所の正しいファイル」に
+        # 見える。自分で起動したから正しい、とは言えない (2026-09-05 の報告)。
+        _warn_if_kernel_mismatch(f"launched {exe_path}")
         _server_generation += 1
         _foreign_port_warned = False
         _step_session_imports.clear()

@@ -156,6 +156,14 @@ fn send_update_result(stream: &mut TcpStream, r: seamless_core::AsyncResult) {
     }
 }
 
+/// カーネルを最後に変更したときのアドオンの版。アドオンの `bl_info` とは別物で、
+/// Python だけを直した版では動かさない。core_bridge.py の
+/// `_EXPECTED_KERNEL_BUILD` と対で保つこと (`kernel_info` で突き合わせている)。
+const KERNEL_BUILD: &str = "8.1.5.16";
+
+/// `kernel_info` の応答の形を変えたら上げる。中身の追加は形を変えないので据え置き。
+const KERNEL_PROTOCOL: u32 = 1;
+
 // Each stack gets its own worker thread. Tasks are thinned: only the latest
 // queued task is executed, older ones are cancelled with status byte 2.
 fn run_stack_worker(rx: mpsc::Receiver<UpdateTask>) {
@@ -790,6 +798,40 @@ fn handle_client(mut stream: TcpStream, workers: StackWorkers) {
             let stack_ptr = req["stack_ptr"].as_i64().unwrap_or(0) as isize;
             PREVIEW_STATE.lock().unwrap().remove(&stack_ptr);
             stream.write_all(&[1u8]).unwrap();
+
+        } else if action == "kernel_info" {
+            // カーネルに素性を名乗らせる。応答は 1u8 + u32 長 + JSON 文字列。
+            // 失敗し得ないので 0u8 の枝は無い (measure_stack 等と同じ長さ前置き)。
+            //
+            // なぜ要るか: アドオンは 8080 に既にいる cad_server をそのまま
+            // 再利用する。その相手の版を確かめる手立ちが今まで無く、
+            // 「bl_info は新しいがカーネルは古い」状態が黙って成立していた。
+            // 2026-09 の Face Inset 報告では、この線を潰すのに丸一日かかった。
+            //
+            // KERNEL_BUILD はアドオンの版そのものではない。**カーネルを最後に
+            // 変更したときのアドオンの版**。例えば 8.1.5.13〜15 は Python だけの
+            // 変更だったので、いずれも 8.1.5.12 のカーネルで正しかった。
+            // Python だけ直した版のたびに3プラットフォームを作り直さずに済む。
+            // カーネルを変えたら、ここと core_bridge.py の
+            // _EXPECTED_KERNEL_BUILD を**両方**上げること。
+            let exe = std::env::current_exe()
+                .map(|p| p.to_string_lossy().into_owned())
+                .unwrap_or_else(|_| String::from("unknown"));
+            let size = std::env::current_exe()
+                .and_then(|p| std::fs::metadata(p))
+                .map(|m| m.len())
+                .unwrap_or(0);
+            let info = serde_json::json!({
+                "kernel_build": KERNEL_BUILD,
+                "protocol": KERNEL_PROTOCOL,
+                "exe": exe,
+                "size": size,
+                "pid": std::process::id(),
+            }).to_string();
+            let ib = info.as_bytes();
+            stream.write_all(&[1u8]).unwrap();
+            stream.write_all(&(ib.len() as u32).to_le_bytes()).unwrap();
+            stream.write_all(ib).unwrap();
         }
     }
 }

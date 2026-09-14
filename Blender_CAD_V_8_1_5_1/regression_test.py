@@ -116,6 +116,35 @@ def t_register():
     assert hasattr(bpy.ops, "seamless"), "no seamless operator namespace after register()"
 
 
+def t_kernel_reports_its_build():
+    """動いているカーネルが版を名乗り、アドオンの期待と一致する。
+
+    これが落ちるときの意味は2つしかない。
+      1. deploy.py を通していない (CLAUDE.md §2 の罠)。ビルドしただけでは
+         配布物のカーネルは変わらない
+      2. カーネルを変更したのに core_bridge._EXPECTED_KERNEL_BUILD か
+         main.rs の KERNEL_BUILD の片方しか上げていない
+
+    どちらも「直したはずの修正が入っていない状態で、他のテストが通る」という
+    一番たちの悪い形になるので、幾何のテストより前に置く。
+    """
+    from CAD_8_1_5_1 import core_bridge
+    core_bridge.start_server()
+    info = core_bridge.query_kernel_info()
+    assert info is not None, (
+        "the kernel did not answer kernel_info -- it predates the handshake. "
+        "Did you run deploy.py after cargo build?"
+    )
+    assert info.get("kernel_build") == core_bridge._EXPECTED_KERNEL_BUILD, (
+        f"kernel build {info.get('kernel_build')!r} but the addon expects "
+        f"{core_bridge._EXPECTED_KERNEL_BUILD!r} (kernel: {info.get('exe')})"
+    )
+    # 素性が取れていることも見る。exe と size が空なら、報告を受けたときに
+    # 「どのバイナリか」を特定する手段がまた無くなる
+    assert info.get("exe"), "kernel_info has no exe path"
+    assert info.get("size"), "kernel_info has no binary size"
+
+
 def t_add_primitives():
     """プリミティブを追加すると prim とプロキシが1対1で生える。"""
     col, props = _fresh_part()
@@ -2688,6 +2717,7 @@ def t_one_undo_is_one_step():
 
 def main():
     check("register / enable", t_register)
+    check("kernel reports its build", t_kernel_reports_its_build)
     check("add primitives -> proxies", t_add_primitives)
     # 背景実行の undo は不安定(§4-6)。**実行位置に敏感**で、他の検査を
     # ひととおり済ませた後(スイート末尾)に置くと Blender ごと落ちた。
