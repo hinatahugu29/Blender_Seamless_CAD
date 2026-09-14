@@ -667,12 +667,6 @@ class SeamlessWireframeManager:
             if has_transform and not is_active:
                 gpu.matrix.multiply_matrix(stack.matrix)
             
-            # デバッグログの出力
-            if not hasattr(self, "_dbg_count"): self._dbg_count = 0
-            self._dbg_count += 1
-            if self._dbg_count % 30 == 0:
-                print(f"[CAD Draw Debug] stack={ptr} active={is_active} active_dragging={active_is_dragging} is_active_dragging={is_active_dragging} coords_len={len(stack.coords) if hasattr(stack, 'coords') else 0} batch={stack.batch is not None}")
-                
             if stack.batch and not is_active_dragging:
                 gpu.state.depth_test_set(edge_depth_test)
                 gpu.state.blend_set('ALPHA')
