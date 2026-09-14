@@ -178,3 +178,8 @@ _archive_scratch/
 # 中身は cad_server と OCCT の .so/.dylib なので、追跡すると履歴が
 # バイナリで膨らむ。配布物として保存したい版は Releases に上げる。
 /MAC_LINUX/
+
+# 不具合の再現録画。5MB あり、リポジトリ本体(1MB未満)に対して大きすぎるので
+# 追跡しない。消さないこと — Face Inset の破綻の唯一の視覚的証拠で、
+# FEATURE_GAPS.md 6. から参照している。
+/broken/

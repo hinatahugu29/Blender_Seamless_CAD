@@ -83,6 +83,17 @@ happens and nothing is reported.
 
 The flat ends of a cylinder or cone are fine, as is every face of a box.
 
+**A large inset on a filleted face can produce a wrong shape.** Past a certain
+distance — the threshold depends on the model — the inward offset breaks down
+instead of failing cleanly. On Windows the result is geometry that is visibly
+wrong, and the fillet above it may disappear. On Linux and macOS the same
+operation used to kill the kernel outright; since 8.1.5.12 the fault is caught
+and a simpler method is used instead, so it no longer crashes, but the cause has
+not been removed.
+
+If an inset comes out looking wrong, reduce the distance. This is a real defect,
+not a design limit, and a report with the model is welcome.
+
 ## Cleanup (Unify) is destructive to references
 
 Merging coplanar faces destroys the face identities that Fillet, Chamfer, Offset,
