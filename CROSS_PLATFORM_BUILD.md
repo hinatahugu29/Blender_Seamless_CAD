@@ -483,6 +483,31 @@ Windows は MSVC が SE translator から直接投げるので、この定義な
    valgrind（配布 Blender はシンボルが無いので、こちらのハンドラに足跡を
    打って突き合わせる）。
 
+   ---
+
+   **条件が分かった（2026-09-14）。変数は Blender の版だった。**
+
+   WSL2 / Ubuntu、同じ ZIP・同じカーネルで、Blender の版だけを変えて実測:
+
+   | Blender | 結果 |
+   |---|---|
+   | **5.1.1** | `one undo = one step` で **必ず** abort（`terminate called after throwing an instance of 'std::bad_optional_access'`）。6/6 |
+   | **5.2.1 LTS** | **59 passed / 0 failed / 0 skipped**。完走 |
+
+   **アドオンの版とは無関係。** 8.1.5.15 の配布 ZIP を 8.1.5.15 当時の
+   `regression_test.py`（こちらの変更が1行も入っていないもの）で回しても、
+   5.1.1 では 2/2 で落ちる。つまり 8.1.5.16 が持ち込んだ回帰ではなく、
+   **5.1.1 で前から落ちていたのを、誰も Linux で走らせていなかったから
+   見えていなかった**だけ。
+
+   Python のトレースは出ない。Blender が C++ 側で abort するので、
+   `bpy.ops.ed.undo()` のアサートまで到達しない。
+
+   **未検証:** 実機の Linux（WSL ではない）で 5.1.1 が同じか。Blender 5.1.1 側の
+   不具合なのか、こちらの触り方が 5.1.1 でだけ露呈するのかも未分離。
+   利用者が 5.1.x を使っている場合は効く話なので、**`docs` の動作環境に
+   5.2 以降を推奨と書くか、原因を追うかは要判断**。
+
 6. **Intel Mac** — 現在対象外。必要なら `macos-14` 上でクロスビルドできるが
    （`CMAKE_OSX_ARCHITECTURES=x86_64` + `cargo --target x86_64-apple-darwin`）、
    arm64 上で x86_64 バイナリは起動できないため、**スモークテストの関門が
