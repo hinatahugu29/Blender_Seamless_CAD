@@ -750,6 +750,82 @@ namespace {
     }
 }
 
+namespace {
+
+// フィレット/面取りの事後条件。
+//
+// なぜ要るか: OCCT の ChFi3d は、**成功したと言いながら壊れた形を返すこと**が
+// ある。稜線が別の面に接して終わる場合(例: 穴の円筒に接する切り口の稜線)に
+// 起きやすく、そのとき f.IsDone() は true で、体積も表面積ももっともらしい
+// 値になる。2026-09-14 の実測 (1x1x1 の部品、穴の半径と同じ位置で終わる稜線):
+//
+//   半径   体積     面積     結果の bbox
+//   (無し) 0.6994   6.578    -0.5 .. 0.5          正常
+//   0.05   0.7785   5.609    max y = 0.601
+//   0.10   0.1619  15.806    min x = -3.161, max z = 4.652
+//   0.15   0.7057   6.647    min x = -1.596, max z = 2.195
+//
+// **体積と面積では見抜けない。bbox だけが全ての半径で破綻を示した。**
+//
+// 判定の根拠: 半径 r のブレンド面は元の稜線から距離 r 以内にしか存在し得ない。
+// つまり結果の bbox は、入力の bbox を r 膨らませた箱に収まらなければならない。
+// 余裕を 1.5r 取っているのは、Bnd_Box 自体の誤差のため(AddOptimal でも
+// NURBS では多少膨らむ)。上の実測は全て 1.5r でも捕まる。
+//
+// 超えていたら**入力の形状をそのまま返す**。フィレットが1つ効かないほうが、
+// 黙って形が壊れるよりましで、IsDone() が false のときの既存の挙動とも揃う。
+//
+// 検証の状況(正直に書く):
+//   - 上の実測は利用者の 20260914-1.blend そのもの。ガードを入れると、どの半径でも
+//     結果が「そのフィレットを抑制したとき」と**完全に一致**する (体積 0.699394、
+//     bbox ±0.5)。壊れた形だけが落ちている
+//   - 回帰テスト 59/0/0。正常なフィレットと面取りは巻き込んでいない
+//   - **この破綻を合成モデルで再現するテストは書けていない。** 箱+穴+角落とし+
+//     接する稜線、までは組めたが、ガードを外しても通ってしまった。利用者のモデルに
+//     しか無い条件が残っている。通ってしまうテストは無いより悪いので入れていない。
+//     再現の現物は broken/ ではなく利用者の .blend の側にある
+bool blend_result_within_bounds(const TopoDS_Shape& before, const TopoDS_Shape& after,
+                                double radius, const char* tag) {
+    if (before.IsNull() || after.IsNull()) return false;
+    try {
+        Bnd_Box box_before, box_after;
+        // AddOptimal: 制御点ではなく実際の面から求める。既定の Add は NURBS で
+        // 大きめに出るので、ここでは誤判定の元になる。
+        BRepBndLib::AddOptimal(before, box_before);
+        BRepBndLib::AddOptimal(after, box_after);
+        if (box_before.IsVoid() || box_after.IsVoid()) return true;  // 測れないなら通す
+
+        Standard_Real bx0, by0, bz0, bx1, by1, bz1;
+        Standard_Real ax0, ay0, az0, ax1, ay1, az1;
+        box_before.Get(bx0, by0, bz0, bx1, by1, bz1);
+        box_after.Get(ax0, ay0, az0, ax1, ay1, az1);
+
+        const double slack = 1.5 * radius + 1e-6;
+        const double lo_b[3] = {bx0, by0, bz0}, hi_b[3] = {bx1, by1, bz1};
+        const double lo_a[3] = {ax0, ay0, az0}, hi_a[3] = {ax1, ay1, az1};
+        const char* axis = "xyz";
+        for (int i = 0; i < 3; ++i) {
+            double over_lo = lo_b[i] - lo_a[i];
+            double over_hi = hi_a[i] - hi_b[i];
+            double worst = over_lo > over_hi ? over_lo : over_hi;
+            if (worst > slack) {
+                log_debug(std::string("[BLEND_GUARD] ") + tag + " rejected: the result grows "
+                          + std::to_string(worst) + " beyond the input along " + axis[i]
+                          + " (radius " + std::to_string(radius) + ", allowed " + std::to_string(slack)
+                          + "). OCCT reported success but the shape is not plausible.");
+                return false;
+            }
+        }
+        return true;
+    } catch (...) {
+        // 判定そのものが落ちたなら、判定を理由に形を捨てない
+        log_debug(std::string("[BLEND_GUARD] ") + tag + ": bounds check threw; keeping the result");
+        return true;
+    }
+}
+
+}  // namespace
+
 TopoDS_Shape apply_fillet(const TopoDS_Shape& result_shape, const std::string& target_lineage, double radius, std::map<std::string, TopoDS_Shape>* face_map, const std::map<std::string, double>* edge_radii_map) {
     if (result_shape.IsNull()) return result_shape;
     if (radius < 1e-6 || target_lineage.empty()) return result_shape;
@@ -948,6 +1024,10 @@ TopoDS_Shape apply_fillet(const TopoDS_Shape& result_shape, const std::string& t
             g_modifier_perf_breakdown.fillet_build_ms += std::chrono::duration<double, std::milli>(t_build_end - t_build_start).count();
             if (f.IsDone()) {
                 TopoDS_Shape out_shape = f.Shape();
+                // OCCT が「できた」と言っても、形が成立しているとは限らない。
+                if (!blend_result_within_bounds(result_shape, out_shape, radius, "FILLET")) {
+                    return result_shape;
+                }
                 auto t_history_start = std::chrono::high_resolution_clock::now();
                 for (const auto& entry : token_source_edges) {
                     if (entry.first.rfind("SemLoop", 0) != 0) continue;
@@ -1152,6 +1232,11 @@ TopoDS_Shape apply_chamfer(const TopoDS_Shape& result_shape, const std::string& 
             f.Build();
             if (f.IsDone()) {
                 TopoDS_Shape out_shape = f.Shape();
+                // 面取りも同じ性質を持つ(ChFi3d の同じ系統)。判定も同じで良い:
+                // 距離 radius の面取り面が、元の bbox を radius より外へ出ることはない。
+                if (!blend_result_within_bounds(result_shape, out_shape, radius, "CHAMFER")) {
+                    return result_shape;
+                }
                 for (const auto& entry : token_source_edges) {
                     if (entry.first.rfind("SemLoop", 0) != 0) continue;
                     std::vector<TopoDS_Edge> resolved = collect_history_edges_from_builder(f, entry.second);
