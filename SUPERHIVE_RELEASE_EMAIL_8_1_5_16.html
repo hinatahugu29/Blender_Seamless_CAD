@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Seamless CAD 8.1.5.16 — release note (email)</title>
+</head>
+<!--
+  メール配信用。Superhive の配信フォームへ <body> の中身を貼る。
+
+  メール HTML の制約に合わせてある。触るときは壊さないこと:
+    - CSS はすべてインライン。style 要素は Gmail 等で落とされる
+    - レイアウトは table。div + flex/grid は Outlook が解釈しない
+    - 画像・Web フォント・外部 CSS を一切使わない(読み込みブロックで崩れるため)
+    - 本体幅 600px 固定。これ以上広いとモバイルで横スクロールになる
+    - 色は hex 直書き。CSS 変数もダークモード分岐も使えない
+    - JavaScript は不可
+-->
+<body style="margin:0;padding:0;background-color:#f4f5f7;">
+
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f4f5f7;">
+<tr>
+<td align="center" style="padding:24px 12px;">
+
+<table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="width:600px;max-width:600px;background-color:#ffffff;border-radius:8px;overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;">
+
+  <!-- header -->
+  <tr>
+    <td style="background-color:#2e7d32;padding:28px 32px;">
+      <p style="margin:0;color:#ffffff;font-size:13px;letter-spacing:0.08em;text-transform:uppercase;">Seamless CAD</p>
+      <h1 style="margin:6px 0 0 0;color:#ffffff;font-size:26px;line-height:1.25;font-weight:700;">Version 8.1.5.16 is out</h1>
+      <p style="margin:10px 0 0 0;color:#d8ecd9;font-size:15px;line-height:1.5;">One number can now drive the whole part — plus the ability to switch a single feature off, and two fixes to how the add-on behaves when the geometry kernel gets something wrong.</p>
+    </td>
+  </tr>
+
+  <!-- body -->
+  <tr>
+    <td style="padding:28px 32px 8px 32px;color:#1f2933;font-size:15px;line-height:1.65;">
+
+      <h2 style="margin:0 0 8px 0;font-size:19px;line-height:1.3;color:#14532d;">Parameters: one value, everywhere it matters</h2>
+      <p style="margin:0 0 16px 0;">A new <strong>Parameters</strong> panel holds named values — <code style="background-color:#f1f3f5;padding:1px 5px;border-radius:3px;font-family:Consolas,Monaco,monospace;font-size:13px;">width = 40</code>, <code style="background-color:#f1f3f5;padding:1px 5px;border-radius:3px;font-family:Consolas,Monaco,monospace;font-size:13px;">hole = width / 4</code>. Any feature's size, position, rotation, radius or count can be driven by an expression. Change <code style="background-color:#f1f3f5;padding:1px 5px;border-radius:3px;font-family:Consolas,Monaco,monospace;font-size:13px;">width</code> and everything that depends on it follows.</p>
+      <p style="margin:0 0 22px 0;">Rename a parameter and the expressions using it are updated for you. A typo or a circular reference is shown on its own row, and the model keeps its last good value instead of breaking. Expressions accept arithmetic and a short list of maths functions and nothing else — so a .blend file someone sends you cannot run code through them.</p>
+
+      <h2 style="margin:0 0 8px 0;font-size:19px;line-height:1.3;color:#14532d;">Switch one feature off</h2>
+      <p style="margin:0 0 22px 0;">An eye icon on each Feature Tree row takes that feature out of the model without deleting it. Unlike the rollback pin, everything below it keeps working. Feature names are editable now too, and the object in the outliner follows the name you give it.</p>
+
+      <h2 style="margin:0 0 8px 0;font-size:19px;line-height:1.3;color:#14532d;">A fillet that cannot be built no longer wrecks the shape</h2>
+      <p style="margin:0 0 22px 0;">The geometry kernel can report success and hand back a fillet that runs off into space — a spike where a rounded edge should be. It happens where the chosen edge ends tangent to another surface, such as an edge that stops exactly on the wall of a hole. A fillet or chamfer whose result is not plausible is now discarded and your previous shape is kept. <strong>If a fillet seems to do nothing on an edge like that, it was refused rather than ignored</strong> — and a smaller radius usually will not help, because the problem is the edge rather than the size.</p>
+
+      <h2 style="margin:0 0 8px 0;font-size:19px;line-height:1.3;color:#14532d;">The add-on checks which kernel it is talking to</h2>
+      <p style="margin:0 0 8px 0;">Geometry is computed by a separate program that ships inside the add-on. On Linux that program cannot be overwritten while it is running, so it was possible to install an update, see the new version number, and still be running the old geometry code with nothing anywhere to tell you.</p>
+      <p style="margin:0 0 22px 0;">The add-on now asks the kernel which build it is, and says so in the console if it does not match.</p>
+
+    </td>
+  </tr>
+
+  <!-- how to update -->
+  <tr>
+    <td style="padding:0 32px;">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#eef6fb;border-left:4px solid #2b6cb0;border-radius:4px;">
+        <tr>
+          <td style="padding:16px 20px;color:#1a365d;font-size:14px;line-height:1.6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;">
+            <strong style="font-size:15px;">Updating</strong><br>
+            Download the build for your platform from your Superhive library and install it through Blender's <em>Install from Disk</em>, the same way as before.<br><br>
+            <strong>Quit every Blender window first.</strong> On Linux and macOS especially, installing while Blender is open can leave the old geometry program in place — the add-on will now warn you in the console if that happens, but starting clean avoids it entirely.
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+
+  <!-- honest notes -->
+  <tr>
+    <td style="padding:22px 32px 8px 32px;">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#fdf6ec;border-left:4px solid #b7791f;border-radius:4px;">
+        <tr>
+          <td style="padding:16px 20px;color:#5c4813;font-size:14px;line-height:1.6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;">
+            <strong style="font-size:15px;">Two things that are still true</strong><br><br>
+            <strong>A large Inset on a face that already has a fillet can still come out wrong.</strong> This is a defect rather than a design limit. It is written up on the manual's Limitations page, and a report with the model is genuinely welcome.<br><br>
+            <strong>macOS remains the least proven platform.</strong> The build is produced by the same automated pipeline as the others and is checked to compile, bundle, start, answer and package completely — but no individual feature has been confirmed inside Blender on a Mac by the developer. If you are on a Mac, your report is the only way that changes.
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+
+  <!-- manual link -->
+  <tr>
+    <td align="center" style="padding:26px 32px 8px 32px;">
+      <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+        <tr>
+          <td align="center" style="background-color:#2e7d32;border-radius:6px;">
+            <a href="https://hinatahugu29.github.io/Blender_Seamless_CAD/" style="display:inline-block;padding:13px 28px;color:#ffffff;font-size:15px;font-weight:600;text-decoration:none;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;">Read the manual</a>
+          </td>
+        </tr>
+      </table>
+      <p style="margin:12px 0 0 0;color:#52606d;font-size:13px;line-height:1.5;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;">hinatahugu29.github.io/Blender_Seamless_CAD</p>
+    </td>
+  </tr>
+
+  <!-- footer -->
+  <tr>
+    <td style="padding:20px 32px 28px 32px;border-top:1px solid #e4e7eb;">
+      <p style="margin:0;color:#52606d;font-size:13px;line-height:1.6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;">Thank you for using Seamless CAD. Corrections keep coming from what you report — several of the changes above started as a message from one user.</p>
+    </td>
+  </tr>
+
+</table>
+
+</td>
+</tr>
+</table>
+
+</body>
+</html>
