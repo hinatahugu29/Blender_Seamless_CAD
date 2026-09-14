@@ -183,3 +183,8 @@ _archive_scratch/
 # 追跡しない。消さないこと — Face Inset の破綻の唯一の視覚的証拠で、
 # FEATURE_GAPS.md 6. から参照している。
 /broken/
+
+# 報告者へ送った返信。公開向けに書かれた文章ではないので追跡しない。
+# 消さないこと — 2026-09 の Face Inset 調査の経緯の一次資料で、
+# FEATURE_GAPS.md 6. から参照している。技術的に生きている事実はそちらへ写してある。
+reply_to_reporter-*.md
