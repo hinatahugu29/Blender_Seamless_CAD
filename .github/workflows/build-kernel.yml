@@ -132,13 +132,19 @@ jobs:
           path: ${{ github.workspace }}/occt-install
           key: occt-${{ matrix.label }}-${{ env.OCCT_TAG }}-${{ env.OCCT_CACHE_EPOCH }}
 
+      # rustc の版は src_rust/rust-toolchain.toml で固定している。ランナー同梱の
+      # rustc をそのまま使っていた頃は、カーネルのソースを変えていないのに
+      # 版ごとにバイナリのサイズが動いた (8.1.5.12→8.1.5.15 で 1,456 バイト)。
+      # サイズは「どのカーネルが動いているか」の唯一の手掛かりなので、勝手に
+      # 動かれると利用者の版を特定できなくなる。
       - name: Build the kernel
         env:
           OCCT_ROOT: ${{ github.workspace }}/occt-install
         run: |
           set -euo pipefail
-          rustc --version
           cd "$ADDON_ROOT/src_rust"
+          # rust-toolchain.toml を読ませるため src_rust に入ってから聞く
+          rustc --version
           cargo build --release --bin cad_server
 
       # Windows 版が DLL をアドオン直下に置いているのと同じことを、
