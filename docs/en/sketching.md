@@ -31,6 +31,7 @@ rather than making you rebuild it.
 | **Show Grid** | Displays the sketch grid |
 | **Grid Snap** | Snaps drawing to the grid |
 | **Vertex Snap** | Reuses a nearby existing point instead of creating a new one |
+| **Geometry Snap** | Snaps to the corners of solids you have already built |
 
 Show Grid and Grid Snap are independent — you can snap to a grid you are not
 displaying, and display one you are not snapping to.
@@ -39,6 +40,20 @@ displaying, and display one you are not snapping to.
 already drawn. Turn it off when you want points to stay separate even where they
 sit close together, or hold <kbd>Ctrl</kbd> to skip it for one click. Selecting
 vertices still works with it off.
+
+**Geometry Snap** is also on by default, and reaches outside the sketch: it
+snaps to the vertices of the solids already in the Feature Tree. An orange
+square marks the one it has caught. The vertices are projected onto the sketch
+plane first, so a corner below or above the plane can still be snapped to, at
+the point directly through it.
+
+It takes precedence over Grid Snap. Running both would pull a corner you just
+met back onto the nearest grid step. Axis lock and hovering an existing sketch
+point both still come first.
+
+> Geometry Snap puts the point in the right place. It does not tie it to the
+> solid: move the solid later and the sketch point stays where it was. For a
+> reference that you can hang constraints on, use **Project Geometry** below.
 
 ## Pen tools
 
@@ -56,6 +71,31 @@ One tool is active at a time.
 | **Center Rect** | A rectangle from its centre outwards |
 | **Trim / Extend** | Trims or extends by clicking |
 | **Slot** | A slot |
+| **Project Geometry** | Brings an edge of an existing solid into the sketch |
+
+## Project Geometry
+
+This tool copies geometry you have already modelled into the sketch, flattened
+onto the sketch plane.
+
+- **Click an edge** — brings in that one edge
+- **Shift+Click a face** — brings in the whole outline of that face
+- **As Construction** — brings it in as construction lines instead of real
+  geometry, so it guides the drawing without becoming part of the profile
+
+What arrives is the shape seen looking along the sketch plane's normal, the way
+a shadow falls. A circle lying parallel to the sketch plane arrives as a circle
+with its radius intact. A slanted face arrives foreshortened, because that is
+what its projection is — if you wanted that face at its true size, make it the
+sketch plane with **on Face** instead.
+
+Curves that cannot stay exact, such as a tilted circle, arrive as a chain of
+short lines.
+
+> **Projected geometry is a snapshot.** It does not update when the solid it
+> came from changes, and it does not break when that solid is deleted. The
+> panel repeats this while the tool is active. Re-project if you need it to
+> match again.
 
 ## Selection Info
 

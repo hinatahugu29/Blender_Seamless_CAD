@@ -128,6 +128,25 @@ Fillet, Offset and Shell refer to, so applying it in the middle of a live histor
 can break operations below it. It is most useful as a final step before export.
 See [How it works](concepts.md) for the reasoning.
 
+**Split (Plane)** cuts the result with a plane.
+
+The plane is placed the same way a Mirror plane is: **Plane Normal** chooses the
+axis it faces, and the feature's own position and rotation move it. Drag the
+feature in the viewport to put the cut where you want it.
+
+**Keep** decides what survives:
+
+| Keep | Result |
+|---|---|
+| **Positive Side** | The half the normal points towards |
+| **Negative Side** | The other half |
+| **Both** | Both halves, as separate solids |
+
+**Both** does not remove anything — it divides. Use it when you want the parts
+of one body to be addressable separately.
+
+A plane that misses the shape entirely leaves it alone rather than emptying it.
+
 The **refresh icon** beside it forces a full recompute. Use it if a result looks
 stale after an edit.
 
