@@ -532,6 +532,36 @@ Windows は MSVC が SE translator から直接投げるので、この定義な
    1回ずつ、いずれも 10/10・2/2 で abort した。**再現しないという前提は
    もう成り立たない**ので、valgrind まで進める条件は揃っている。
 
+   **原因を `sync_proxies` まで絞った（2026-10-31）。**
+
+   再現が狙って作れるようになったので、条件を削って詰めた。使ったのは
+   `regression_test.py` の関数を選んで順に呼ぶドライバ（単体スクリプトでは
+   再現しない。**スイートの先頭3本のうち `t_add_primitives` が要る**）。
+
+   | 流す順番 | 結果 |
+   |---|---|
+   | register → prims → undo | abort 3/3 |
+   | register → kernel → undo（prims を外す） | 完走 3/3 |
+   | register → prims → **depsgraph ハンドラを外す** → undo | **完走 3/3** |
+   | register → prims → undo_post ハンドラを外す → undo | abort 3/3 |
+   | register → prims → `sync_proxies` を無効化 → undo | **完走 3/3** |
+   | 同上で `_handle_settle` / `_handle_nonmodal_sync` / `_handle_modal_drag` / `update_parenting` を無効化 | いずれも abort 3/3 |
+
+   **`sync_proxies` だけが効く。** undo の適用中に depsgraph ハンドラが走り、
+   そこからプロキシの生成・削除で Blender のデータを書き換えるのが引き金。
+   素の Blender（アドオン無し）と、import だけして register しない場合は
+   どちらも 3/3 で完走するので、**Blender 単体の不具合ではない。**
+
+   §8-5 の上の表にある「ハンドラが原因 → 無効化しても 20/20」は、
+   **再現しない状態で数えた結果**だった。狙って再現できる今は逆の答えが出る。
+
+   **まだ直していない。** `undo_pre`/`undo_post` の間だけ止める案は上の表の
+   とおり効かない（問題の更新は `undo_post` の後に来る）。`sync_proxies` は
+   プロキシ同期そのもの＝チェックリスト A/B の土台なので、**雑に抑止すると
+   アドオンの根幹が壊れる**。次の一手は、undo 直後の一定期間だけ
+   `sync_proxies` を遅延させる（既存の `_arm_drag_settle` と同じ作り）か、
+   ハンドラ内で「いま undo の適用中か」を判定する手段を探すか。
+
    **これは配布判断に効く。** 「Linux は回帰テストが通る」と言える状態では
    なく、`SUPERHIVE_FAQ.html` などの記述はこの事実に合わせてある。
    利用者の実機で Ctrl+Z がどうなるかは**別問題**（背景実行の undo と
