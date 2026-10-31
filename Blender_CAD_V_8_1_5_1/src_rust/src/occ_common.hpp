@@ -87,6 +87,8 @@
 #include <BRepBuilderAPI_MakeEdge.hxx>
 #include <BRepBuilderAPI_MakeWire.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>
+#include <BRepAlgoAPI_Splitter.hxx>
+#include <gp_Pln.hxx>
 #include <BRepBuilderAPI_MakePolygon.hxx>
 #include <BRepOffsetAPI_MakePipe.hxx>
 #include <BRepOffsetAPI_MakePipeShell.hxx>

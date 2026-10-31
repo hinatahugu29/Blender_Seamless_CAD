@@ -2441,6 +2441,56 @@ def t_project_geometry_onto_sketch_plane():
     assert abs(radius - 1.0) < 1e-4, f"projected radius {radius} is not the cylinder's 1.0"
 
 
+def t_split_cuts_with_a_plane():
+    """SPLIT が平面で形状を切り、残す側を選べる。
+
+    ロードマップ フェーズ2.3。平面の決め方は MIRROR と同じで、
+    pattern_axis が法線の軸、prim の location / rotation が平面の位置。
+
+    **非対称な確認を混ぜてある**: 平面を Z=0.25 に寄せたとき、残る体積が
+    半分ではなく 1/4 になること。原点対称だけで見ていると、符号や
+    「どちら側を残すか」の取り違えが素通りする。
+    """
+    from CAD_8_1_5_1 import core_bridge
+
+    def _box_then_split(keep, loc):
+        col, props = _fresh_part()
+        bpy.ops.seamless.add_primitive(type='BOX')
+        core_bridge.update_cad_preview_forced(bpy.context)
+        before = core_bridge.measure_stack(int(col.seamless_cad_stack_ptr))[0]
+
+        bpy.ops.seamless.add_primitive(type='SPLIT')
+        prim = props.primitives[-1]
+        prim.pattern_axis = 'Z'
+        prim.split_keep = keep
+        prim.location = loc
+        core_bridge.update_cad_preview_forced(bpy.context)
+        after = core_bridge.measure_stack(int(col.seamless_cad_stack_ptr))[0]
+        return before, after
+
+    # 原点の XY 平面で切れば、どちら側も半分
+    v0, v_pos = _box_then_split('POSITIVE', (0.0, 0.0, 0.0))
+    assert abs(v_pos - v0 / 2.0) < 1e-4, f"keeping the positive half gave {v_pos}, expected {v0 / 2.0}"
+    _, v_neg = _box_then_split('NEGATIVE', (0.0, 0.0, 0.0))
+    assert abs(v_neg - v0 / 2.0) < 1e-4, f"keeping the negative half gave {v_neg}, expected {v0 / 2.0}"
+
+    # BOTH は両方残すので体積は変わらない(割れているだけ)
+    _, v_both = _box_then_split('BOTH', (0.0, 0.0, 0.0))
+    assert abs(v_both - v0) < 1e-4, f"keeping both halves changed the volume: {v_both} vs {v0}"
+
+    # 非対称: 平面を上へ寄せると、法線側に残るのは 1/4
+    _, v_quarter = _box_then_split('POSITIVE', (0.0, 0.0, 0.25))
+    assert abs(v_quarter - v0 / 4.0) < 1e-4, (
+        f"a plane at z=0.25 should leave a quarter, got {v_quarter} of {v0}"
+    )
+
+    # 形状から外れた平面では、消えずに素通りする
+    _, v_miss = _box_then_split('POSITIVE', (0.0, 0.0, 50.0))
+    assert abs(v_miss - v0) < 1e-4, (
+        f"a plane that misses the shape must leave it alone, got {v_miss} of {v0}"
+    )
+
+
 def t_step_export():
     """STEP を書き出せる。
 
@@ -2832,6 +2882,7 @@ def main():
     check("panels registered", t_panels_registered)
     check("bake to mesh", t_bake_to_mesh)
     check("project geometry onto the sketch plane", t_project_geometry_onto_sketch_plane)
+    check("split cuts with a plane", t_split_cuts_with_a_plane)
     check("STEP export", t_step_export)
     check("STEP export scale", t_step_export_scale)
     check("STEP carries part name", t_step_export_carries_part_name)

@@ -494,7 +494,7 @@ static std::mutex g_occ_mutex;
             bool is_p = (p_type == "MIRROR" || p_type == "ARRAY_LINEAR" || p_type == "ARRAY_CIRCULAR" || p_type == "REVOLVE" || p_type == "SWEEP" || p_type == "LOFT" || p_type == "FACE_REVOLVE" || p_type == "FACE_LOFT");
             
             bool prim_params_dirty = is_p || (stack->param_hashes.count(p_uuid) == 0 || stack->param_hashes[p_uuid] != p_geo_hash);
-            bool is_mod = (p_type == "FILLET" || p_type == "CHAMFER" || p_type == "FACE_OFFSET" || p_type == "FACE_INSET" || p_type == "DRAFT" || p_type == "SHELL" || p_type == "CLEANUP");
+            bool is_mod = (p_type == "FILLET" || p_type == "CHAMFER" || p_type == "FACE_OFFSET" || p_type == "FACE_INSET" || p_type == "DRAFT" || p_type == "SHELL" || p_type == "CLEANUP" || p_type == "SPLIT");
             log_debug("[LOOP] i=" + std::to_string(i) + " is_mod=" + std::to_string(is_mod) + " is_p=" + std::to_string(is_p) + " dirty=" + std::to_string(prim_params_dirty));
             
             if (is_mod) {
@@ -769,7 +769,7 @@ static std::mutex g_occ_mutex;
                                 ? assign_cache_it->second[c_idx_loop]
                                 : computed_sub_target_lineages[c_idx_loop];
 
-                            if (!sub_target_lineage.empty() || p_type == "SHELL" || p_type == "CLEANUP") {
+                            if (!sub_target_lineage.empty() || p_type == "SHELL" || p_type == "CLEANUP" || p_type == "SPLIT") {
                                 auto t_mod_apply_start = std::chrono::high_resolution_clock::now();
                                 OCC_CATCH_SIGNALS
                                 log_debug("[MOD_TRACE] dispatch " + p_type + " sub=" + sub_target_lineage);
@@ -782,6 +782,19 @@ static std::mutex g_occ_mutex;
                                 else if (p_type == "FACE_INSET") mod_c = apply_face_inset(mod_c, sub_target_lineage, radii[i], extrude_heights[i], &current_face_map);
                                 else if (p_type == "DRAFT") mod_c = apply_draft(mod_c, reference_lineages[i], sub_target_lineage, radii[i], &current_face_map, global_comp);
                                 else if (p_type == "SHELL") mod_c = apply_shell(mod_c, sub_target_lineage, radii[i], &current_face_map);
+                                // SPLIT は面を狙わない。平面の決め方は MIRROR と同じ
+                                // (pattern_axis = 法線の軸 / location = 平面上の点 / rotation)。
+                                // 残す側は top_shapes に "SPLIT_POSITIVE" 等で載せてある
+                                // (専用フィールドを足すとバイナリ経路の互換も崩れるため、
+                                //  SPLIT では使われない既存の文字列枠を借りている)。
+                                else if (p_type == "SPLIT") {
+                                    std::string keep = top_shapes[i] ? top_shapes[i] : "";
+                                    if (keep.rfind("SPLIT_", 0) == 0) keep = keep.substr(6);
+                                    else keep = "POSITIVE";
+                                    mod_c = apply_split(mod_c, pattern_axes[i] ? pattern_axes[i] : "Z", keep,
+                                                        locs[i*3+0], locs[i*3+1], locs[i*3+2],
+                                                        rots[i*3+0], rots[i*3+1], rots[i*3+2], &current_face_map);
+                                }
                                 else if (p_type == "CLEANUP") {
                                     ShapeUpgrade_UnifySameDomain unif_mod(mod_c, true, true, true);
                                     // OCCT の既定角度許容誤差は Precision::Angular() = 1e-12 rad

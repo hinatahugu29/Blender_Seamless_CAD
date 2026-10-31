@@ -563,7 +563,7 @@ def _is_port_open(timeout=1.0):
 # ままだった。8.1.5.16 でカーネルに kernel_info を足したので、ここが動く。
 # Python だけ直した版のたびに3プラットフォームのカーネルを作り直さずに済む。
 # カーネルを変えたら、ここと src_rust/src/main.rs の KERNEL_BUILD を両方上げる。
-_EXPECTED_KERNEL_BUILD = "8.1.5.20"
+_EXPECTED_KERNEL_BUILD = "8.1.5.21"
 
 
 def query_kernel_info(timeout=_SERVER_PROBE_TIMEOUT):
@@ -2040,7 +2040,11 @@ def _update_cad_preview_internal_for_col(col, context, fast_preview=False, overr
             "count": prim.count,
             "distance": getattr(prim, "turns", 3.0) if prim.type == 'HELIX' else prim.distance,
             "pattern_axis": prim.pattern_axis,
-            "top_shape": prim.top_shape,
+            # SPLIT は残す側を top_shape の枠に載せて送る。専用フィールドを
+            # 足すと JSON だけでなくバイナリ経路(332行の並び)も変わり、
+            # アドオンとカーネルの版が食い違ったときに全プリミティブが壊れる。
+            # 借り物だと分かるよう "SPLIT_" を前置し、カーネル側で剥がす。
+            "top_shape": (f"SPLIT_{prim.split_keep}" if prim.type == 'SPLIT' else prim.top_shape),
             "bot_shape": prim.bot_shape,
             "sweep_path_uuid": getattr(prim, "sweep_path_uuid", ""),
             "sweep_profile_uuid": getattr(prim, "sweep_profile_uuid", ""),

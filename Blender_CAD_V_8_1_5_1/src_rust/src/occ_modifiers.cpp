@@ -2188,4 +2188,88 @@ TopoDS_Shape apply_face_revolve(const TopoDS_Shape& result_shape, const std::str
     }
     return TopoDS_Shape();
 }
+
+// ---------------------------------------------------------------------------
+// SPLIT — 平面で形状を切る (ロードマップ フェーズ2.3)
+//
+// 平面の決め方は MIRROR と同じ約束にしてある: pattern_axis が法線の軸、
+// location が平面上の点、rotation がその軸の回転。利用者が既に知っている
+// 操作感をそのまま流用できる。
+//
+// keep は "POSITIVE"(法線側を残す) / "NEGATIVE"(反対側) / "BOTH"(両方残す)。
+// BOTH は形状を2つのソリッドに割る。部分フィレットのように「面を割りたい
+// だけ」の用途はこちら。
+//
+// **切った結果が空になるときは元の形状をそのまま返す。** 平面が形状から
+// 外れている場合に body が消えるより、何も起きない方が原因を追いやすい。
+// ---------------------------------------------------------------------------
+TopoDS_Shape apply_split(const TopoDS_Shape& b, const std::string& axis, const std::string& keep,
+                         double x, double y, double z, double rx, double ry, double rz,
+                         std::map<std::string, TopoDS_Shape>* face_map) {
+    if (b.IsNull()) return b;
+
+    gp_Dir d(0, 0, 1);
+    if (axis == "X") d = gp_Dir(1, 0, 0);
+    else if (axis == "Y") d = gp_Dir(0, 1, 0);
+    gp_Trsf r; gp_Quaternion q;
+    q.SetEulerAngles(gp_Extrinsic_XYZ, rx, ry, rz);
+    r.SetRotation(q);
+    d.Transform(r);
+
+    const gp_Pnt origin(x, y, z);
+    const gp_Pln plane(origin, d);
+
+    try {
+        OCC_CATCH_SIGNALS
+        // 無限平面の面を工具にする。境界を持たせると、形状より小さい板で
+        // 切ろうとして「切れているのに割れない」状態になる。
+        TopoDS_Face tool = BRepBuilderAPI_MakeFace(plane).Face();
+        if (tool.IsNull()) return b;
+
+        TopTools_ListOfShape args;  args.Append(b);
+        TopTools_ListOfShape tools; tools.Append(tool);
+
+        BRepAlgoAPI_Splitter sp;
+        sp.SetArguments(args);
+        sp.SetTools(tools);
+        sp.Build();
+        if (!sp.IsDone()) return b;
+
+        TopoDS_Shape cut = sp.Shape();
+        if (cut.IsNull()) return b;
+
+        if (face_map) update_face_id_map_from_history(*face_map, sp.History());
+
+        if (keep == "BOTH") return cut;
+
+        const bool want_positive = (keep != "NEGATIVE");
+
+        // 重心の符号で残す側を選ぶ。平面上に乗ってしまう破片は出ない
+        // (Splitter は平面をまたぐ固体しか分けない)ので、符号 0 の扱いは
+        // 考えなくてよい。
+        TopoDS_Compound kept;
+        BRep_Builder builder;
+        builder.MakeCompound(kept);
+        int kept_count = 0;
+
+        for (TopExp_Explorer ex(cut, TopAbs_SOLID); ex.More(); ex.Next()) {
+            GProp_GProps gp;
+            BRepGProp::VolumeProperties(ex.Current(), gp);
+            const gp_Pnt com = gp.CentreOfMass();
+            const double signed_dist = gp_Vec(origin, com).Dot(gp_Vec(d));
+            if ((signed_dist > 0.0) == want_positive) {
+                builder.Add(kept, ex.Current());
+                ++kept_count;
+            }
+        }
+
+        // 片側に何も残らないなら、平面が形状を外れているか向きが逆。
+        // 消すより素通しする。
+        if (kept_count == 0) return b;
+        return kept;
+    } catch (...) {
+        return b;
+    }
+}
+
 }

@@ -231,6 +231,7 @@ class SeamlessPrimitive(bpy.types.PropertyGroup):
             ('GROUP_START', "Group Start", "Start a nested boolean group"),
             ('GROUP_END', "Group End", "End a nested boolean group"),
             ('CLEANUP', "Topology Cleanup", "Unify coplanar/cocylindrical faces (Slow)"),
+            ('SPLIT', "Split", "Cut the result with a plane and keep one side, or both"),
         ],
         default='BOX',
         update=update_cad_preview
@@ -288,6 +289,21 @@ class SeamlessPrimitive(bpy.types.PropertyGroup):
     
     # For POLYGON / GEAR
     sides: bpy.props.IntProperty(name="Sides / Teeth", default=6, min=3, max=500, update=update_primitive_numeric_preview)
+    # SPLIT: 平面のどちら側を残すか。平面そのものは pattern_axis(法線の軸)と
+    # この prim の location / rotation で決まる。MIRROR と同じ約束。
+    # カーネルへは top_shape の枠を借りて "SPLIT_<値>" の形で送る
+    # (core_bridge の送信側を見ること。専用フィールドを足すとバイナリ経路の
+    #  並びが変わり、版の食い違いで全プリミティブが壊れるため)。
+    split_keep: bpy.props.EnumProperty(
+        name="Keep",
+        items=[
+            ('POSITIVE', "Positive Side", "Keep the side the axis points to"),
+            ('NEGATIVE', "Negative Side", "Keep the opposite side"),
+            ('BOTH', "Both", "Keep both halves as separate solids"),
+        ],
+        default='POSITIVE',
+        update=update_cad_preview
+    )
     module: bpy.props.FloatProperty(name="Module", default=1.0, min=0.01, max=100.0, update=update_primitive_numeric_preview)
     pressure_angle: bpy.props.FloatProperty(name="Pressure Angle", default=20.0, min=0.1, max=45.0, update=update_primitive_numeric_preview)
     

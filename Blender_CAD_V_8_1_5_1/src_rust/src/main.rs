@@ -159,7 +159,7 @@ fn send_update_result(stream: &mut TcpStream, r: seamless_core::AsyncResult) {
 /// カーネルを最後に変更したときのアドオンの版。アドオンの `bl_info` とは別物で、
 /// Python だけを直した版では動かさない。core_bridge.py の
 /// `_EXPECTED_KERNEL_BUILD` と対で保つこと (`kernel_info` で突き合わせている)。
-const KERNEL_BUILD: &str = "8.1.5.20";
+const KERNEL_BUILD: &str = "8.1.5.21";
 
 /// `kernel_info` の応答の形を変えたら上げる。中身の追加は形を変えないので据え置き。
 const KERNEL_PROTOCOL: u32 = 1;

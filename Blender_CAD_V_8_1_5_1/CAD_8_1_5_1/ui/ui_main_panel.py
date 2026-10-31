@@ -365,6 +365,8 @@ class SEAMLESS_PT_ModifyPatternPanel(bpy.types.Panel):
         layout.label(text="Topology:", icon='MOD_DECIM')
         row = layout.row(align=True)
         row.operator("seamless.add_primitive", text="Cleanup (Unify)", icon='MOD_DECIM').type = 'CLEANUP'
+        row_split = col.row(align=True)
+        row_split.operator("seamless.add_primitive", text="Split (Plane)", icon='MOD_BEVEL').type = 'SPLIT'
         row.operator("seamless.force_recompute", text="", icon='FILE_REFRESH')
 
         layout.label(text="Layout & Patterns:", icon='OUTLINER_OB_GROUP_INSTANCE')
@@ -423,6 +425,7 @@ class SEAMLESS_PT_FeatureTreePanel(bpy.types.Panel):
             if prim.type == 'GROUP_START': icon = 'COLLECTION_NEW'
             if prim.type == 'GROUP_END': icon = 'FILE_FOLDER'
             if prim.type == 'CLEANUP': icon = 'MOD_DECIM'
+            if prim.type == 'SPLIT': icon = 'MOD_BOOLEAN'
             
             btn_row = row.row(align=True)
             if is_rolled_back or prim.suppressed:
@@ -747,6 +750,13 @@ class SEAMLESS_PT_PropertyEditorPanel(bpy.types.Panel):
             names = [next((p.name for p in props.primitives if p.uuid == u), "Unknown") for u in uuids]
             box_pat.label(text=f"Profiles: {', '.join(names)}", icon='INFO')
 
+        elif active_prim.type == 'SPLIT':
+            box_pat = col.column(align=True)
+            box_pat.label(text="Split Plane:", icon='MOD_BOOLEAN')
+            box_pat.prop(active_prim, "pattern_axis", text="Plane Normal")
+            box_pat.prop(active_prim, "split_keep", text="Keep")
+            box_pat.label(text="Move this feature to place the plane.", icon='INFO')
+
         elif active_prim.type == 'FACE_REVOLVE':
             box_pat = col.column(align=True)
             box_pat.label(text="Face Revolve Setup:", icon='MOD_SCREW')
@@ -756,7 +766,7 @@ class SEAMLESS_PT_PropertyEditorPanel(bpy.types.Panel):
         # ここは「専用の UI を持たない型」の受け皿。専用ブロックを持つ型は必ず
         # この集合に入れること。入れ忘れるとここで吸い込まれ、下の専用ブロックが
         # 永久に実行されない。CLEANUP が実際そうなっていて、無関係な size が出ていた。
-        elif active_prim.type not in {'FILLET', 'CHAMFER', 'FACE_OFFSET', 'FACE_INSET', 'DRAFT', 'SHELL', 'FACE_LOFT', 'FACE_REVOLVE', 'SLOT', 'CONE', 'TORUS', 'POLYGON', 'GEAR', 'VARIABLE_BOX', 'SWEEP', 'LOFT', 'HELIX', 'POLYLINE', 'CLEANUP', 'GROUP_START', 'GROUP_END'}:
+        elif active_prim.type not in {'FILLET', 'CHAMFER', 'FACE_OFFSET', 'FACE_INSET', 'DRAFT', 'SHELL', 'FACE_LOFT', 'FACE_REVOLVE', 'SLOT', 'CONE', 'TORUS', 'POLYGON', 'GEAR', 'VARIABLE_BOX', 'SWEEP', 'LOFT', 'HELIX', 'POLYLINE', 'CLEANUP', 'SPLIT', 'GROUP_START', 'GROUP_END'}:
             # ARC は make_arc(radius, a_start, a_end) だけで作られ size を読まない。
             # 大きさは Radius で決まるので、size を出すと死んだ欄になる。
             if active_prim.type != 'ARC':

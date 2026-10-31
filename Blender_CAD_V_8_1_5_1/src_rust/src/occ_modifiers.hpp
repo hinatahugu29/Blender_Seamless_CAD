@@ -31,6 +31,11 @@ namespace occ_core {
     TopoDS_Shape apply_face_offset(const TopoDS_Shape& result_shape, const std::string& target_lineage, double radius, std::map<std::string, TopoDS_Shape>* face_map = nullptr);
     TopoDS_Shape apply_face_inset(const TopoDS_Shape& result_shape, const std::string& target_lineage, double inset_dist, double extrude_dist, std::map<std::string, TopoDS_Shape>* face_map = nullptr);
     TopoDS_Shape apply_draft(const TopoDS_Shape& result_shape, const std::string& ref_lineage, const std::string& target_lineage, double radius_angle, std::map<std::string, TopoDS_Shape>* face_map = nullptr, const TopoDS_Shape& global_shape = TopoDS_Shape());
+    // SPLIT: 平面で切る。axis/location/rotation の約束は MIRROR と同じ。
+    // keep は "POSITIVE" / "NEGATIVE" / "BOTH"。
+    TopoDS_Shape apply_split(const TopoDS_Shape& b, const std::string& axis, const std::string& keep,
+                             double x, double y, double z, double rx, double ry, double rz,
+                             std::map<std::string, TopoDS_Shape>* face_map = nullptr);
     TopoDS_Shape apply_shell(const TopoDS_Shape& result_shape, const std::string& target_lineage, double thickness, std::map<std::string, TopoDS_Shape>* face_map = nullptr);
     TopoDS_Shape apply_face_loft(const TopoDS_Shape& result_shape, const std::string& target_lineage, std::map<std::string, TopoDS_Shape>* face_map = nullptr);
     TopoDS_Shape apply_face_revolve(const TopoDS_Shape& result_shape, const std::string& target_lineage, const std::string& axis, double angle_deg, double x, double y, double z, double rx, double ry, double rz, std::map<std::string, TopoDS_Shape>* face_map = nullptr);
