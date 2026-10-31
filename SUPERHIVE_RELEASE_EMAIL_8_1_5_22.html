@@ -84,7 +84,7 @@
             <strong style="font-size:15px;">Three things to be straight about</strong><br><br>
             <strong>A large Inset on a face that already has a fillet can still come out wrong.</strong> This is a defect rather than a design limit. It is written up on the manual's Limitations page, and a report with the model is genuinely welcome.<br><br>
             <strong>macOS remains the least proven platform.</strong> The build comes from the same automated pipeline as the others and is checked to compile, bundle, start, answer and package completely — but no individual feature has been confirmed inside Blender on a Mac by the developer. If you are on a Mac, your report is the only way that changes.<br><br>
-            <strong>The Linux package has not been through the full test suite this time.</strong> It was run against the shipped Linux build at 8.1.5.12 and again at 8.1.5.16, by hand, and it passed. That has not been repeated since, so this build has had the pipeline checks and nothing more. The suite — 62 checks now — runs on Windows on every change.
+            <strong>The Linux package does not currently pass the full test suite.</strong> It was run against the shipped Linux build before this release and it does not complete: it reaches the undo check and Blender aborts there, about six runs in seven. Older builds of the add-on behave exactly the same, so this is not something in the new work — and nobody has reported it while using Blender normally, which may be because the test drives undo from a headless session rather than by pressing Ctrl+Z. It is open and being looked at. The suite is 62 checks and passes on Windows on every change.
           </td>
         </tr>
       </table>

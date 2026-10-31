@@ -48,9 +48,11 @@
         <strong>If you are on Linux or macOS, please read this bit.</strong> Those builds come from the
         same source and the same automated pipeline as the Windows one, and the pipeline checks that
         each compiles, bundles its libraries, starts and answers. The Linux package has also been put through the full
-        test suite exactly as you receive it — 59 checks, last done on 8.1.5.16.
-        <strong>That has not been repeated since</strong>, so on a newer build Linux has had the
-        pipeline checks and nothing more. <strong>macOS
+        test suite exactly as you receive it. <strong>As of October 2026 it does not pass</strong>:
+        the run reaches the undo check and Blender aborts there most times, on older builds of
+        the add-on as much as new ones. Nobody using Blender normally has reported it — the test
+        drives undo from a headless session, which is a different path from Ctrl+Z — but it is
+        open and being looked at. <strong>macOS
         has had none of that</strong>: no feature has been verified inside Blender on a Mac by me.
         Neither platform has had the checks that need a real screen, which are done on Windows only.
         If something does not work, it is worth reporting — on macOS especially, your report is the
