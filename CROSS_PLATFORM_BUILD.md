@@ -609,6 +609,52 @@ Windows は MSVC が SE translator から直接投げるので、この定義な
    `__cxa_throw` に止めて、どこから投げられているかを見るのが筋。
    WSL には gdb も valgrind も入っていないので、導入から。
 
+   **gdb を入れて実際のスタックを取った（2026-10-31）。**
+
+   WSL に gdb 17.1 を導入し、abort の瞬間で止めた。配布 Blender は
+   シンボルが無いので関数名はほとんど出ないが、**出た部分が決定的**だった。
+
+   ```
+   #5  std::terminate()
+   #6  __cxa_throw
+   #7  blender 0x4d1065          <- RNA 側。ここが投げている
+   #8  blender 0x567a7e
+   #9  PyObject_GetAttr          <- Python の属性アクセス
+   #10 _PyObject_GetMethod
+   #11 _PyEval_EvalFrameDefault  <- Blender から呼ばれた Python
+   ...
+   #17 _PyObject_MakeTpCall      <- bpy.ops.ed.undo()
+   #19 PyEval_EvalCode           <- こちらのスクリプト
+   ```
+
+   **落ちているのは「undo の最中に Blender が呼び出した Python が、RNA の
+   属性を読んだ瞬間」。** RNA が `std::bad_optional_access` を投げ、Python の
+   例外に変換されないまま terminate する。`catch throw` で止めた最初の
+   throw と、abort 時のスタックが一致したので、途中で握り潰された別の
+   throw ではない。
+
+   **その Python が誰なのかは、まだ特定できていない。** 消去済み:
+
+   | 候補 | 結果 |
+   |---|---|
+   | `update_active_cad_collection`（PointerProperty の update） | **外すと完走 3/3**。ただし計測すると、このコールバックが走るのは `ed.undo()` の**前**(Part 生成時)で、undo 中には呼ばれていない |
+   | 同コールバックを「undo の窓の中だけ」素通りさせる | abort 5/5（窓に入らない＝undo 中に呼ばれていないことの裏付け） |
+   | depsgraph ハンドラを undo 中だけ素通りさせる | abort 3/3 |
+   | msgbus の購読を外す | abort 3/3 |
+   | PointerProperty の poll を無害なものに差し替え | abort 3/3 |
+
+   つまり **「外すと直る」ものと「undo 中に呼ばれている」ものが一致しない。**
+   外して直るコールバックは、undo より前に作る状態を変えているだけ。
+
+   **ここで2回、効かない修正を書いて revert した。** 1回目は undo の窓で
+   `sync_proxies` を止めるもの、2回目は同じ窓で update コールバックを
+   止めるもの。どちらも「無効化すると直る」を「undo 中に悪さをしている」と
+   読み替えたのが誤り。**この取り違えはこの節で3回目**なので、次に触る人は
+   まず「それは undo 中に本当に呼ばれているか」を計測すること。
+
+   次は、undo 中に呼ばれる Python を**全部**列挙するところから。
+   `sys.settrace` を仕掛けて `ed.undo()` の間だけ記録するのが素直。
+
    **次の一手はここから。** プロキシのどの作り方が undo を壊すのかを見る。
    `sync_proxies` の中を段階的に無効化する（オブジェクト生成だけ / メッシュ
    差し替えだけ / カスタムプロパティだけ）のが、同じドライバで続けられる。
