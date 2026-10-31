@@ -179,6 +179,13 @@ class SeamlessPrimitive(bpy.types.PropertyGroup):
     # 旧.blendファイルでは空文字列のまま(=編集不可として安全にデグレードする)。
     sketch_source_uuid: bpy.props.StringProperty(name="Sketch Source UUID", default="")
     group_selected: bpy.props.BoolProperty(name="Group Selected", default=False)
+    # Feature Tree 上で座標リストを開くかどうかだけを持つ表示用のフラグ。
+    # update を付けないこと。付けると開閉のたびに履歴のフル送信が走る。
+    show_points: bpy.props.BoolProperty(
+        name="Show Points",
+        description="Expand the point coordinates of this curve in the Feature Tree",
+        default=False
+    )
     # 3.2 Suppress: この1行だけを履歴から外す。ロールバックと違い後続は生きている。
     # 下流の lineage 参照(面・辺トークン)は外した分だけずれうる。それは他社 CAD と同じ扱い。
     suppressed: bpy.props.BoolProperty(

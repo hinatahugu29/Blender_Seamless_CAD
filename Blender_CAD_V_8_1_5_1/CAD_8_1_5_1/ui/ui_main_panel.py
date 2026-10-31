@@ -439,22 +439,30 @@ class SEAMLESS_PT_FeatureTreePanel(bpy.types.Panel):
                 nesting_level += 1
             
             if prim.type in {'CURVE', 'SURFACE', 'POLYLINE'} and i == props.active_primitive_index:
-                pts_box = box.column(align=True)
-                for j, pt in enumerate(prim.points):
-                    prow = pts_box.row(align=True)
-                    prow.prop(pt, "co", text=f"P{j}")
-                    if prim.type == 'POLYLINE':
-                        prow.prop(pt, "use_fillet", text="", icon='MOD_BEVEL', toggle=True)
-                    op_add = prow.operator("seamless.add_curve_point_at", text="", icon='ADD')
-                    op_add.prim_index = i
-                    op_add.point_index = j + 1
-                    op_del = prow.operator("seamless.remove_curve_point_at", text="", icon='X')
-                    op_del.prim_index = i
-                    op_del.point_index = j
-                
-                op_add_end = pts_box.operator("seamless.add_curve_point_at", text="Add Point", icon='ADD')
-                op_add_end.prim_index = i
-                op_add_end.point_index = len(prim.points)
+                # スケッチ由来の曲線は点が数十個あるので、既定では畳んでおく。
+                # 畳んでいても点数は見えるようにする。
+                pts_header = box.row(align=True)
+                pts_header.prop(prim, "show_points", text="", emboss=False,
+                                icon='DISCLOSURE_TRI_DOWN' if prim.show_points else 'DISCLOSURE_TRI_RIGHT')
+                pts_header.label(text=f"Points ({len(prim.points)})")
+
+                if prim.show_points:
+                    pts_box = box.column(align=True)
+                    for j, pt in enumerate(prim.points):
+                        prow = pts_box.row(align=True)
+                        prow.prop(pt, "co", text=f"P{j}")
+                        if prim.type == 'POLYLINE':
+                            prow.prop(pt, "use_fillet", text="", icon='MOD_BEVEL', toggle=True)
+                        op_add = prow.operator("seamless.add_curve_point_at", text="", icon='ADD')
+                        op_add.prim_index = i
+                        op_add.point_index = j + 1
+                        op_del = prow.operator("seamless.remove_curve_point_at", text="", icon='X')
+                        op_del.prim_index = i
+                        op_del.point_index = j
+
+                    op_add_end = pts_box.operator("seamless.add_curve_point_at", text="Add Point", icon='ADD')
+                    op_add_end.prim_index = i
+                    op_add_end.point_index = len(prim.points)
             
             dup_op = btn_row.operator("seamless.duplicate_primitive", text="", icon='DUPLICATE')
             dup_op.index = i
