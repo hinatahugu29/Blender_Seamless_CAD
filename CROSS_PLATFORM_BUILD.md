@@ -655,6 +655,57 @@ Windows は MSVC が SE translator から直接投げるので、この定義な
    次は、undo 中に呼ばれる Python を**全部**列挙するところから。
    `sys.settrace` を仕掛けて `ed.undo()` の間だけ記録するのが素直。
 
+   **`sys.settrace` で経路が確定した（2026-10-31）。**
+
+   推測で候補を潰すのをやめ、`ed.undo()` の間だけ `sys.settrace` を仕掛けて
+   呼ばれた Python を全部記録した。**undo の最中に、こちらのハンドラは
+   確かに呼ばれている**:
+
+   ```
+   depsgraph_update_handler
+     -> core_bridge.trigger_dependent_updates
+     -> core_bridge._update_cad_preview_internal_for_col
+   ```
+
+   記録が途切れる直前の行は `utils.py:1617` 付近、つまり
+
+   ```python
+   any_dragging = is_transform_modal or any(
+       getattr(getattr(col, "seamless_props", None), "is_dragging", False)
+       for col in changed_cols)
+   ```
+
+   **`col.seamless_props` が gdb の言う `PyObject_GetAttr`。** `changed_cols` は
+   ハンドラの前半で掴んだ Collection の集合で、undo の復元中にはそれが
+   もう有効でない。`getattr` に既定値を渡していても意味がない ―
+   例外は Python のものではなく C++ の `std::bad_optional_access` なので、
+   既定値に落ちる前に terminate する。
+
+   **タイミングも確定した。** undo_pre と undo_post の間にハンドラは
+   一度も呼ばれない。危ないのは **undo_post の後、まだ `ed.undo()` の中に
+   いる間に来る1回**。§8-5 冒頭の「問題の更新は undo_post の後に来る」は
+   正しかった。
+
+   **対症療法は効くが、代償がある。** 「undo_pre/post のあと最初の1回だけ
+   ハンドラを素通りさせる」を入れると:
+
+   | | 結果 |
+   |---|---|
+   | Linux 再現手順 | **abort 0/5**（完全に止まる） |
+   | Linux フルスイート | abort 0/3、**61 passed / 1 failed** |
+   | Windows フルスイート | **61 passed / 1 failed** |
+
+   落ちる1本はどちらも `one undo = one step`（`['BOX']` のはずが
+   `['BOX', 'CYLINDER']`）。**undo の粒度が変わってしまう。** これは
+   2026-07-30 に直した「Ctrl+Z を2回押さないと戻らない」の再発そのもので、
+   クラッシュと引き換えにして良いものではない。実装は revert 済み。
+
+   **本筋の修正はこう。** `changed_cols` に Collection の参照を持ち越すのを
+   やめ、**名前で `bpy.data` から引き直す**。8.1.5.11 で `users_collection`
+   に対して行ったのと同じ対処で、§8-5 の上の方に前例がある。ハンドラを
+   止めないので undo の粒度は変わらない。`_handle_nonmodal_sync` の
+   戻り値の型を変えることになるため、影響範囲を見てから入れること。
+
    **次の一手はここから。** プロキシのどの作り方が undo を壊すのかを見る。
    `sync_proxies` の中を段階的に無効化する（オブジェクト生成だけ / メッシュ
    差し替えだけ / カスタムプロパティだけ）のが、同じドライバで続けられる。
