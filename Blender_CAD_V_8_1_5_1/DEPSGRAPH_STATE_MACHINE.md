@@ -91,6 +91,14 @@ stateDiagram-v2
 
 ---
 
+> **Undo との関係に注意（2026-10-31 判明）。** `one undo = one step` が
+> 成り立っているのは Blender の undo が `seamless_props` を巻き戻すからでは**ない**。
+> undo が戻すのはプロキシ(オブジェクト)で、`props.primitives` を合わせているのは
+> `_handle_nonmodal_sync` の「消えたプロキシに対応する prim を消す」処理。
+> **そしてその照合を行うハンドラ呼び出しが、Linux で Blender ごと落ちる呼び出しでもある。**
+> ハンドラを undo 中だけ止めると、クラッシュと一緒にロールバックも消える。
+> 詳細と実測は `CROSS_PLATFORM_BUILD.md` §8-5。
+
 ## 3. handler 本体のフェーズ(上から順)
 
 | # | 行 | フェーズ | やること | 抜ける？ |
