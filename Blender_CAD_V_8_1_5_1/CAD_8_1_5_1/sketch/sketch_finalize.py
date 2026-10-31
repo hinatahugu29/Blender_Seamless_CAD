@@ -597,6 +597,8 @@ def finalize_sketch(context, props, sketch_uuid=None):
     props.sketch_selected_point_id_2 = -1
     props.sketch_selected_line_id = -1
     props.sketch_selected_line_id_2 = -1
+    from .sketch_geom_snap import invalidate as _invalidate_geom_snap
+    _invalidate_geom_snap()
     sketch_globals._reference_matrix = None
     update_cad_preview(None, context)
 

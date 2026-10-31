@@ -27,6 +27,8 @@ _grid_step = 1.0
 _dimension_label_hitboxes = []
 
 _midpoint_snap_co = None
+# 既存の立体の頂点へ吸着した位置(スケッチ平面ローカル)。sketch_geom_snap が入れる。
+_geom_snap_co = None
 _trim_preview_coords = None
 _extend_preview_coords = None
 

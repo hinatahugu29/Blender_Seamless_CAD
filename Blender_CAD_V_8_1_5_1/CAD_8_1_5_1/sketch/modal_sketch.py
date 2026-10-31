@@ -14,6 +14,7 @@ from .sketch_solver import solve_gcs_external, find_arc_by_line_id
 from .sketch_finalize import is_point_in_polygon, finalize_sketch, calculate_circle_points, calculate_arc_points
 from .states import STATE_CLASSES
 from .sketch_draw import draw_sketch_3d, draw_sketch_2d
+from . import sketch_geom_snap
 
 
 
@@ -72,6 +73,7 @@ class SEAMLESS_OT_StartSketch(bpy.types.Operator):
         # 描画ハンドラの登録
         # Handlers are now centrally managed by gpu_manager.py
         
+        sketch_geom_snap.invalidate()
         sketch_globals._history_stack = []
         sketch_globals._arc_points = []
         sketch_globals._circle_points = []
@@ -198,7 +200,21 @@ class SEAMLESS_OT_SketchDrawTool(bpy.types.Operator):
                         
                     hover_pid = props.sketch_hover_point_id
                     should_grid_snap = getattr(props, "sketch_grid_snap", False) and sketch_globals._axis_lock is None
-                    
+
+                    # 既存の立体への吸着。グリッドより先に見て、掴めたらグリッドは
+                    # 見送る。両方効かせると、せっかく合わせた角から刻みの方へ
+                    # 引き戻されてしまう。軸ロック中とスケッチ点のホバー中は、
+                    # そちらの意図が優先なので何もしない。
+                    sketch_globals._geom_snap_co = None
+                    if (getattr(props, "sketch_snap_geometry", True)
+                            and sketch_globals._axis_lock is None
+                            and hover_pid == -1):
+                        geom_co = sketch_geom_snap.find_snap(context, mat, hit_pos, coord)
+                        if geom_co is not None:
+                            hit_pos = geom_co
+                            sketch_globals._geom_snap_co = geom_co
+                            should_grid_snap = False
+
                     if should_grid_snap:
                         is_hovering_other = hover_pid != -1
                         if is_hovering_other and getattr(self, '_is_dragging', False):

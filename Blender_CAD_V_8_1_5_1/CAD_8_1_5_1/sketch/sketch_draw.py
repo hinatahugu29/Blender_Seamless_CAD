@@ -547,6 +547,21 @@ def draw_sketch_3d(context, props):
             batch = batch_for_shader(shader, 'LINES', {"pos": _transform_coords([ep1, ep2])})
             batch.draw(shader)
 
+        # 既存の立体への吸着表示。中点スナップの三角と区別がつくように四角で描く。
+        if getattr(sketch_globals, "_geom_snap_co", None) is not None:
+            g_snap = sketch_globals._geom_snap_co
+            gx, gy, gz = g_snap.x, g_snap.y, 0.0
+            size = 0.06
+            c1 = (gx - size, gy - size, gz)
+            c2 = (gx + size, gy - size, gz)
+            c3 = (gx + size, gy + size, gz)
+            c4 = (gx - size, gy + size, gz)
+            box_coords = [c1, c2, c2, c3, c3, c4, c4, c1]
+            gpu.state.line_width_set(3.0)
+            shader.uniform_float("color", (1.0, 0.6, 0.0, 1.0))
+            batch = batch_for_shader(shader, 'LINES', {"pos": _transform_coords(box_coords)})
+            batch.draw(shader)
+
         # 中点スナップ表示
         if getattr(sketch_globals, "_midpoint_snap_co", None) is not None:
             m_snap = sketch_globals._midpoint_snap_co
