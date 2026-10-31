@@ -184,9 +184,19 @@ PERPENDICULAR / TANGENT / MIDPOINT / ARC
 
 ---
 
-## 4. STEP エクスポートが幾何だけ
+## 4. STEP エクスポートが幾何だけ → **名前・アセンブリ構造は完了 (2026-08-17)／色のみ残り**
 
-### 現状
+### 現状 — **この節は 2026-08-17 時点で古い。下の訂正を先に読むこと**
+
+> **訂正 (2026-08-17 / 確認 2026-10-31)**: ロードマップ 1.1 の実施により
+> **Part 名とアセンブリ構造は出るようになった**。`STEPCAFControl_Writer` へ
+> 載せ替え済みで、回帰テストの `STEP carries part name` と
+> `STEP all parts is an assembly` が固定している。
+> **残っているのは色だけ**で、それはロードマップの独立項目
+> 「追加項目 — Part の色」へ切り出してある（アドオン側に色プロパティが
+> 存在しないので、書き出しではなく手前の設計が本体）。
+
+以下は着手前の記述（歴史的資料）。
 
 [`src_rust/src/occ_step.cpp:93`](Blender_CAD_V_8_1_5_1/src_rust/src/occ_step.cpp:93) と同 126 行で
 `STEPControl_Writer` に直接 `Transfer` している。素の B-Rep しか出ない。
