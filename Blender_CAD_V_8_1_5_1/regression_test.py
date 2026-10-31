@@ -2358,6 +2358,120 @@ def t_panels_registered():
         cls.poll(bpy.context)
 
 
+class _FakeLayout:
+    """UILayout の代わりに draw() を素通しさせるだけの受け皿。
+
+    本物の UILayout は GUI 無しでは作れないが、パネルの draw() が踏む
+    Python のコードそのものは context さえあれば動く。row/column/box が
+    自分を返し、prop/label/operator が何でも受け取るダミーを噛ませれば、
+    **未定義の変数・属性の打ち間違い・型ごとの分岐の例外**が捕まる。
+
+    形の正しさ(どのボタンがどこに出るか)は見ない。それは実機の仕事。
+    """
+
+    def row(self, *a, **k):     return self
+    def column(self, *a, **k):  return self
+    def box(self, *a, **k):     return self
+    def split(self, *a, **k):   return self
+    def grid_flow(self, *a, **k): return self
+    def operator(self, *a, **k):
+        import types as _types
+        return _types.SimpleNamespace()
+    def __getattr__(self, name):
+        # label / prop / prop_enum / separator / template_* などは
+        # 「呼べて何も返さない」で足りる。
+        def _noop(*a, **k):
+            return None
+        return _noop
+
+
+class _PanelShim:
+    """Panel の draw() を呼ぶための self 役。
+
+    bpy の Panel サブクラスは Python から素直に実体化できない
+    (`bpy_struct.__new__(struct): expected a single argument`)。
+    draw() が self に求めるのは layout と、同じクラスに生えた補助メソッド
+    だけなので、その2つを満たす別物を渡す。
+    """
+
+    def __init__(self, cls, layout):
+        object.__setattr__(self, "_cls", cls)
+        object.__setattr__(self, "layout", layout)
+
+    def __getattr__(self, name):
+        cls = object.__getattribute__(self, "_cls")
+        # staticmethod / classmethod は束ね直してはいけない。束ねると
+        # self が余分な第1引数として渡って TypeError になる。
+        raw = None
+        for klass in getattr(cls, "__mro__", [cls]):
+            if name in getattr(klass, "__dict__", {}):
+                raw = klass.__dict__[name]
+                break
+        if isinstance(raw, (staticmethod, classmethod)):
+            return getattr(cls, name)
+        if raw is not None and callable(raw) and not isinstance(raw, type):
+            return raw.__get__(self, type(self))   # 補助メソッドを shim に束ねる
+        return getattr(cls, name)
+
+
+def t_panel_draw_does_not_raise():
+    """全パネルの draw() が例外を投げない。
+
+    8.1.5.21 で `col.row(...)` と書いた行が NameError でパネルを丸ごと
+    落とした。regression_test は当時 61 件すべて緑で、**draw() を一度も
+    呼んでいなかった**のが理由。登録の確認だけでは、パネルの中身が
+    壊れていることに気付けない。
+
+    プリミティブ型ごとに分岐する UI があるので、型を順に差し替えて
+    全部の枝を踏む。形状としては出鱈目になるが、ここで見たいのは
+    描画コードが落ちないことだけ。
+    """
+    col, props = _fresh_part()
+    bpy.ops.seamless.add_primitive(type='BOX')
+
+    panels = [name for name in dir(bpy.types) if name.startswith("SEAMLESS_PT_")]
+    assert len(panels) >= 12, f"expected at least 12 panels, found {len(panels)}: {panels}"
+
+    prim = props.primitives[0]
+    prim_types = [item.identifier for item in
+                  prim.bl_rna.properties['type'].enum_items]
+    assert 'SPLIT' in prim_types, "SPLIT is missing from the primitive type enum"
+
+    fake = _FakeLayout()
+    for p_type in prim_types:
+        prim.type = p_type
+        props.active_primitive_index = 0
+        for name in panels:
+            cls = getattr(bpy.types, name)
+            try:
+                if not cls.poll(bpy.context):
+                    continue
+            except Exception as e:
+                raise AssertionError(f"{name}.poll raised with type={p_type}: {e!r}")
+            try:
+                cls.draw(_PanelShim(cls, fake), bpy.context)
+            except Exception as e:
+                raise AssertionError(f"{name}.draw raised with type={p_type}: {e!r}")
+
+    # スケッチモードの枝も踏む(Project Geometry のヒント欄がここにある)
+    props.is_sketch_active = True
+    props.sketch_pen_mode = 'PROJECT'
+    try:
+        for name in panels:
+            cls = getattr(bpy.types, name)
+            try:
+                if not cls.poll(bpy.context):
+                    continue
+            except Exception:
+                continue
+            try:
+                cls.draw(_PanelShim(cls, fake), bpy.context)
+            except Exception as e:
+                raise AssertionError(f"{name}.draw raised in sketch mode: {e!r}")
+    finally:
+        props.is_sketch_active = False
+
+
 def t_bake_to_mesh():
     """ベイクできる。
 
@@ -2880,6 +2994,7 @@ def main():
     check("bindings survive duplicate + rename", t_bindings_survive_duplicate_and_rename)
     check("parameter change during drag not lost", t_parameter_change_during_drag_is_not_lost)
     check("panels registered", t_panels_registered)
+    check("panel draw does not raise", t_panel_draw_does_not_raise)
     check("bake to mesh", t_bake_to_mesh)
     check("project geometry onto the sketch plane", t_project_geometry_onto_sketch_plane)
     check("split cuts with a plane", t_split_cuts_with_a_plane)

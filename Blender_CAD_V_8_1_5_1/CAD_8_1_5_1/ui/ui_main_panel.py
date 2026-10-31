@@ -365,8 +365,7 @@ class SEAMLESS_PT_ModifyPatternPanel(bpy.types.Panel):
         layout.label(text="Topology:", icon='MOD_DECIM')
         row = layout.row(align=True)
         row.operator("seamless.add_primitive", text="Cleanup (Unify)", icon='MOD_DECIM').type = 'CLEANUP'
-        row_split = col.row(align=True)
-        row_split.operator("seamless.add_primitive", text="Split (Plane)", icon='MOD_BEVEL').type = 'SPLIT'
+        row.operator("seamless.add_primitive", text="Split (Plane)", icon='MOD_BOOLEAN').type = 'SPLIT'
         row.operator("seamless.force_recompute", text="", icon='FILE_REFRESH')
 
         layout.label(text="Layout & Patterns:", icon='OUTLINER_OB_GROUP_INSTANCE')
