@@ -555,6 +555,39 @@ Windows は MSVC が SE translator から直接投げるので、この定義な
    §8-5 の上の表にある「ハンドラが原因 → 無効化しても 20/20」は、
    **再現しない状態で数えた結果**だった。狙って再現できる今は逆の答えが出る。
 
+   **修正を試して外した（2026-10-31）。絞り込みの読み方が間違っていた。**
+
+   `sync_proxies` を無効化すると落ちない、という結果から「undo の最中に
+   `sync_proxies` が走るのが引き金」と読んだが、**それは誤り**だった。
+   `undo_pre` / `undo_post` にフックを置き、その間 `sync_proxies` を
+   止める実装を入れたところ、**5/5 で落ちたまま**。
+
+   そこで `sync_proxies` の呼び出し元を全部スタック付きで記録したところ、
+   実際の並びはこうだった:
+
+   ```
+   [probe] sync_proxies  <- add_primitive (CYLINDER) の中、undo の前
+   [probe] sync_proxies  <- depsgraph ハンドラ、これも undo の前
+   [probe] undo_pre fired
+   [probe] undo_post fired
+   terminate called after throwing an instance of 'std::bad_optional_access'
+   ```
+
+   **undo の最中に `sync_proxies` は一度も呼ばれていない。** Python のフレームは
+   どこにも無く、落ちているのは Blender が undo を畳み終えるところ。
+   `sync_proxies` を無効化すると落ちなくなるのは、**undo より前に作られる
+   プロキシのデータが違うものになるから**で、undo 中に何かをしているからではない。
+
+   つまり犯人は「undo 中の書き換え」ではなく「`sync_proxies` が残すデータ」。
+   `undo_pre`/`undo_post` で窓を切る方針は、この並びでは原理的に効かない。
+   入れた変更は revert 済み（効かないガードを残すと、次の人が「対策済み」と
+   読んでしまう）。
+
+   **次の一手はここから。** プロキシのどの作り方が undo を壊すのかを見る。
+   `sync_proxies` の中を段階的に無効化する（オブジェクト生成だけ / メッシュ
+   差し替えだけ / カスタムプロパティだけ）のが、同じドライバで続けられる。
+   Blender 側のシンボルが要る段階に入ったら gdb か valgrind（WSL には未導入）。
+
    **まだ直していない。** `undo_pre`/`undo_post` の間だけ止める案は上の表の
    とおり効かない（問題の更新は `undo_post` の後に来る）。`sync_proxies` は
    プロキシ同期そのもの＝チェックリスト A/B の土台なので、**雑に抑止すると
