@@ -2457,7 +2457,7 @@ def t_split_cuts_with_a_plane():
         col, props = _fresh_part()
         bpy.ops.seamless.add_primitive(type='BOX')
         core_bridge.update_cad_preview_forced(bpy.context)
-        before = core_bridge.measure_stack(int(col.seamless_cad_stack_ptr))[0]
+        before = core_bridge.measure_stack(int(col.seamless_cad_stack_ptr))["volume"]
 
         bpy.ops.seamless.add_primitive(type='SPLIT')
         prim = props.primitives[-1]
@@ -2465,7 +2465,7 @@ def t_split_cuts_with_a_plane():
         prim.split_keep = keep
         prim.location = loc
         core_bridge.update_cad_preview_forced(bpy.context)
-        after = core_bridge.measure_stack(int(col.seamless_cad_stack_ptr))[0]
+        after = core_bridge.measure_stack(int(col.seamless_cad_stack_ptr))["volume"]
         return before, after
 
     # 原点の XY 平面で切れば、どちら側も半分
