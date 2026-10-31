@@ -1101,7 +1101,7 @@ def send_and_receive(req_dict):
                 return ptr
             elif req_dict.get('action') == 'delete_stack':
                 return True
-            elif req_dict.get('action') in ('import_step', 'import_svg'):
+            elif req_dict.get('action') in ('import_step', 'import_svg', 'project_to_sketch_plane'):
                 len_bytes = recv_exact(4)
                 res_len = struct.unpack('<I', len_bytes)[0]
                 data = recv_exact(res_len)

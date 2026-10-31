@@ -2379,6 +2379,68 @@ def t_bake_to_mesh():
     assert v >= 8, f"baked mesh has only {v} vertices; the kernel likely returned garbage"
 
 
+def t_project_geometry_onto_sketch_plane():
+    """既存形状をスケッチ平面へ投影すると、線は線・円は円として入る。
+
+    ロードマップ フェーズ2.1 の第1段階。ここで押さえたいのは3つ。
+      1. 面の輪郭が平面ローカルの 2D として正しい位置に来る
+      2. スケッチ平面と平行な円が**円のまま**落ちる(折れ線に化けない)
+      3. 端点が溶接され、同じ面を2回投影しても二重にならない
+
+    投影は一度きりの取り込みなので、上流を変えて追従するかは**試さない**。
+    追従しないのが第1段階の仕様。
+    """
+    from CAD_8_1_5_1 import core_bridge
+    from CAD_8_1_5_1.sketch import sketch_project, sketch_globals
+
+    def _sketch_on_xy(prim_type):
+        col, props = _fresh_part()
+        bpy.ops.seamless.add_primitive(type=prim_type)
+        core_bridge.update_cad_preview_forced(bpy.context)
+        props.is_sketch_active = True
+        props.sketch_points.clear()
+        props.sketch_lines.clear()
+        props.sketch_circles.clear()
+        props.sketch_arcs.clear()
+        sketch_globals._reference_matrix = None   # 原点の XY 平面
+        stack_ptr = int(col.seamless_cad_stack_ptr)
+        hit = core_bridge.pick_face(stack_ptr, [0.0, 0.0, 10.0], [0.0, 0.0, -1.0], 0.1)
+        assert hit, f"could not pick the top face of the {prim_type}"
+        return props, hit[0]
+
+    # --- BOX: 上面の輪郭は4本の線と4つの点
+    props, lid = _sketch_on_xy('BOX')
+    made, err = sketch_project.project_entity(bpy.context, props, lid, True)
+    assert not err, f"projecting the box face reported: {err}"
+    assert made == 4, f"expected 4 elements from a square face, got {made}"
+    assert len(props.sketch_lines) == 4, f"expected 4 lines, got {len(props.sketch_lines)}"
+    assert len(props.sketch_points) == 4, (
+        f"expected the corners to weld into 4 points, got {len(props.sketch_points)}"
+    )
+    # 非対称な確認を1つ混ぜる: 角が実際に正方形の位置にあるか
+    corners = sorted(tuple(round(v, 4) for v in p.co) for p in props.sketch_points)
+    assert corners == [(-0.5, -0.5), (-0.5, 0.5), (0.5, -0.5), (0.5, 0.5)],         f"the projected corners are not where the box is: {corners}"
+
+    # 2回目は何も増えない(溶接と重複排除が効いている)
+    made2, _ = sketch_project.project_entity(bpy.context, props, lid, True)
+    assert made2 == 0, f"projecting the same face twice added {made2} more elements"
+    assert len(props.sketch_lines) == 4, "the second projection duplicated lines"
+
+    # --- CYLINDER: 平面と平行な円は円のまま
+    props, lid = _sketch_on_xy('CYLINDER')
+    made, err = sketch_project.project_entity(bpy.context, props, lid, True)
+    assert not err, f"projecting the cylinder face reported: {err}"
+    assert len(props.sketch_circles) == 1, (
+        f"a circle parallel to the sketch plane must stay a circle, got "
+        f"{len(props.sketch_circles)} circles and {len(props.sketch_lines)} lines"
+    )
+    circ = props.sketch_circles[0]
+    center = next(p for p in props.sketch_points if p.id == circ.center_point_id)
+    rim = next(p for p in props.sketch_points if p.id == circ.radius_point_id)
+    radius = math.hypot(rim.co[0] - center.co[0], rim.co[1] - center.co[1])
+    assert abs(radius - 1.0) < 1e-4, f"projected radius {radius} is not the cylinder's 1.0"
+
+
 def t_step_export():
     """STEP を書き出せる。
 
@@ -2769,6 +2831,7 @@ def main():
     check("parameter change during drag not lost", t_parameter_change_during_drag_is_not_lost)
     check("panels registered", t_panels_registered)
     check("bake to mesh", t_bake_to_mesh)
+    check("project geometry onto the sketch plane", t_project_geometry_onto_sketch_plane)
     check("STEP export", t_step_export)
     check("STEP export scale", t_step_export_scale)
     check("STEP carries part name", t_step_export_carries_part_name)
