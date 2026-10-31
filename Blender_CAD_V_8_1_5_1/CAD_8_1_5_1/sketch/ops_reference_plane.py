@@ -15,7 +15,15 @@ class SEAMLESS_OT_select_reference_plane(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return context.active_object is not None
+        # 以前はアクティブオブジェクトを要求していたが、面を拾うのに要るのは
+        # 生きた CAD コレクション(= 履歴の積まれたスタック)であって、Blender 側の
+        # 選択ではない。Part セレクタで選んであればオブジェクトを選び直さずに
+        # 押せる。スタックが無い時は押せない理由を出す。
+        col = utils.get_active_collection(context)
+        if utils._is_live_cad_collection(col):
+            return True
+        cls.poll_message_set("No CAD part to pick a face from")
+        return False
 
     def modal(self, context, event):
         if event.type in {'ESC', 'RIGHTMOUSE'}:
