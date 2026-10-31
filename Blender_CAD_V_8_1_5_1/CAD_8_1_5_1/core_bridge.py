@@ -563,7 +563,7 @@ def _is_port_open(timeout=1.0):
 # ままだった。8.1.5.16 でカーネルに kernel_info を足したので、ここが動く。
 # Python だけ直した版のたびに3プラットフォームのカーネルを作り直さずに済む。
 # カーネルを変えたら、ここと src_rust/src/main.rs の KERNEL_BUILD を両方上げる。
-_EXPECTED_KERNEL_BUILD = "8.1.5.16"
+_EXPECTED_KERNEL_BUILD = "8.1.5.20"
 
 
 def query_kernel_info(timeout=_SERVER_PROBE_TIMEOUT):
@@ -1005,6 +1005,27 @@ def _pick_common(op_code, op_name, stack_ptr, origin, direction, tolerance, stac
 
 def pick_edge(stack_ptr, origin, direction, tolerance):
     return _pick_common(1, "pick_edge", stack_ptr, origin, direction, tolerance)
+
+def project_to_sketch_plane(stack_ptr, lineage, is_face, plane_origin, plane_x, plane_z):
+    """既存形状の辺(または面の輪郭)をスケッチ平面へ正射影して返す。
+
+    戻りは平坦な数値列。先頭の数が種別で、続く要素数が種別ごとに決まっている:
+      0 LINE   : x1, y1, x2, y2
+      1 CIRCLE : cx, cy, r
+      2 ARC    : cx, cy, sx, sy, ex, ey, mx, my
+      3 POLY   : 点数, x1, y1, ...
+    解釈は sketch/sketch_project.py の _decode が持つ。
+    """
+    req_dict = {
+        "action": "project_to_sketch_plane",
+        "stack_ptr": stack_ptr,
+        "lineage": lineage,
+        "is_face": bool(is_face),
+        "plane_origin": list(plane_origin),
+        "plane_x": list(plane_x),
+        "plane_z": list(plane_z),
+    }
+    return send_and_receive(req_dict)
 
 def generate_mesh(stack_ptr, deflection, angular_deflection):
     req_dict = {

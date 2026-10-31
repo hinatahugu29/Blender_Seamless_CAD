@@ -9,6 +9,7 @@ from .state_rectangle import StateRectangle
 from .state_semicircle import StateSemicircle
 from .state_trim_extend import StateTrimExtend
 from .state_slot import StateSlot
+from .state_project import StateProject
 
 STATE_CLASSES = {
     'SELECT': StateSelect,
@@ -21,5 +22,6 @@ STATE_CLASSES = {
     'FILLET': StateFillet,
     'SEMICIRCLE': StateSemicircle,
     'TRIM_EXTEND': StateTrimExtend,
-    'SLOT': StateSlot
+    'SLOT': StateSlot,
+    'PROJECT': StateProject
 }

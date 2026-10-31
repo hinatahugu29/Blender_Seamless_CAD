@@ -159,7 +159,7 @@ fn send_update_result(stream: &mut TcpStream, r: seamless_core::AsyncResult) {
 /// カーネルを最後に変更したときのアドオンの版。アドオンの `bl_info` とは別物で、
 /// Python だけを直した版では動かさない。core_bridge.py の
 /// `_EXPECTED_KERNEL_BUILD` と対で保つこと (`kernel_info` で突き合わせている)。
-const KERNEL_BUILD: &str = "8.1.5.16";
+const KERNEL_BUILD: &str = "8.1.5.20";
 
 /// `kernel_info` の応答の形を変えたら上げる。中身の追加は形を変えないので据え置き。
 const KERNEL_PROTOCOL: u32 = 1;
@@ -500,6 +500,35 @@ fn handle_client(mut stream: TcpStream, workers: StackWorkers) {
                     let json_bytes = serde_json::to_string(&res).unwrap().into_bytes();
                     stream.write_all(&(json_bytes.len() as u32).to_le_bytes()).unwrap();
                     stream.write_all(&json_bytes).unwrap();
+                },
+                Err(e) => {
+                    stream.write_all(&[0u8]).unwrap();
+                    let eb = e.as_bytes();
+                    stream.write_all(&(eb.len() as u32).to_le_bytes()).unwrap();
+                    stream.write_all(eb).unwrap();
+                }
+            }
+
+        } else if action == "project_to_sketch_plane" {
+            let stack_ptr = req["stack_ptr"].as_i64().unwrap_or(0) as isize;
+            let lineage   = req["lineage"].as_str().unwrap_or("").to_string();
+            let is_face   = req["is_face"].as_bool().unwrap_or(false);
+            let f3 = |key: &str| -> Vec<f64> {
+                req[key].as_array().unwrap_or(&vec![]).iter().map(|v| v.as_f64().unwrap_or(0.0)).collect()
+            };
+            match seamless_core::project_to_sketch_plane(stack_ptr, lineage, is_face,
+                                                         f3("plane_origin"), f3("plane_x"), f3("plane_z")) {
+                Ok(Some(res)) => {
+                    stream.write_all(&[1u8]).unwrap();
+                    let json_bytes = serde_json::to_string(&res).unwrap().into_bytes();
+                    stream.write_all(&(json_bytes.len() as u32).to_le_bytes()).unwrap();
+                    stream.write_all(&json_bytes).unwrap();
+                },
+                Ok(None) => {
+                    stream.write_all(&[0u8]).unwrap();
+                    let eb = b"projection failed in the kernel";
+                    stream.write_all(&(eb.len() as u32).to_le_bytes()).unwrap();
+                    stream.write_all(eb).unwrap();
                 },
                 Err(e) => {
                     stream.write_all(&[0u8]).unwrap();

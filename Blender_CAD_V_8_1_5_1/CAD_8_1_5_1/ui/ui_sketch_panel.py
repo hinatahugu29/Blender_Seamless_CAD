@@ -51,6 +51,13 @@ class SEAMLESS_PT_SketchPanel(bpy.types.Panel):
         row = col_tools.row(align=True)
         row.prop_enum(props, "sketch_pen_mode", "TRIM_EXTEND", text="Trim / Extend", icon="MOD_BOOLEAN")
         row.prop_enum(props, "sketch_pen_mode", "SLOT", text="Slot", icon="OUTLINER_OB_FORCE_FIELD")
+        row_proj = col_tools.row(align=True)
+        row_proj.prop_enum(props, "sketch_pen_mode", "PROJECT", text="Project Geometry", icon="MOD_SHRINKWRAP")
+        if props.sketch_pen_mode == 'PROJECT':
+            box_proj = box.box()
+            box_proj.label(text="Click an edge  /  Shift+Click a face", icon="INFO")
+            box_proj.prop(props, "sketch_project_as_construction", text="As Construction")
+            box_proj.label(text="Projected once; it will not follow later edits.", icon="ERROR")
         box.separator()
 
         found_dist_const = self._find_distance_constraint(props)

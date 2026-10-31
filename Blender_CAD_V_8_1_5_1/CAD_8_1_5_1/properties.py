@@ -802,6 +802,11 @@ class SeamlessProperties(bpy.types.PropertyGroup):
     )
     # 既存の立体の頂点に吸着する。スケッチ平面へ投影した位置が相手なので、
     # 平面から外れた頂点でも真上/真下にあれば掴める。
+    # 投影したものを作図線として取り込むか。既定は実線で、profile になる。
+    sketch_project_as_construction: bpy.props.BoolProperty(
+        name="Project as Construction", default=False,
+        description="Bring projected geometry in as construction lines instead of real geometry"
+    )
     sketch_snap_geometry: bpy.props.BoolProperty(
         name="Geometry Snap", default=True,
         description="Snap to the vertices of existing solids, projected onto the sketch plane"
@@ -846,6 +851,7 @@ class SeamlessProperties(bpy.types.PropertyGroup):
             ('SEMICIRCLE', "Semi-circle", "Create semi-circles by clicking two diameter ends"),
             ('TRIM_EXTEND', "Trim/Extend", "Interactive Trim or Extend elements"),
             ('SLOT', "Slot", "Create a slot / stadium-shaped element"),
+            ('PROJECT', "Project", "Project an edge of an existing solid onto the sketch plane (Shift: the whole face outline)"),
         ],
         default='SELECT',
         update=update_sketch_pen_mode

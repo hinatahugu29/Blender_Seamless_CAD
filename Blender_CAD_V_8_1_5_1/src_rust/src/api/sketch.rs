@@ -1,3 +1,64 @@
+use cpp::cpp;
+
+/// 既存形状の辺(または面の輪郭)をスケッチ平面へ正射影し、平面ローカルの
+/// 2D エンティティを平坦な数値列で返す。書式は occ_sketch.cpp を見ること。
+///
+/// フェーズ2.1 の第1段階。**一度きりの取り込みで、再投影はしない。**
+/// 投影元の lineage をスケッチ側に覚えさせていないのも同じ理由による。
+pub fn project_to_sketch_plane(
+    stack_ptr: isize,
+    lineage: String,
+    is_face: bool,
+    plane_origin: Vec<f64>,
+    plane_x: Vec<f64>,
+    plane_z: Vec<f64>,
+) -> Result<Option<Vec<f64>>, String> {
+    if !crate::is_valid_stack_ptr(stack_ptr) {
+        return Err(format!("project: unknown or already-deleted stack_ptr {}", stack_ptr));
+    }
+    if plane_origin.len() < 3 || plane_x.len() < 3 || plane_z.len() < 3 {
+        return Err("project: plane origin/x/z must have 3 elements each".to_string());
+    }
+
+    let lid = std::ffi::CString::new(lineage)
+        .map_err(|_| "project: lineage contains a NUL byte".to_string())?;
+    let lid_ptr = lid.as_ptr();
+
+    let o = [plane_origin[0], plane_origin[1], plane_origin[2]];
+    let x = [plane_x[0], plane_x[1], plane_x[2]];
+    let z = [plane_z[0], plane_z[1], plane_z[2]];
+    let o_ptr = o.as_ptr();
+    let x_ptr = x.as_ptr();
+    let z_ptr = z.as_ptr();
+
+    // 面1枚ぶんの輪郭でも、線は1本5要素・折れ線でも上限が決まっている。
+    // 収まらなければ C++ 側が -2 を返すので、黙って切り詰めることはない。
+    let mut buf = vec![0f64; 8192];
+    let buf_ptr = buf.as_mut_ptr();
+    let buf_len = buf.len() as i32;
+
+    let occ_mutex = crate::get_stack_lock(stack_ptr);
+    let _occ_lock = occ_mutex.lock().unwrap();
+
+    let n = unsafe {
+        cpp!([stack_ptr as "void*", lid_ptr as "const char*", is_face as "bool",
+              o_ptr as "const double*", x_ptr as "const double*", z_ptr as "const double*",
+              buf_ptr as "double*", buf_len as "int"] -> i32 as "int" {
+            return occ_core::project_to_sketch_plane_buf(stack_ptr, lid_ptr, is_face,
+                                                         o_ptr, x_ptr, z_ptr, buf_ptr, buf_len);
+        })
+    };
+
+    if n == -2 {
+        return Err("project: the projection is too large for one call".to_string());
+    }
+    if n < 0 {
+        return Ok(None);
+    }
+    buf.truncate(n as usize);
+    Ok(Some(buf))
+}
+
 pub fn solve_sketch(
 
     points: Vec<(u32, f64, f64)>, // (id, x, y)

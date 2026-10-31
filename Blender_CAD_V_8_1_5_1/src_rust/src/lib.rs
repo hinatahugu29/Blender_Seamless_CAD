@@ -38,6 +38,7 @@ cpp!{{
     #include <TopTools_ListOfShape.hxx>
     #include <TopTools_IndexedDataMapOfShapeListOfShape.hxx>
     #include <TopTools_DataMapOfShapeListOfShape.hxx>
+    #include "occ_sketch.hpp"
     #include "occ_core.cpp"
     #include "occ_step.cpp"
     #include "occ_svg.cpp"

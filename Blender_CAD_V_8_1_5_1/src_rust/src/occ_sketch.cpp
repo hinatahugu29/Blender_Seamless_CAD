@@ -332,4 +332,158 @@ TopoDS_Shape make_polyline(const double* all_pts, int pts_offset, int pc, double
     return fallback_mp.Wire();
 }
 
+
+// ---------------------------------------------------------------------------
+// 既存形状のスケッチ平面への投影 (フェーズ2.1 第1段階)
+//
+// 投影は BRepProj_Projection ではなく、平面への**正射影**を自前で行う。
+// 欲しいのは「真上から見た輪郭」であって円筒面への投影ではないので、
+// 曲線の種類を見て 2D の線・円・円弧へ落とす方が結果が素直になる。
+//
+// 返すのは平面ローカルの 2D 座標。原点・X軸・法線は呼び出し側(スケッチの
+// 基準行列)が渡す。Y軸は法線×X軸で導くので、呼び出し側と必ず一致する。
+//
+// **第1段階は一度きりの取り込み。** 上流が変わっても再投影しない。
+// 投影元の lineage を覚えてもいない(覚えるのは第2段階の仕事)。
+// ---------------------------------------------------------------------------
+
+static void project_pnt_2d(const gp_Pnt& p, const gp_Pnt& origin,
+                           const gp_Dir& ax, const gp_Dir& ay,
+                           double& out_x, double& out_y) {
+    gp_Vec v(origin, p);
+    out_x = v.Dot(gp_Vec(ax));
+    out_y = v.Dot(gp_Vec(ay));
+}
+
+// 1本の辺を 2D エンティティの記述へ落として out へ積む。
+// 書式は呼び出し側(api/sketch.rs)がそのまま JSON にする前提の平坦な数値列:
+//   LINE   : 0, x1, y1, x2, y2
+//   CIRCLE : 1, cx, cy, r
+//   ARC    : 2, cx, cy, sx, sy, ex, ey, mx, my
+//   POLY   : 3, 点数, x1, y1, x2, y2, ...
+static void project_edge_2d(const TopoDS_Edge& e, const gp_Pnt& origin,
+                            const gp_Dir& az, const gp_Dir& ax, const gp_Dir& ay,
+                            std::vector<double>& out) {
+    if (e.IsNull()) return;
+    BRepAdaptor_Curve crv(e);
+    const double f = crv.FirstParameter();
+    const double l = crv.LastParameter();
+
+    if (crv.GetType() == GeomAbs_Line) {
+        double x1, y1, x2, y2;
+        project_pnt_2d(crv.Value(f), origin, ax, ay, x1, y1);
+        project_pnt_2d(crv.Value(l), origin, ax, ay, x2, y2);
+        out.push_back(0.0);
+        out.push_back(x1); out.push_back(y1);
+        out.push_back(x2); out.push_back(y2);
+        return;
+    }
+
+    if (crv.GetType() == GeomAbs_Circle) {
+        const gp_Circ c = crv.Circle();
+        // 円の載る平面がスケッチ平面と平行な時だけ、円は円のまま落ちる。
+        // 傾いていれば楕円になるので、その場合は折れ線へ退避する。
+        if (std::abs(c.Axis().Direction().Dot(az)) > 1.0 - 1e-7) {
+            double cx, cy;
+            project_pnt_2d(c.Location(), origin, ax, ay, cx, cy);
+            if (BRep_Tool::IsClosed(e) || std::abs((l - f) - 2.0 * M_PI) < 1e-7) {
+                out.push_back(1.0);
+                out.push_back(cx); out.push_back(cy);
+                out.push_back(c.Radius());
+            } else {
+                double sx, sy, ex, ey, mx, my;
+                project_pnt_2d(crv.Value(f), origin, ax, ay, sx, sy);
+                project_pnt_2d(crv.Value(l), origin, ax, ay, ex, ey);
+                project_pnt_2d(crv.Value(0.5 * (f + l)), origin, ax, ay, mx, my);
+                out.push_back(2.0);
+                out.push_back(cx); out.push_back(cy);
+                out.push_back(sx); out.push_back(sy);
+                out.push_back(ex); out.push_back(ey);
+                out.push_back(mx); out.push_back(my);
+            }
+            return;
+        }
+    }
+
+    // それ以外(楕円・スプライン・傾いた円)は折れ線で近似する。
+    // 第1段階は凍結した取り込みなので、ここで精度を決め打ちしてよい。
+    std::vector<gp_Pnt> pts;
+    try {
+        GCPnts_UniformDeflection sampler(crv, 0.05, f, l);
+        if (sampler.IsDone() && sampler.NbPoints() >= 2) {
+            for (int i = 1; i <= sampler.NbPoints(); ++i) pts.push_back(sampler.Value(i));
+        }
+    } catch (...) {
+        pts.clear();
+    }
+    if (pts.size() < 2) {
+        const int n = 16;
+        pts.clear();
+        for (int i = 0; i <= n; ++i) pts.push_back(crv.Value(f + (l - f) * (double)i / (double)n));
+    }
+
+    out.push_back(3.0);
+    out.push_back((double)pts.size());
+    for (size_t i = 0; i < pts.size(); ++i) {
+        double x, y;
+        project_pnt_2d(pts[i], origin, ax, ay, x, y);
+        out.push_back(x); out.push_back(y);
+    }
+}
+
+bool project_to_sketch_plane(void* stack_ptr, const char* lineage, bool is_face,
+                             const double* plane_origin, const double* plane_x, const double* plane_z,
+                             std::vector<double>& out) {
+    out.clear();
+    if (!stack_ptr || !lineage || !plane_origin || !plane_x || !plane_z) return false;
+    CADStack* stack = static_cast<CADStack*>(stack_ptr);
+    if (stack->current_shape.IsNull()) return false;
+
+    const std::string lid(lineage);
+    if (lid.empty()) return false;
+
+    try {
+        const gp_Pnt origin(plane_origin[0], plane_origin[1], plane_origin[2]);
+        gp_Dir az(plane_z[0], plane_z[1], plane_z[2]);
+        gp_Dir ax(plane_x[0], plane_x[1], plane_x[2]);
+        // Y軸は右手系で導く。呼び出し側(スケッチの基準行列)と同じ取り方。
+        const gp_Dir ay(gp_Vec(az).Crossed(gp_Vec(ax)));
+
+        if (is_face) {
+            TopTools_IndexedMapOfShape fm;
+            TopExp::MapShapes(stack->current_shape, TopAbs_FACE, fm);
+            TopoDS_Face f = find_face_robust(lid, fm);
+            if (f.IsNull()) return true;   // 解決できず = 空で返す
+            for (TopExp_Explorer ex(f, TopAbs_EDGE); ex.More(); ex.Next()) {
+                project_edge_2d(TopoDS::Edge(ex.Current()), origin, az, ax, ay, out);
+            }
+        } else {
+            TopTools_IndexedMapOfShape em;
+            TopExp::MapShapes(stack->current_shape, TopAbs_EDGE, em);
+            TopoDS_Edge e = find_edge_robust(lid, em, nullptr);
+            if (e.IsNull()) return true;
+            project_edge_2d(e, origin, az, ax, ay, out);
+        }
+        return true;
+    } catch (...) {
+        out.clear();
+        return false;
+    }
+}
+
+
+// Rust から呼ぶための固定長バッファ版。measure_entity と同じ形に揃えてある。
+// 返り値は書き込んだ double の個数。バッファに収まらなければ -2、
+// 失敗は -1。呼び出し側は -2 を「投影結果が大きすぎる」として扱う。
+int project_to_sketch_plane_buf(void* stack_ptr, const char* lineage, bool is_face,
+                                const double* plane_origin, const double* plane_x, const double* plane_z,
+                                double* out_buf, int buf_len) {
+    std::vector<double> tmp;
+    if (!project_to_sketch_plane(stack_ptr, lineage, is_face, plane_origin, plane_x, plane_z, tmp)) return -1;
+    if (!out_buf || buf_len < 0) return -1;
+    if ((int)tmp.size() > buf_len) return -2;
+    for (size_t i = 0; i < tmp.size(); ++i) out_buf[i] = tmp[i];
+    return (int)tmp.size();
+}
+
 }
