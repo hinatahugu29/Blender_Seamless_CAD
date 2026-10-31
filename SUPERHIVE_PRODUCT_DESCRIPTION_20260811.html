@@ -2,9 +2,9 @@
         <p style="margin:0;font-size:1.2em;font-weight:bold;">            The Superhive sale has ended. Seamless CAD is now <span style="font-size:1.4em;text-decoration:underline;color:#ffeb3b;">$9.90</span> — the regular price.        </p>
         <p style="margin:6px 0 0 0;font-size:0.95em;">            It is staying at $9.90 for roughly the next 100 copies. This is still a beta-stage price and it will go up as the add-on matures, but there is no countdown running here — if you see $9.90, that is what you pay.        </p>
     </div>
-        <div style="background-color:#fff3cd;border-left:6px solid #ffc107;padding:14px 18px;margin-bottom:24px;border-radius:4px;color:#664d03;">        <strong>⚠️ Please read before buying — this is a Beta release.</strong><br>        Seamless CAD is under active development and is priced to reflect that.        Your purchase now includes builds for <strong>Windows 10 / 11 (64-bit)</strong>, <strong>Linux x86-64</strong> and <strong>macOS (Apple Silicon)</strong> — one download, all three.        <strong>They are not equally proven.</strong> Windows is the platform that is developed on, and it is the one to buy for if you want the safe choice. Linux is second: as of 8.1.5.12 the full test suite is run against the Linux build that is actually shipped, and it passes. <strong>macOS is the one that has never been tested by me</strong> — it is built by the same pipeline from the same source and checked as far as a build machine can check it, but no feature has been confirmed working inside Blender on a Mac. Real reports from users are what it has instead. macOS also has <strong>no Apple notarisation</strong> and may need one Terminal command to run; see the FAQ. Intel Macs are not supported.        Expect rough edges, and expect things to change between updates.    </div>
+        <div style="background-color:#fff3cd;border-left:6px solid #ffc107;padding:14px 18px;margin-bottom:24px;border-radius:4px;color:#664d03;">        <strong>⚠️ Please read before buying — this is a Beta release.</strong><br>        Seamless CAD is under active development and is priced to reflect that.        Your purchase now includes builds for <strong>Windows 10 / 11 (64-bit)</strong>, <strong>Linux x86-64</strong> and <strong>macOS (Apple Silicon)</strong> — one download, all three.        <strong>They are not equally proven.</strong> Windows is the platform that is developed on, and it is the one to buy for if you want the safe choice. Linux is second: the full test suite has been run against the Linux build that is actually shipped and it passed, though the last time that was done was 8.1.5.16. <strong>macOS is the one that has never been tested by me</strong> — it is built by the same pipeline from the same source and checked as far as a build machine can check it, but no feature has been confirmed working inside Blender on a Mac. Real reports from users are what it has instead. macOS also has <strong>no Apple notarisation</strong> and may need one Terminal command to run; see the FAQ. Intel Macs are not supported.        Expect rough edges, and expect things to change between updates.    </div>
 <div style="background-color:#fff3cd;border-left:6px solid #ffc107;padding:14px 18px;margin-bottom:24px;border-radius:4px;color:#664d03;"><p><strong>❗️Linux and macOS are now part of the download, and what that does and does not mean.</strong></p>
-<p>They are built by the same GitHub Actions pipeline from the same source as the Windows release, against the same version of the OpenCASCADE geometry kernel, so that a bug cannot hide on one platform and not another. The pipeline checks that each one compiles, that its libraries are bundled, that the kernel starts and answers, and that nothing is missing from the package. <strong>For macOS, that is the whole of what has been verified.</strong> For Linux it is no longer true: since 8.1.5.12 the headless test suite — 52 checks covering geometry, measurement, STEP/IGES/STL export, the sketch solver, undo and save-and-reload — is run against the Linux package itself, unzipped and started the way you would, and it passes. What that does not cover on either platform is anything needing a screen: dragging, redraw, the GPU overlay. No feature has been confirmed working inside Blender on a Mac by me. Several users have reported earlier builds running on both, which is why they are here rather than still behind a tester link, but nobody recorded how far they took it. If you use one of these, <strong>please tell me what worked and what did not</strong> — that is the only thing that will move either platform from "builds" to "tested".</p>
+<p>They are built by the same GitHub Actions pipeline from the same source as the Windows release, against the same version of the OpenCASCADE geometry kernel, so that a bug cannot hide on one platform and not another. The pipeline checks that each one compiles, that its libraries are bundled, that the kernel starts and answers, and that nothing is missing from the package. <strong>For macOS, that is the whole of what has been verified.</strong> For Linux it is no longer the whole story: the headless test suite — covering geometry, measurement, STEP/IGES/STL export, the sketch solver, undo and save-and-reload — has been run against the Linux package itself, unzipped and started the way you would, and it passed. That was 52 checks when it started at 8.1.5.12 and 59 at 8.1.5.16, which is the last build it was done on. The suite is 62 checks now and runs on Windows on every change. What that does not cover on either platform is anything needing a screen: dragging, redraw, the GPU overlay. No feature has been confirmed working inside Blender on a Mac by me. Several users have reported earlier builds running on both, which is why they are here rather than still behind a tester link, but nobody recorded how far they took it. If you use one of these, <strong>please tell me what worked and what did not</strong> — that is the only thing that will move either platform from "builds" to "tested".</p>
 <p>For macOS Users</p>
 <p></p>
 <p>Since this build has not been notarized by Apple, macOS security features may prevent it from running. (On the other hand, since Blender unpacks the ZIP file on its own, it may run without any issues.) We would appreciate it if you could let us know which scenario you encounter.</p>
@@ -39,7 +39,45 @@
 <p><br></p>
 <p>We sincerely appreciate your cooperation.</p>
 <br><br></div>
-        <div style="background-color:#e7f5ef;border-left:6px solid #2e9e6b;padding:14px 18px;margin-bottom:24px;border-radius:4px;color:#14532d;">        <strong>🔄 Latest update — version 8.1.5.16 (September 2026)</strong><br>
+        <div style="background-color:#e7f5ef;border-left:6px solid #2e9e6b;padding:14px 18px;margin-bottom:24px;border-radius:4px;color:#14532d;">        <strong>&#128260; Latest update — version 8.1.5.22 (October 2026)</strong><br>
+        <strong>Sketches can finally see the solid underneath them.</strong> Until now a sketch was
+        an island: you could put its plane on a face, but meeting a corner of the part you were
+        sketching on was done by eye. Two things change that.</p>
+
+        <p style="margin:12px 0 4px 0;"><strong>Geometry Snap</strong> pulls the cursor to the
+        corners of the solids you have already built. The vertices are projected onto the sketch
+        plane, so a corner below or above the plane can still be snapped to, at the point straight
+        through it. It is on by default and takes precedence over grid snap, because being dragged
+        off a corner you just met and onto the nearest grid step is not helpful.</p>
+
+        <p style="margin:12px 0 4px 0;"><strong>Project Geometry</strong> brings an existing edge
+        into the sketch — click one, or hold Shift and click a face to bring in its whole outline.
+        A circle lying parallel to the sketch plane arrives as a circle with its radius intact, not
+        as a ring of short lines. What you get is the shape seen along the sketch plane's normal,
+        the way a shadow falls, so a slanted face arrives foreshortened. One honest limit: this is
+        a snapshot. Change the solid it came from and the projected lines stay where they were.
+        They do not break, and they do not follow. The panel says so while the tool is active.</p>
+
+        <p style="margin:12px 0 4px 0;"><strong>Split cuts a part with a plane.</strong> The plane
+        is placed the way a Mirror plane is — pick the axis it faces and drag the feature to
+        position it — and you choose to keep the side the normal points at, the other side, or both
+        halves as separate solids. Keeping both divides the part without removing anything.</p>
+
+        <p style="margin:12px 0 4px 0;"><strong>The Feature Tree stops burying itself.</strong> A
+        curve that came from a sketch can carry thirty or more points, and selecting it used to
+        spill every one of them down the panel. They are behind a disclosure triangle now, closed
+        by default, with the count still visible while folded.</p>
+
+        <p style="margin:12px 0 4px 0;"><strong>Sketch on Face works when nothing is selected.</strong>
+        The button used to require an active object, which it never actually needed — clicking empty
+        space in the viewport was enough to grey it out.</p>
+
+        <p style="margin:12px 0 4px 0;">One honest caveat, unchanged: a large Inset on a face that
+        has a fillet on it can still come out wrong. It is a defect rather than a design limit, it
+        is written up in the manual's Limitations page, and a report with the model is welcome.</p>
+        </div>
+
+        <div style="background-color:#f3f4f6;border-left:6px solid #9ca3af;padding:14px 18px;margin-bottom:24px;border-radius:4px;color:#374151;">        <strong>Previous update — version 8.1.5.16 (September 2026)</strong><br>
         <strong>Parameters: one number can drive the whole part.</strong> A new Parameters panel
         holds named values — <code>width = 40</code>, <code>hole = width / 4</code> — and any
         feature's size, position, rotation, radius, count and similar fields can be driven by an
@@ -83,7 +121,7 @@
         is welcome.</p>
         </div>
 
-        <div style="background-color:#f3f4f6;border-left:6px solid #9ca3af;padding:14px 18px;margin-bottom:24px;border-radius:4px;color:#374151;">        <strong>Previous update — version 8.1.5.12 (September 2026)</strong><br>
+        <div style="background-color:#f3f4f6;border-left:6px solid #9ca3af;padding:14px 18px;margin-bottom:24px;border-radius:4px;color:#374151;">        <strong>Earlier update — version 8.1.5.12 (September 2026)</strong><br>
         <strong>Inset no longer takes the geometry kernel down on Linux and macOS.</strong> A user on
         Fedora reported that pushing an Inset in a little further killed the kernel every time. It
         did — and not only Inset. The kernel guards every geometry call so that a fault becomes an
@@ -283,14 +321,14 @@
     <ul>
         <li><strong>Solid Booleans:</strong> Union, Difference and Intersection that hold up on shapes where mesh booleans fall apart.</li>
         <li><strong>Edge Fillets &amp; Chamfers:</strong> Pick edges and round or bevel them. Fillet radius can be overridden per edge for variable fillets.</li>
-        <li><strong>More Modifiers:</strong> Shell, draft, face offset and inset, plus mirror and linear / circular arrays.</li>
+        <li><strong>More Modifiers:</strong> Shell, draft, face offset and inset, plus mirror, linear / circular arrays, and Split, which cuts a part with a plane and keeps the side you choose — or both halves.</li>
     </ul>
     <h3>4. STEP &amp; SVG Interchange</h3>
     <ul>
         <li><strong>STEP Import and Export:</strong> Bring parts in from SolidWorks, Fusion 360, Rhino or FreeCAD, and send real solids back out for CNC, mold design or additive manufacturing.</li>
         <li><strong>SVG Import:</strong> Pull 2D profiles and logos straight in as CAD geometry to extrude and cut with.</li>
     </ul>
-    <p style="background-color:#f6f8fa;border-left:4px solid #8b949e;padding:10px 14px;margin-top:10px;font-size:0.95em;">        <strong>Worth knowing before you rely on STEP export:</strong> the geometry written is exact        B-Rep (AP214), and <strong>1 Blender unit is written as 1&nbsp;mm</strong> — the export dialog now has a        scale option (1 unit = N mm), so you are no longer tied to millimetres. The file carries geometry only: no part names,        no colours, no assembly structure. Import does have a scale option.    </p>
+    <p style="background-color:#f6f8fa;border-left:4px solid #8b949e;padding:10px 14px;margin-top:10px;font-size:0.95em;">        <strong>Worth knowing before you rely on STEP export:</strong> the geometry written is exact        B-Rep (AP214), and <strong>1 Blender unit is written as 1&nbsp;mm</strong> — the export dialog now has a        scale option (1 unit = N mm), so you are no longer tied to millimetres. The file carries part names and assembly structure as well as the geometry; what it still does not carry is colour. Import does have a scale option.    </p>
     <h3>5. Native Blender Integration</h3>
     <ul>
         <li><strong>Fits Blender's Habits:</strong> Lives in the sidebar, uses the transform tools you already know.</li>
