@@ -820,9 +820,10 @@ class SeamlessProperties(bpy.types.PropertyGroup):
     )
     quad_bake_join_shape: bpy.props.FloatProperty(
         name="Join Shape",
-        description="How far from a right-angled quad a joined triangle pair may be (degrees). "
-                    "40 = Blender's Tris to Quads default; larger joins more, with worse quads",
-        default=40.0,
+        description="Largest deviation from 90 degrees a corner of a joined quad may have. "
+                    "Pairs are chosen by a global matching (most quads, then the best ones); "
+                    "smaller = fewer but squarer quads",
+        default=60.0,
         min=0.0,
         max=180.0,
         precision=1,

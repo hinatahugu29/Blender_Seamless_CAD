@@ -2682,7 +2682,7 @@ def t_quad_bake_coons_faces_are_grids():
         bm.free()
 
 
-def _quad_bake_blender_mesh(col, tol=0.01, join_tris=True, join_shape_deg=40.0,
+def _quad_bake_blender_mesh(col, tol=0.01, join_tris=True, join_shape_deg=60.0,
                             sharp_mode='CAD', sharp_angle_deg=30.0):
     """Quad Bake P3 の完成メッシュ(UV・シーム・シャープ・三角形結合込み)。"""
     from CAD_8_1_5_1 import core_bridge
@@ -2753,8 +2753,9 @@ def t_quad_bake_uv_seams_and_sharp():
 
 
 def t_quad_bake_join_triangles():
-    """Quad Bake P3: 三角形で埋めた面(穴あき平面)の三角形ペアを quad にまとめても水密。
-    既定の形状閾値 40 度ではこの板の細い三角形は1組も結合しないので、90 度で検査する。"""
+    """Quad Bake: 三角形のペアを最大重みマッチングで quad にまとめる(既定 60 度)。
+    水密・体積・UV は崩れない。穴 2 つの板では旧 join_triangles(68 枚残り)より
+    三角形が減ること(実測 36)。"""
     import bmesh
     col, props = _fresh_part()
     bpy.ops.seamless.add_primitive(type='BOX')
@@ -2763,7 +2764,7 @@ def t_quad_bake_join_triangles():
     props.primitives[1].operation = 'SUB'
     props.primitives[1].size = (0.3, 0.3, 1.5)
     me0, _ = _quad_bake_blender_mesh(col, join_tris=False)
-    me1, rep = _quad_bake_blender_mesh(col, join_tris=True, join_shape_deg=90.0)
+    me1, rep = _quad_bake_blender_mesh(col, join_tris=True)
     try:
         t0 = sum(1 for p in me0.polygons if len(p.vertices) == 3)
         t1 = sum(1 for p in me1.polygons if len(p.vertices) == 3)
@@ -2778,6 +2779,49 @@ def t_quad_bake_join_triangles():
     finally:
         bpy.data.meshes.remove(me0)
         bpy.data.meshes.remove(me1)
+
+    col, props = _fresh_part()
+    bpy.ops.seamless.add_primitive(type='BOX')
+    bpy.ops.seamless.add_primitive(type='CYLINDER')
+    bpy.ops.seamless.add_primitive(type='CYLINDER')
+    props = utils_props()
+    props.primitives[0].size = (2.0, 1.0, 0.2)
+    for k, x in ((1, -0.5), (2, 0.5)):
+        props.primitives[k].operation = 'SUB'
+        props.primitives[k].size = (0.2, 0.2, 1.0)
+        props.primitives[k].location = (x, 0.0, 0.0)
+    me, rep = _quad_bake_blender_mesh(col)
+    try:
+        tris = sum(1 for p in me.polygons if len(p.vertices) == 3)
+        assert tris <= 40, f"two-hole plate keeps {tris} triangles (greedy join left 68, matching 36)"
+    finally:
+        bpy.data.meshes.remove(me)
+
+
+def t_vendored_blossom_is_optimal():
+    """vendor_blossom(NetworkX 由来)の max_weight_matching が総当たりと一致する。"""
+    import itertools
+    import random
+    from CAD_8_1_5_1.operators import vendor_blossom as vb
+    rnd = random.Random(7)
+    for _ in range(150):
+        n = rnd.randint(2, 7)
+        edges = [(a, b, rnd.randint(1, 9)) for a in range(n) for b in range(a + 1, n) if rnd.random() < 0.5]
+        g = vb.Graph()
+        for i in range(n):
+            g.add_node(i)
+        for a, b, w in edges:
+            g.add_edge(a, b, weight=w)
+        m = vb.max_weight_matching(g)
+        W = {frozenset((a, b)): w for a, b, w in edges}
+        got = sum(W[frozenset(e)] for e in m)
+        best = 0
+        for r in range(len(edges) + 1):
+            for comb in itertools.combinations(edges, r):
+                ns = [x for e in comb for x in e[:2]]
+                if len(ns) == len(set(ns)):
+                    best = max(best, sum(e[2] for e in comb))
+        assert got == best, f"matching weight {got} != optimum {best} on {edges}"
 
 
 def t_quad_bake_holed_plates_are_quad_dominant():
@@ -3538,6 +3582,7 @@ def main():
     check("quad bake: coons faces are grids", t_quad_bake_coons_faces_are_grids)
     check("quad bake: UV, seams and sharp edges", t_quad_bake_uv_seams_and_sharp)
     check("quad bake: join triangles", t_quad_bake_join_triangles)
+    check("vendored blossom is optimal", t_vendored_blossom_is_optimal)
     check("quad bake: holed plates are quad-dominant", t_quad_bake_holed_plates_are_quad_dominant)
     check("quad bake: outer loop is the largest", t_quad_bake_outer_loop_is_the_largest)
     check("quad bake: annulus stays on the part", t_quad_bake_annulus_stays_on_the_part)
