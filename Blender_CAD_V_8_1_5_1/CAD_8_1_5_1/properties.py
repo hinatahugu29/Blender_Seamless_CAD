@@ -827,6 +827,15 @@ class SeamlessProperties(bpy.types.PropertyGroup):
         max=180.0,
         precision=1,
     )
+    quad_bake_sharp_mode: bpy.props.EnumProperty(
+        name="Sharp Edges",
+        description="How Quad Bake decides which CAD edges are sharp",
+        items=[
+            ('CAD', "CAD Continuity", "Sharp where the CAD faces meet with a crease (exact normals); tangent edges stay smooth"),
+            ('ANGLE', "Angle", "Sharp where the baked faces meet at more than Sharp Angle"),
+        ],
+        default='CAD',
+    )
     quad_bake_sharp_angle: bpy.props.FloatProperty(
         name="Sharp Angle",
         description="CAD edges whose faces meet at more than this angle are marked sharp",

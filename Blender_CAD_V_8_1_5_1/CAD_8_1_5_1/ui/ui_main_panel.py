@@ -112,11 +112,15 @@ class SEAMLESS_PT_QualityBakePanel(bpy.types.Panel):
             box_q.prop(props, "quad_bake_tol", text="Quad Tol")
             row = box_q.row(align=True)
             row.prop(props, "quad_bake_join_tris", text="Join Tris", toggle=True)
-            row.prop(props, "quad_bake_sharp_angle", text="Sharp")
+            row.prop(props, "quad_bake_sharp_mode", text="")
+            if props.quad_bake_sharp_mode == 'ANGLE':
+                box_q.prop(props, "quad_bake_sharp_angle", text="Sharp Angle")
             if props.quad_bake_join_tris:
                 box_q.prop(props, "quad_bake_join_shape", text="Join Shape")
         
         layout.operator("seamless.bake_mesh", text="Bake to Mesh", icon='MESH_DATA')
+        if props.bake_topology == 'QUAD':
+            layout.operator("seamless.copy_quad_bake_report", text="Copy Quad Bake Report", icon='COPYDOWN')
         
         # 取り込みと書き出しは、方向を見出しで示してボタン側は形式名だけにする。
         # 各ボタンに "Export STEP" と書くと N パネルの幅では "Expo.." に潰れ、

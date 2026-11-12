@@ -25,6 +25,8 @@
 #include <BRepTools.hxx>
 #include <BRepTools_WireExplorer.hxx>
 #include <ShapeAnalysis.hxx>
+#include <TopTools_IndexedDataMapOfShapeListOfShape.hxx>
+#include <TopTools_ListOfShape.hxx>
 #include <BRepTopAdaptor_FClass2d.hxx>
 #include <BRep_Tool.hxx>
 #include <GCPnts_AbscissaPoint.hxx>
@@ -154,6 +156,50 @@ const char* surface_kind(GeomAbs_SurfaceType t) {
 }
 
 struct LoopPt { int vid; double u, v; };
+
+// Outward unit normal of `face` at the point of `e` with curve parameter t,
+// from the exact surface (pcurve -> (u, v) -> dS/du x dS/dv), flipped for a
+// REVERSED face. Returns false where the surface has no normal (a pole).
+bool face_normal_on_edge(const TopoDS_Edge& e, const TopoDS_Face& face, double t, gp_Dir& n) {
+    double f, l;
+    Handle(Geom2d_Curve) pc = BRep_Tool::CurveOnSurface(e, face, f, l);
+    if (pc.IsNull()) return false;
+    gp_Pnt2d uv = pc->Value(t);
+    BRepAdaptor_Surface sa(face, Standard_False);
+    gp_Pnt p; gp_Vec du, dv;
+    sa.D1(uv.X(), uv.Y(), p, du, dv);
+    gp_Vec nn = du.Crossed(dv);
+    if (nn.Magnitude() < 1e-12) return false;
+    if (face.Orientation() == TopAbs_REVERSED) nn.Reverse();
+    n = gp_Dir(nn);
+    return true;
+}
+
+// The largest angle (degrees) between the two faces' CAD normals along `e`,
+// sampled at 5 points (ends excluded: a pole or a corner can lose its normal).
+// 0 for a seam (one face on both sides); -1 when it cannot be judged (an open
+// boundary, more than two faces, no normal anywhere).
+double edge_crease_deg(const TopoDS_Edge& e, const TopTools_ListOfShape& anc) {
+    std::vector<TopoDS_Face> fs;
+    for (TopTools_ListIteratorOfListOfShape it(anc); it.More(); it.Next()) {
+        TopoDS_Face f = TopoDS::Face(it.Value());
+        bool dup = false;
+        for (auto& g : fs) if (g.IsSame(f)) { dup = true; break; }
+        if (!dup) fs.push_back(f);
+    }
+    if (fs.size() == 1) return BRep_Tool::IsClosed(e, fs[0]) ? 0.0 : -1.0;
+    if (fs.size() != 2) return -1.0;
+    double f, l;
+    BRep_Tool::Range(e, f, l);
+    double worst = -1.0;
+    for (int k = 1; k <= 5; ++k) {
+        double t = f + (l - f) * k / 6.0;
+        gp_Dir n1, n2;
+        if (!face_normal_on_edge(e, fs[0], t, n1) || !face_normal_on_edge(e, fs[1], t, n2)) continue;
+        worst = std::max(worst, n1.Angle(n2) * 180.0 / 3.14159265358979);
+    }
+    return worst;
+}
 
 // Walk one wire of `face` in connection order; each edge contributes its samples
 // (minus the last, which is the next edge's first) with (u,v) from its pcurve on
@@ -777,7 +823,30 @@ std::string quad_topology_json(void* stack_ptr, double tol) {
     }
     out += "],\"n_cad_verts\":" + std::to_string(vm.Extent());
     out += ",\"n_edges\":" + std::to_string(em.Extent());
-    out += ",\"n_edge_fail\":" + std::to_string(n_edge_fail) + "}";
+    out += ",\"n_edge_fail\":" + std::to_string(n_edge_fail);
+    // per CAD edge: [crease_deg, vid, vid, ...] — the crease from the exact CAD
+    // normals (0 = tangent / G1, -1 = cannot judge), then the edge's samples
+    TopTools_IndexedDataMapOfShapeListOfShape e2f;
+    TopExp::MapShapesAndAncestors(shape, TopAbs_EDGE, TopAbs_FACE, e2f);
+    out += ",\"edges\":[";
+    bool fe = true;
+    for (int i = 1; i <= em.Extent(); ++i) {
+        const EdgeSamples& s = es[i];
+        if (!s.ok || s.degenerated) continue;
+        double crease = -1.0;
+        try {
+            TopoDS_Edge e = TopoDS::Edge(em.FindKey(i));
+            int k = e2f.FindIndex(e);
+            if (k > 0) crease = edge_crease_deg(e, e2f.FindFromIndex(k));
+        } catch (...) { crease = -1.0; }
+        if (!fe) out += ",";
+        fe = false;
+        out += "[";
+        jnum(out, crease);
+        for (int v : s.vids) out += "," + std::to_string(v);
+        out += "]";
+    }
+    out += "]}";
     return out;
 }
 

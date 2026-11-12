@@ -365,6 +365,7 @@ classes = (
     operators.SEAMLESS_OT_ForceRecompute,
     operators.SEAMLESS_OT_GroupSelection,
     operators.SEAMLESS_OT_BakeMesh,
+    operators.SEAMLESS_OT_CopyQuadBakeReport,
     modal_selection.SEAMLESS_OT_SelectionModal,
     sketch.SEAMLESS_OT_StartSketch,
     sketch.SEAMLESS_OT_SketchAction,

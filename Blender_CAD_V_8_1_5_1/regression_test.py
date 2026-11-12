@@ -2682,14 +2682,16 @@ def t_quad_bake_coons_faces_are_grids():
         bm.free()
 
 
-def _quad_bake_blender_mesh(col, tol=0.01, join_tris=True, join_shape_deg=40.0):
+def _quad_bake_blender_mesh(col, tol=0.01, join_tris=True, join_shape_deg=40.0,
+                            sharp_mode='CAD', sharp_angle_deg=30.0):
     """Quad Bake P3 の完成メッシュ(UV・シーム・シャープ・三角形結合込み)。"""
     from CAD_8_1_5_1 import core_bridge
     from CAD_8_1_5_1.operators.quad_bake_mesh import make_quad_bake_mesh
     core_bridge.update_cad_preview_forced(bpy.context)
     data = core_bridge.get_core().quad_topology(int(col.seamless_cad_stack_ptr), tol)
     assert data, "quad_topology returned nothing"
-    me, rep = make_quad_bake_mesh("QB_test", data, join_tris=join_tris, join_shape_deg=join_shape_deg)
+    me, rep = make_quad_bake_mesh("QB_test", data, join_tris=join_tris, join_shape_deg=join_shape_deg,
+                                  sharp_mode=sharp_mode, sharp_angle_deg=sharp_angle_deg)
     assert me is not None, f"nothing filled: {rep}"
     return me, rep
 
@@ -2924,6 +2926,78 @@ def t_quad_bake_annulus_stays_on_the_part():
         assert not bad, f"faces off the part by more than 2 x tol + ref ({limit}): {bad}"
     finally:
         bpy.data.meshes.remove(me)
+
+
+def t_quad_bake_sharp_follows_cad_continuity():
+    """Quad Bake: シャープは CAD の連続性で決まる(両側の面の厳密な法線)。
+    フィレットの接線つなぎはメッシュが粗くても滑らか、箱の角は 90 度でシャープ。
+    角度モード(10 度)だと同じフィレットの境目がシャープになってしまうことも確かめる。"""
+    col, props = _fresh_part()
+    bpy.ops.seamless.add_primitive(type='BOX')
+    lineages = _capture_edge_lineages(col)
+    bpy.ops.seamless.add_primitive(type='FILLET')
+    props = utils_props()
+    props.primitives[-1].target_lineages = "|".join(lineages[:4])
+    props.primitives[-1].radius = 0.1
+    me, rep = _quad_bake_blender_mesh(col, sharp_mode='CAD')
+    try:
+        assert rep["sharp_source"] == "CAD continuity", rep["sharp_source"]
+        # 4 本だけ丸めた箱: 残り 8 本の角は 90 度の折れ、フィレットの境目 8 本は接線
+        assert rep["sharp"] > 0, "no sharp edge on a box with four plain corners"
+        fillet_faces = {f["i"] for f in rep["face_log"] if f["kind"] == "cylinder"}
+        cad = me.attributes["cad_face"].data
+        on_fillet = 0
+        for e in me.edges:
+            if not e.use_edge_sharp:
+                continue
+            faces = {cad[p.index].value for p in me.polygons
+                     if e.vertices[0] in p.vertices and e.vertices[1] in p.vertices}
+            if faces & fillet_faces and len(faces) == 2 and not faces <= fillet_faces:
+                on_fillet += 1
+        assert on_fillet == 0, f"{on_fillet} tangent fillet edge(s) marked sharp"
+    finally:
+        bpy.data.meshes.remove(me)
+    me, rep = _quad_bake_blender_mesh(col, sharp_mode='ANGLE', sharp_angle_deg=10.0)
+    try:
+        assert rep["sharp_source"].startswith("mesh angle"), rep["sharp_source"]
+        cad = me.attributes["cad_face"].data
+        fillet_faces = {f["i"] for f in rep["face_log"] if f["kind"] == "cylinder"}
+        tangent_sharp = 0
+        for e in me.edges:
+            if not e.use_edge_sharp:
+                continue
+            faces = {cad[p.index].value for p in me.polygons
+                     if e.vertices[0] in p.vertices and e.vertices[1] in p.vertices}
+            if faces & fillet_faces and len(faces) == 2 and not faces <= fillet_faces:
+                tangent_sharp += 1
+        assert tangent_sharp > 0, "angle mode at 10 deg should split the coarse fillet (the reason for CAD mode)"
+    finally:
+        bpy.data.meshes.remove(me)
+
+
+def t_quad_bake_reports_every_face():
+    """Quad Bake: 面ごとに採用したカーネルと、それより前のカーネルが断った理由を報告する。
+    Bake したメッシュに保存され、Copy ボタンの文面にもなる。"""
+    import json
+    from CAD_8_1_5_1.operators.quad_bake import report_text
+    col, props = _fresh_part()
+    bpy.ops.seamless.add_primitive(type='CYLINDER')
+    props = utils_props()
+    props.bake_topology = 'QUAD'
+    before = set(bpy.data.objects.keys())
+    assert bpy.ops.seamless.bake_mesh() == {'FINISHED'}
+    obj = [bpy.data.objects[n] for n in set(bpy.data.objects.keys()) - before
+           if bpy.data.objects[n].type == 'MESH'][0]
+    rep = json.loads(obj.data["quad_bake_report"])
+    log = rep["face_log"]
+    assert len(log) == rep["faces"] == 3, f"one entry per CAD face expected: {log}"
+    kernels = sorted(f["kernel"] for f in log)
+    assert kernels == ["ngon", "ngon", "ruled"], kernels
+    cap = next(f for f in log if f["kernel"] == "ngon")
+    tried = dict(cap["tried"])
+    assert "ruled" in tried and "grid" in tried, f"the cap should say why ruled / grid declined: {cap}"
+    text = report_text(rep)
+    assert "-> ruled" in text and "declined:" in text, text
 
 
 def t_quad_bake_is_deterministic():
@@ -3467,6 +3541,8 @@ def main():
     check("quad bake: holed plates are quad-dominant", t_quad_bake_holed_plates_are_quad_dominant)
     check("quad bake: outer loop is the largest", t_quad_bake_outer_loop_is_the_largest)
     check("quad bake: annulus stays on the part", t_quad_bake_annulus_stays_on_the_part)
+    check("quad bake: sharp follows CAD continuity", t_quad_bake_sharp_follows_cad_continuity)
+    check("quad bake: reports every face", t_quad_bake_reports_every_face)
     check("quad bake operator", t_quad_bake_operator)
     check("project geometry onto the sketch plane", t_project_geometry_onto_sketch_plane)
     check("split cuts with a plane", t_split_cuts_with_a_plane)

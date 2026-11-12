@@ -87,7 +87,8 @@ class SEAMLESS_OT_BakeMesh(bpy.types.Operator):
             "SeamlessQuadBake", data,
             join_tris=props.quad_bake_join_tris,
             sharp_angle_deg=props.quad_bake_sharp_angle,
-            join_shape_deg=props.quad_bake_join_shape)
+            join_shape_deg=props.quad_bake_join_shape,
+            sharp_mode=props.quad_bake_sharp_mode)
         if mesh is None:
             self.report({'ERROR'}, "Quad Bake: no faces could be filled")
             return {'CANCELLED'}
@@ -106,8 +107,10 @@ class SEAMLESS_OT_BakeMesh(bpy.types.Operator):
         obj.select_set(True)
         context.view_layer.objects.active = obj
 
-        for line in rep["errors"][:20]:
-            print("[QuadBake]", line)
+        import json
+        from .quad_bake import report_text
+        mesh["quad_bake_report"] = json.dumps(rep)
+        print(report_text(rep))
         msg = ("Quad Bake: %d faces (%d ruled, %d grid, %d n-gon, %d triangulated), %d polygons"
                % (rep["faces"], rep["ruled"], rep["coons"], rep["ngon"], rep["cdt"], len(polys)))
         if rep["failed"] or rep["edge_fail"]:
@@ -117,3 +120,23 @@ class SEAMLESS_OT_BakeMesh(bpy.types.Operator):
             self.report({'INFO'}, msg)
         return {'FINISHED'}
 
+
+class SEAMLESS_OT_CopyQuadBakeReport(bpy.types.Operator):
+    """Copy the per-face Quad Bake report of the active baked mesh to the clipboard"""
+    bl_idname = "seamless.copy_quad_bake_report"
+    bl_label = "Copy Quad Bake Report"
+
+    @classmethod
+    def poll(cls, context):
+        obj = context.active_object
+        return bool(obj and obj.type == 'MESH' and obj.data.get("quad_bake_report"))
+
+    def execute(self, context):
+        import json
+        from .quad_bake import report_text
+        obj = context.active_object
+        rep = json.loads(obj.data["quad_bake_report"])
+        text = report_text(rep, title="Quad Bake report: %s" % obj.name)
+        context.window_manager.clipboard = text
+        self.report({'INFO'}, "Quad Bake report copied (%d faces)" % rep.get("faces", 0))
+        return {'FINISHED'}

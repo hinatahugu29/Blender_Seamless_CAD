@@ -70,20 +70,29 @@ def _orient_poly(face, loop_area, polys):
     return polys
 
 
-def _fill_ngon(face):
+def _fill_ngon(face, why=None):
     """K1: a hole-free plane as one n-gon, or None when it is not that."""
     loops = face["loops"]
-    if face["kind"] != "plane" or len(loops) != 1:
-        return None
+    if face["kind"] != "plane":
+        return _no(why, "not a plane")
+    if len(loops) != 1:
+        return _no(why, "the plane has holes")
     loop = loops[0]
     poly = _dedup_cyclic([_corner(face, p) for p in loop])
     vids = [c[0] for c in poly]
     if len(poly) < 3 or len(set(vids)) != len(vids):
-        return None
+        return _no(why, "the outline touches itself")
     return _orient_poly(face, _signed_area([(p[1], p[2]) for p in loop]), [poly])
 
 
-def _fill_ruled(face):
+def _no(why, reason):
+    """Record why a kernel declined, and decline."""
+    if why is not None:
+        why.append(reason)
+    return None
+
+
+def _fill_ruled(face, why=None):
     """K3: a ruled wall (cylinder / cone, one wire = rim A, ruling, rim B,
     ruling) as ONE row of quads, station i of rim A to the station facing it on
     rim B. The kernel already made both rims carry the same span count (hard
@@ -91,12 +100,14 @@ def _fill_ruled(face):
     None when the loop does not have that shape after all — the caller then
     falls back to the triangulation."""
     rs = face.get("ruled")
-    if rs is None or len(face["loops"]) != 1:
-        return None
+    if rs is None:
+        return _no(why, "not a ruled wall (a cylinder / cone whose one outline is rim, ruling, rim, ruling)")
+    if len(face["loops"]) != 1:
+        return _no(why, "the wall has holes")
     loop = face["loops"][0]
     m = len(loop)
     if m < 4 or m % 2:
-        return None
+        return _no(why, "the two rims carry different span counts (%d points)" % m)
     n = m // 2 - 1                                  # spans per rim
     A = [loop[(rs + i) % m] for i in range(n + 1)]
     B = [loop[(rs + n + 1 + i) % m] for i in range(n + 1)]
@@ -104,17 +115,17 @@ def _fill_ruled(face):
     pitch = min(abs(A[i + 1][1] - A[i][1]) for i in range(n)) if n else 0.0
     for i in range(n + 1):
         if abs(A[i][1] - B[n - i][1]) > 0.5 * pitch + 1e-12:
-            return None
+            return _no(why, "rim stations do not face each other by angle (station %d)" % i)
     polys = []
     for i in range(n):
         q = [_corner(face, p) for p in (A[i], A[i + 1], B[n - 1 - i], B[n - i])]
         if len({c[0] for c in q}) != 4:
-            return None
+            return _no(why, "a wall quad collapses (shared vertex)")
         polys.append(q)
     return _orient_poly(face, _signed_area([(p[1], p[2]) for p in loop]), polys)
 
 
-def _fill_coons(face, base, extra_verts):
+def _fill_coons(face, base, extra_verts, why=None):
     """K4: a four-sided curved face as an n x m quad grid. The kernel found
     the four sides, made opposite sides carry the same span count, blended the
     boundary in UV (Coons) and evaluated the interior on the surface
@@ -122,8 +133,11 @@ def _fill_coons(face, base, extra_verts):
     cell on a pole side collapses to a triangle. Returns None when the data
     does not fit."""
     c = face.get("coons")
-    if c is None or len(face["loops"]) != 1:
-        return None
+    if c is None:
+        return _no(why, "not a four-sided grid (needs one outline with exactly 4 corners, "
+                        "opposite sides evened out, no cell flipping)")
+    if len(face["loops"]) != 1:
+        return _no(why, "the face has holes")
     loop = face["loops"][0]
     n, m, rs = c["n"], c["m"], c["start"]
     M = len(loop)
@@ -131,7 +145,7 @@ def _fill_coons(face, base, extra_verts):
     uvs = c.get("uv", [])
     n_in = (n - 1) * (m - 1)
     if M != 2 * (n + m) or len(pts) != 3 * n_in or len(uvs) != 2 * n_in:
-        return None
+        return _no(why, "grid data does not match the outline")
 
     def at(k):
         return _corner(face, loop[(rs + k) % M])
@@ -348,7 +362,7 @@ def _segments_cross(a, b, c, d):
     return (o(a, b, c) * o(a, b, d) < 0.0) and (o(c, d, a) * o(c, d, b) < 0.0)
 
 
-def _fill_holed_plane(face, verts3d, extra_verts, n_cad, stats, max_steiner=20000):
+def _fill_holed_plane(face, verts3d, extra_verts, n_cad, stats, max_steiner=20000, why=None):
     """K2: a plane with holes. Each hole gets a ring of quads one hole-step
     wide (hole point i, its neighbour, and their offsets into the material);
     the rest — outer loop plus the rings as holes — is triangulated with a
@@ -358,8 +372,10 @@ def _fill_holed_plane(face, verts3d, extra_verts, n_cad, stats, max_steiner=2000
     placed exactly from three boundary points. Returns None when the face is
     not a holed plane or the plane frame is degenerate."""
     loops = face["loops"]
-    if face["kind"] != "plane" or len(loops) < 2:
-        return None
+    if face["kind"] != "plane":
+        return _no(why, "not a plane")
+    if len(loops) < 2:
+        return _no(why, "the plane has no holes")
     su, sv = face["su"], face["sv"]
     base = len(verts3d)
     # the outer loop is the one enclosing the largest area — never trust the
@@ -383,7 +399,7 @@ def _fill_holed_plane(face, verts3d, extra_verts, n_cad, stats, max_steiner=2000
             if best is None or area > best[0]:
                 best = (area, i, j)
     if best is None or best[0] < 1e-18:
-        return None
+        return _no(why, "the outline is degenerate (no plane frame)")
     _, i, j = best
     du1, dv1 = P[i][0] - p0[0], P[i][1] - p0[1]
     du2, dv2 = P[j][0] - p0[0], P[j][1] - p0[1]
@@ -450,6 +466,9 @@ def _fill_holed_plane(face, verts3d, extra_verts, n_cad, stats, max_steiner=2000
         if not ok:
             region_loops.append(H); region_xy.append(R)
             stats["hole_rings_skipped"] = stats.get("hole_rings_skipped", 0) + 1
+            if why is not None:
+                why.append("note: hole %d got no quad ring (gap %.4g < a quarter of its step %.4g, "
+                           "or the ring would cross itself)" % (hi, d, step))
             continue
         rv = []
         for U, V in ring:
@@ -552,34 +571,47 @@ def build_quad_mesh_uv(data):
     poly_face = []
     stats = {"faces": 0, "ngon": 0, "cdt": 0, "failed": 0,
              "ruled": 0, "coons": 0, "holed": 0, "hole_rings": 0, "hole_rings_skipped": 0, "cdt_new_verts": 0, "degenerate_dropped": 0, "ears_flipped": 0,
-             "edge_fail": int(data.get("n_edge_fail", 0)), "errors": []}
+             "edge_fail": int(data.get("n_edge_fail", 0)), "errors": [], "face_log": []}
     for face in data.get("faces", []):
         stats["faces"] += 1
         if face.get("error"):
             stats["failed"] += 1
             stats["errors"].append("Face %d (%s): %s" % (face["i"], face["kind"], face["error"]))
+            stats["face_log"].append({"i": face["i"], "kind": face["kind"], "kernel": "FAILED",
+                                      "polys": 0, "quads": 0, "tris": 0,
+                                      "tried": [("kernel", face["error"])], "notes": []})
             continue
-        out = _fill_ruled(face)
-        if out is not None:
-            stats["ruled"] += 1
-        if out is None:
-            out = _fill_coons(face, len(verts3d), extra)
+        tried = []
+        kernel = None
+        ladder = (
+            ("ruled", lambda w: _fill_ruled(face, why=w)),
+            ("grid", lambda w: _fill_coons(face, len(verts3d), extra, why=w)),
+            ("ngon", lambda w: _fill_ngon(face, why=w)),
+            ("holed", lambda w: _fill_holed_plane(face, verts3d, extra, n_cad, stats, why=w)),
+        )
+        out = None
+        notes = []
+        for name, fill in ladder:
+            w = []
+            out = fill(w)
+            notes += [x for x in w if x.startswith("note:")]
             if out is not None:
-                stats["coons"] += 1
+                kernel = name
+                break
+            tried.append((name, "; ".join(x for x in w if not x.startswith("note:")) or "declined"))
         if out is None:
-            out = _fill_ngon(face)
-            if out is not None:
-                stats["ngon"] += 1
-        if out is None:
-            out = _fill_holed_plane(face, verts3d, extra, n_cad, stats)
-            if out is not None:
-                stats["holed"] += 1
-        if out is None:
+            kernel = "triangles"
             out = _fill_cdt(face, verts3d, extra, n_cad, stats)
-            stats["cdt"] += 1
             if not out:
                 stats["failed"] += 1
                 stats["errors"].append("Face %d (%s): empty triangulation" % (face["i"], face["kind"]))
+        stats[{"ruled": "ruled", "grid": "coons", "ngon": "ngon", "holed": "holed",
+               "triangles": "cdt"}[kernel]] += 1
+        sizes = [len(q) for q in out]
+        stats["face_log"].append({
+            "i": face["i"], "kind": face["kind"], "kernel": kernel,
+            "polys": len(out), "quads": sizes.count(4), "tris": sizes.count(3),
+            "tried": tried, "notes": notes})
         for q in out:
             polys.append([c[0] for c in q])
             uvs.append([(c[1], c[2]) for c in q])
@@ -606,3 +638,43 @@ def cad_edge_pairs(data):
                 if a != b:
                     pairs.add(frozenset((a, b)))
     return pairs
+
+
+def cad_edge_creases(data):
+    """{frozenset(vid pair): crease degrees} for every mesh edge on a CAD edge,
+    from the kernel's exact CAD normals (0 = tangent, -1 = not judged). None
+    when the kernel is too old to send creases."""
+    edges = data.get("edges")
+    if edges is None:
+        return None
+    out = {}
+    for rec in edges:
+        crease, vids = rec[0], rec[1:]
+        for a, b in zip(vids, vids[1:]):
+            if a != b:
+                k = frozenset((a, b))
+                out[k] = max(out.get(k, -1.0), crease)
+    return out
+
+
+def report_text(rep, title="Quad Bake report"):
+    """The per-face report as plain text (what the Copy button puts on the
+    clipboard): a summary line, then one block per CAD face — the kernel that
+    filled it, its polygons, and why each earlier kernel declined."""
+    lines = [title,
+             "faces %d: ruled %d, grid %d, n-gon %d, holed plane %d, triangles %d, failed %d"
+             % (rep["faces"], rep["ruled"], rep["coons"], rep["ngon"], rep["holed"], rep["cdt"], rep["failed"]),
+             "polygons: %d quads, %d triangles, %d other; triangles joined: %d; sharp edges: %d (%s)"
+             % (rep.get("quads", 0), rep.get("tris", 0), rep.get("ngons", 0), rep.get("joined", 0),
+                rep.get("sharp", 0), rep.get("sharp_source", "?")),
+             ""]
+    for f in rep.get("face_log", []):
+        lines.append("F%-4d %-10s -> %-9s %4d polys (%d quads, %d tris)"
+                     % (f["i"], f["kind"], f["kernel"], f["polys"], f["quads"], f["tris"]))
+        for name, why in f["tried"]:
+            lines.append("        %-6s declined: %s" % (name, why))
+        for note in f["notes"]:
+            lines.append("        " + note)
+    for e in rep.get("errors", []):
+        lines.append("ERROR " + e)
+    return "\n".join(lines)
