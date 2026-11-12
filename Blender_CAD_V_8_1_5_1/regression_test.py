@@ -3115,6 +3115,33 @@ def t_quad_bake_operator():
     assert "cad_face" in me.attributes, "quad bake lost the cad_face attribute"
 
 
+def t_quad_bake_leaves_out_bake_suppressed():
+    """Quad Bake C1: "Leave Out of Bake" の穴は Bake 結果から消え、プレビュー(スタック)には残る。"""
+    from CAD_8_1_5_1 import core_bridge
+    col, props = _fresh_part()
+    bpy.ops.seamless.add_primitive(type='BOX')
+    bpy.ops.seamless.add_primitive(type='CYLINDER')
+    props = utils_props()
+    props.primitives[1].operation = 'SUB'
+    props.primitives[1].size = (0.3, 0.3, 1.5)
+    props.primitives[1].bake_suppressed = True
+    props.bake_topology = 'QUAD'
+    core_bridge.update_cad_preview_forced(bpy.context)   # GUI では編集が settle してから Bake
+    data = core_bridge.get_core().quad_topology(int(col.seamless_cad_stack_ptr), 0.01)
+    assert len(data["faces"]) > 6, "preview should keep the hole"
+    before = set(bpy.data.objects.keys())
+    res = bpy.ops.seamless.bake_mesh()
+    assert res == {'FINISHED'}, f"bake_mesh returned {res}"
+    new = [bpy.data.objects[n] for n in set(bpy.data.objects.keys()) - before]
+    baked = [o for o in new if o.type == 'MESH' and o.data and len(o.data.polygons) > 0]
+    assert baked, "quad bake produced no mesh"
+    assert len(baked[0].data.polygons) == 6, \
+        f"hole was not left out: {len(baked[0].data.polygons)} faces"
+    data = core_bridge.get_core().quad_topology(int(col.seamless_cad_stack_ptr), 0.01)
+    assert len(data["faces"]) > 6, "the part was not restored after the bake (hole missing)"
+    assert core_bridge._bake_suppress_active is False
+
+
 def t_project_geometry_onto_sketch_plane():
     """既存形状をスケッチ平面へ投影すると、線は線・円は円として入る。
 
@@ -3634,6 +3661,7 @@ def main():
     check("quad bake: sharp follows CAD continuity", t_quad_bake_sharp_follows_cad_continuity)
     check("quad bake: reports every face", t_quad_bake_reports_every_face)
     check("quad bake operator", t_quad_bake_operator)
+    check("quad bake leaves out bake-suppressed", t_quad_bake_leaves_out_bake_suppressed)
     check("project geometry onto the sketch plane", t_project_geometry_onto_sketch_plane)
     check("split cuts with a plane", t_split_cuts_with_a_plane)
     check("STEP export", t_step_export)

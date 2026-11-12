@@ -1652,6 +1652,16 @@ def _get_modifier_interactive_min_interval(props, interactive_preview, interacti
     return 0.05
 
 
+# C1: True の間は bake_suppressed の行も抑制扱い(operators/bake.py の Bake 中だけ)
+_bake_suppress_active = False
+
+
+def _is_suppressed(prim):
+    if getattr(prim, "suppressed", False):
+        return True
+    return _bake_suppress_active and getattr(prim, "bake_suppressed", False)
+
+
 def update_cad_preview(self, context):
     props = utils.get_active_props(context)
     col = utils.get_active_collection(context)
@@ -1970,7 +1980,7 @@ def _update_cad_preview_internal_for_col(col, context, fast_preview=False, overr
         if rollback_index >= 0 and i > rollback_index:
             continue
         # 抑制した行はターゲットを消費しない。抑制した MIRROR の元形状は表に戻る
-        if getattr(prim, "suppressed", False):
+        if _is_suppressed(prim):
             continue
         if prim.target_uuid.strip() and prim.type != 'INSTANCE':
             consumed_uuids.add(prim.target_uuid.strip())
@@ -1983,7 +1993,7 @@ def _update_cad_preview_internal_for_col(col, context, fast_preview=False, overr
     for i, prim in enumerate(props.primitives):
         if rollback_index >= 0 and i > rollback_index:
             break
-        if getattr(prim, "suppressed", False):
+        if _is_suppressed(prim):
             continue
         if prim.type == 'INSTANCE' and not prim.target_uuid.strip():
             continue

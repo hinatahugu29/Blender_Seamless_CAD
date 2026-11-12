@@ -485,6 +485,9 @@ class SEAMLESS_PT_FeatureTreePanel(bpy.types.Panel):
             
             row.prop(prim, "suppressed", text="", emboss=False,
                      icon='HIDE_ON' if prim.suppressed else 'HIDE_OFF')
+            if props.bake_topology == 'QUAD' or prim.bake_suppressed:
+                row.prop(prim, "bake_suppressed", text="", emboss=False,
+                         icon='MOD_DECIM' if prim.bake_suppressed else 'MESH_DATA')
 
             is_rollback_point = getattr(props, "rollback_index", -1) == i
             rb_icon = 'PINNED' if is_rollback_point else 'UNPINNED'

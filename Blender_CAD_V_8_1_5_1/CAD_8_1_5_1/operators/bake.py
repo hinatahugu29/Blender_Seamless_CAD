@@ -27,6 +27,24 @@ class SEAMLESS_OT_BakeMesh(bpy.types.Operator):
         if not props:
             self.report({'ERROR'}, "No active Seamless collection found!")
             return {'CANCELLED'}
+        # C1: "Leave Out of Bake" の行を外した形状から Bake し、終わったら戻す
+        if not any(getattr(p, "bake_suppressed", False) and not p.suppressed for p in props.primitives):
+            return self._execute(context, props)
+        from .. import core_bridge
+        # Bake 後は結果メッシュがアクティブになるので、戻す側は元の CAD コレクションを直接指す
+        col = utils.get_active_collection(context)
+
+        def rebuild():
+            core_bridge._update_cad_preview_internal_for_col(col, context, force=True, sync=True)
+        core_bridge._bake_suppress_active = True
+        try:
+            rebuild()
+            return self._execute(context, props)
+        finally:
+            core_bridge._bake_suppress_active = False
+            rebuild()
+
+    def _execute(self, context, props):
         core = get_core()
         if not core or not hasattr(core, "generate_mesh"):
             self.report({'ERROR'}, "Core generate_mesh not found")

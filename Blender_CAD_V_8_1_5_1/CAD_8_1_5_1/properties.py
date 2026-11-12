@@ -194,6 +194,13 @@ class SeamlessPrimitive(bpy.types.PropertyGroup):
         default=False,
         update=update_cad_preview
     )
+    # C1: Bake のときだけ外す(穴・面取り・刻印などを落としたローポリ用)。
+    # プレビューと履歴はそのまま。Bake 中だけ suppressed と同じ扱いになる。
+    bake_suppressed: bpy.props.BoolProperty(
+        name="Leave Out of Bake",
+        description="Bake the part as if this feature were suppressed (the preview keeps it)",
+        default=False
+    )
     type: bpy.props.EnumProperty(
         name="Type",
         items=[

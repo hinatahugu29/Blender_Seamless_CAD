@@ -54,6 +54,7 @@ def _serialize_primitive(source):
         "use_independent_transform": getattr(source, "use_independent_transform", False),
         "group_selected": False,
         "suppressed": getattr(source, "suppressed", False),
+        "bake_suppressed": getattr(source, "bake_suppressed", False),
         "bindings": [(b.field, b.expression) for b in getattr(source, "bindings", [])],
         "points": [{"co": pt.co[:], "use_fillet": getattr(pt, "use_fillet", True)} for pt in source.points],
     }
@@ -111,6 +112,8 @@ def _apply_primitive_data(item, data):
         item.use_independent_transform = data.get("use_independent_transform", False)
     if hasattr(item, "suppressed"):
         item.suppressed = data.get("suppressed", False)
+    if hasattr(item, "bake_suppressed"):
+        item.bake_suppressed = data.get("bake_suppressed", False)
     if hasattr(item, "bindings"):
         # ツリーを書き直す処理(グループ化など)もこの経路を通るので、落とすと式が消える
         item.bindings.clear()
