@@ -333,6 +333,58 @@ std::string quad_topology_json(void* stack_ptr, double tol) {
         TopoDS_Face ff = TopoDS::Face(fm.FindKey(fi).Oriented(TopAbs_FORWARD));
         try { ruled[fi] = analyse_ruled(ff, em); } catch (...) { ruled[fi] = RuledFace(); }
     }
+    // ── holed planes: straight edges take the holes' density ─────────────────
+    // A plate with a bolt hole has 1-span sides; the hole ring has many. A fill
+    // between a 16-point ring and four bare corners can only fan long slivers.
+    // So a straight edge of a holed plane is cut at the holes' own step
+    // (length / step, at most 64). The extra points are shared with the face on
+    // the other side like any edge sample, so the seam stays welded. Rulings of
+    // a ruled wall are left alone — that wall needs them at 1 span.
+    {
+        std::vector<char> is_ruling(em.Extent() + 1, 0);
+        for (int fi = 1; fi <= fm.Extent(); ++fi) {
+            const RuledFace& r = ruled[fi];
+            if (!r.ok) continue;
+            for (int ei : r.order) {
+                bool rim = std::find(r.rim_a.begin(), r.rim_a.end(), ei) != r.rim_a.end()
+                        || std::find(r.rim_b.begin(), r.rim_b.end(), ei) != r.rim_b.end();
+                if (!rim) is_ruling[ei] = 1;
+            }
+        }
+        for (int fi = 1; fi <= fm.Extent(); ++fi) {
+            TopoDS_Face ff = TopoDS::Face(fm.FindKey(fi).Oriented(TopAbs_FORWARD));
+            try {
+                if (BRepAdaptor_Surface(ff, Standard_False).GetType() != GeomAbs_Plane) continue;
+                TopoDS_Wire outer = BRepTools::OuterWire(ff);
+                if (outer.IsNull()) continue;
+                double hl = 0.0; int hn = 0;
+                std::vector<int> lines;
+                int nw = 0;
+                for (TopExp_Explorer wx(ff, TopAbs_WIRE); wx.More(); wx.Next()) {
+                    ++nw;
+                    TopoDS_Wire w = TopoDS::Wire(wx.Current());
+                    bool inner = !w.IsSame(outer);
+                    for (TopExp_Explorer ex(w, TopAbs_EDGE); ex.More(); ex.Next()) {
+                        int ei = em.FindIndex(ex.Current());
+                        if (ei < 1 || degen[ei]) continue;
+                        bool is_line = BRepAdaptor_Curve(TopoDS::Edge(ex.Current())).GetType() == GeomAbs_Line;
+                        if (is_line) lines.push_back(ei);
+                        else if (inner) { hl += elen[ei]; hn += nspan[ei]; }
+                    }
+                }
+                if (nw < 2 || hn == 0) continue;
+                double step = hl / hn;
+                if (!(step > 1e-9)) continue;
+                for (int ei : lines) {
+                    if (is_ruling[ei]) continue;
+                    int want = (int)std::lround(elen[ei] / step);
+                    want = std::max(1, std::min(64, want));
+                    if (want > nspan[ei]) nspan[ei] = want;
+                }
+            } catch (...) {}
+        }
+    }
+
     // ── P2: four-sided curved faces (Coons) ─────────────────────────────────
     std::vector<CoonsFace> coons(fm.Extent() + 1);
     for (int fi = 1; fi <= fm.Extent(); ++fi) {

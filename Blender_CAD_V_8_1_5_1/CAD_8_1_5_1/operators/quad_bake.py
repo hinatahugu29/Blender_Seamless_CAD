@@ -319,6 +319,179 @@ def _fill_cdt(face, verts3d, extra_verts, n_cad, stats):
     return polys
 
 
+def _seg_dist2(px, py, ax, ay, bx, by):
+    dx, dy = bx - ax, by - ay
+    L2 = dx * dx + dy * dy
+    t = ((px - ax) * dx + (py - ay) * dy) / L2 if L2 > 0.0 else 0.0
+    t = 0.0 if t < 0.0 else 1.0 if t > 1.0 else t
+    ex, ey = ax + t * dx - px, ay + t * dy - py
+    return ex * ex + ey * ey
+
+
+def _inside(px, py, rings):
+    """Even-odd point-in-region over several closed rings of (x, y)."""
+    inside = False
+    for R in rings:
+        n = len(R)
+        for k in range(n):
+            x0, y0 = R[k]
+            x1, y1 = R[(k + 1) % n]
+            if (y0 > py) != (y1 > py):
+                if px < x0 + (py - y0) * (x1 - x0) / (y1 - y0):
+                    inside = not inside
+    return inside
+
+
+def _segments_cross(a, b, c, d):
+    def o(p, q, r):
+        return (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0])
+    return (o(a, b, c) * o(a, b, d) < 0.0) and (o(c, d, a) * o(c, d, b) < 0.0)
+
+
+def _fill_holed_plane(face, verts3d, extra_verts, n_cad, stats, max_steiner=20000):
+    """K2: a plane with holes. Each hole gets a ring of quads one hole-step
+    wide (hole point i, its neighbour, and their offsets into the material);
+    the rest — outer loop plus the rings as holes — is triangulated with a
+    lattice of interior points at that same step, so the mesh stage's triangle
+    join can pair it into quads. The kernel already cut the plate's straight
+    edges at the holes' step. A plane is affine in (u, v), so new points are
+    placed exactly from three boundary points. Returns None when the face is
+    not a holed plane or the plane frame is degenerate."""
+    loops = face["loops"]
+    if face["kind"] != "plane" or len(loops) < 2:
+        return None
+    su, sv = face["su"], face["sv"]
+    base = len(verts3d)
+
+    def pos3(vid):
+        return Vector(verts3d[vid] if vid < base else extra_verts[vid - base])
+
+    # affine frame UV -> 3D from the outer loop: origin + U*a + V*b
+    outer = loops[0]
+    P = [(p[1] * su, p[2] * sv, pos3(p[0])) for p in outer]
+    p0 = P[0]
+    best = None
+    for i in range(1, len(P)):
+        for j in range(i + 1, len(P)):
+            area = abs((P[i][0] - p0[0]) * (P[j][1] - p0[1]) - (P[j][0] - p0[0]) * (P[i][1] - p0[1]))
+            if best is None or area > best[0]:
+                best = (area, i, j)
+    if best is None or best[0] < 1e-18:
+        return None
+    _, i, j = best
+    du1, dv1 = P[i][0] - p0[0], P[i][1] - p0[1]
+    du2, dv2 = P[j][0] - p0[0], P[j][1] - p0[1]
+    det = du1 * dv2 - du2 * dv1
+    d1, d2 = P[i][2] - p0[2], P[j][2] - p0[2]
+    a = (d1 * dv2 - d2 * dv1) / det
+    b = (d2 * du1 - d1 * du2) / det
+
+    def to3(U, V):
+        return tuple(p0[2] + a * (U - p0[0]) + b * (V - p0[1]))
+
+    xy = [[(p[1] * su, p[2] * sv) for p in L] for L in loops]
+    seg_all = []
+    for li, R in enumerate(xy):
+        for k in range(len(R)):
+            seg_all.append((li, R[k], R[(k + 1) % len(R)]))
+
+    polys = []
+    region_loops = [outer]          # loops for the triangulation, as [vid, u, v]
+    region_xy = [xy[0]]
+    steps = []
+    for hi in range(1, len(loops)):
+        H = loops[hi]
+        R = xy[hi]
+        k = len(R)
+        if k < 3:
+            region_loops.append(H); region_xy.append(R)
+            continue
+        seglen = [((R[(q + 1) % k][0] - R[q][0]) ** 2 + (R[(q + 1) % k][1] - R[q][1]) ** 2) ** 0.5 for q in range(k)]
+        step = sum(seglen) / k
+        steps.append(step)
+        sign = 1.0 if _signed_area(R) > 0.0 else -1.0
+        dirs = []
+        for q in range(k):
+            ax, ay = R[q - 1]; bx, by = R[q]; cx, cy = R[(q + 1) % k]
+            n1 = (sign * (by - ay), -sign * (bx - ax))
+            n2 = (sign * (cy - by), -sign * (cx - bx))
+            l1 = max((n1[0] ** 2 + n1[1] ** 2) ** 0.5, 1e-30)
+            l2 = max((n2[0] ** 2 + n2[1] ** 2) ** 0.5, 1e-30)
+            nx, ny = n1[0] / l1 + n2[0] / l2, n1[1] / l1 + n2[1] / l2
+            ln = max((nx * nx + ny * ny) ** 0.5, 1e-30)
+            dirs.append((nx / ln, ny / ln))
+        # clearance: the ring may use at most 45% of the gap to anything else
+        clear2 = 1e300
+        for q in range(k):
+            x, y = R[q]
+            for li, s0, s1 in seg_all:
+                if li == hi:
+                    continue
+                clear2 = min(clear2, _seg_dist2(x, y, s0[0], s0[1], s1[0], s1[1]))
+        d = min(step, 0.45 * clear2 ** 0.5)
+        ring = [(R[q][0] + d * dirs[q][0], R[q][1] + d * dirs[q][1]) for q in range(k)]
+        ok = d >= 0.25 * step
+        if ok:
+            for q in range(k):
+                for r in range(q + 2, k):
+                    if q == 0 and r == k - 1:
+                        continue
+                    if _segments_cross(ring[q], ring[(q + 1) % k], ring[r], ring[(r + 1) % k]):
+                        ok = False
+                        break
+                if not ok:
+                    break
+        if not ok:
+            region_loops.append(H); region_xy.append(R)
+            stats["hole_rings_skipped"] = stats.get("hole_rings_skipped", 0) + 1
+            continue
+        rv = []
+        for U, V in ring:
+            rv.append(base + len(extra_verts))
+            extra_verts.append(to3(U, V))
+        for q in range(k):
+            q2 = (q + 1) % k
+            quad = [(H[q][0], R[q][0], R[q][1]), (H[q2][0], R[q2][0], R[q2][1]),
+                    (rv[q2], ring[q2][0], ring[q2][1]), (rv[q], ring[q][0], ring[q][1])]
+            if _signed_area([(c[1], c[2]) for c in quad]) < 0.0:
+                quad.reverse()
+            if face["rev"]:
+                quad.reverse()
+            polys.append(quad)
+        region_loops.append([[rv[q], ring[q][0] / su, ring[q][1] / sv] for q in range(k)])
+        region_xy.append(ring)
+        stats["hole_rings"] = stats.get("hole_rings", 0) + 1
+
+    # interior lattice at the holes' step, kept half a step off every boundary
+    h = sum(steps) / len(steps) if steps else 0.0
+    steiner = []
+    if h > 0.0:
+        xs = [x for R in region_xy for x, _ in R]
+        ys = [y for R in region_xy for _, y in R]
+        while (max(xs) - min(xs)) * (max(ys) - min(ys)) / (h * h) > max_steiner:
+            h *= 1.5
+        segs = [(R[k], R[(k + 1) % len(R)]) for R in region_xy for k in range(len(R))]
+        keep2 = (0.5 * h) ** 2
+        nx = int((max(xs) - min(xs)) / h)
+        ny = int((max(ys) - min(ys)) / h)
+        ox = min(xs) + 0.5 * ((max(xs) - min(xs)) - nx * h)
+        oy = min(ys) + 0.5 * ((max(ys) - min(ys)) - ny * h)
+        for ix in range(nx + 1):
+            for iy in range(ny + 1):
+                X, Y = ox + ix * h, oy + iy * h
+                if not _inside(X, Y, region_xy):
+                    continue
+                if any(_seg_dist2(X, Y, s0[0], s0[1], s1[0], s1[1]) < keep2 for s0, s1 in segs):
+                    continue
+                x3 = to3(X, Y)
+                steiner.append([X / su, Y / sv, x3[0], x3[1], x3[2]])
+    sub = dict(face)
+    sub["loops"] = region_loops
+    sub["steiner"] = steiner
+    polys.extend(_fill_cdt(sub, verts3d, extra_verts, n_cad, stats))
+    return polys
+
+
 def pack_islands(poly_uvs, poly_face, margin_frac=0.02):
     """Lay the per-face UV islands into the unit square without overlap.
 
@@ -372,7 +545,7 @@ def build_quad_mesh_uv(data):
     uvs = []
     poly_face = []
     stats = {"faces": 0, "ngon": 0, "cdt": 0, "failed": 0,
-             "ruled": 0, "coons": 0, "cdt_new_verts": 0, "degenerate_dropped": 0, "ears_flipped": 0,
+             "ruled": 0, "coons": 0, "holed": 0, "hole_rings": 0, "hole_rings_skipped": 0, "cdt_new_verts": 0, "degenerate_dropped": 0, "ears_flipped": 0,
              "edge_fail": int(data.get("n_edge_fail", 0)), "errors": []}
     for face in data.get("faces", []):
         stats["faces"] += 1
@@ -391,6 +564,10 @@ def build_quad_mesh_uv(data):
             out = _fill_ngon(face)
             if out is not None:
                 stats["ngon"] += 1
+        if out is None:
+            out = _fill_holed_plane(face, verts3d, extra, n_cad, stats)
+            if out is not None:
+                stats["holed"] += 1
         if out is None:
             out = _fill_cdt(face, verts3d, extra, n_cad, stats)
             stats["cdt"] += 1

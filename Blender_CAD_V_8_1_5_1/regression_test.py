@@ -2778,6 +2778,53 @@ def t_quad_bake_join_triangles():
         bpy.data.meshes.remove(me1)
 
 
+def t_quad_bake_holed_plates_are_quad_dominant():
+    """Quad Bake: 穴あき平面は穴の周りに quad のリング、残りは格子点つきの三角形分割を
+    既定の結合で quad にまとめる。穴あき面の 6 割以上が quad、水密、UV も重ならない。
+    穴が板の縁に近すぎる(リングが穴の刻みの 1/4 未満しか取れない)ときはリングを諦め、
+    格子点つきの三角形分割だけで水密に埋める。"""
+    import bmesh
+    from CAD_8_1_5_1 import core_bridge
+    cases = (
+        ("one hole", (1.0, 1.0, 1.0), [(0.0, 0.0, 0.0)], (0.3, 0.3, 1.5)),
+        ("two holes", (2.0, 1.0, 0.2), [(-0.5, 0.0, 0.0), (0.5, 0.0, 0.0)], (0.2, 0.2, 1.0)),
+        ("hole near the edge", (1.0, 1.0, 1.0), [(0.15, 0.0, 0.0)], (0.3, 0.3, 1.5)),
+    )
+    for label, size, locs, hole_size in cases:
+        col, props = _fresh_part()
+        bpy.ops.seamless.add_primitive(type='BOX')
+        for _ in locs:
+            bpy.ops.seamless.add_primitive(type='CYLINDER')
+        props = utils_props()
+        props.primitives[0].size = size
+        for k, loc in enumerate(locs, start=1):
+            props.primitives[k].operation = 'SUB'
+            props.primitives[k].size = hole_size
+            props.primitives[k].location = loc
+        me, rep = _quad_bake_blender_mesh(col)
+        try:
+            data = core_bridge.get_core().quad_topology(int(col.seamless_cad_stack_ptr), 0.01)
+            plates = {f["i"] for f in data["faces"] if f["kind"] == "plane" and len(f["loops"]) > 1}
+            assert len(plates) == 2 and rep["holed"] == 2, f"{label}: expected two holed plates, got {rep}"
+            cad = me.attributes["cad_face"].data
+            if label == "hole near the edge":
+                assert rep["hole_rings"] == 0 and rep["hole_rings_skipped"] == 2,                     f"{label}: the 0.05 gap cannot hold a ring: {rep}"
+            else:
+                assert rep["hole_rings"] == 2 * len(locs), f"{label}: a hole ring was skipped: {rep}"
+                sizes = [len(p.vertices) for p in me.polygons if cad[p.index].value in plates]
+                quads = sizes.count(4)
+                assert quads >= 0.6 * len(sizes), f"{label}: only {quads}/{len(sizes)} quads on the holed plates"
+            bm = bmesh.new(); bm.from_mesh(me)
+            bad = [e for e in bm.edges if not e.is_manifold]
+            vol = bm.calc_volume(signed=True)
+            bm.free()
+            assert not bad, f"{label}: {len(bad)} non-manifold edge(s)"
+            assert vol > 0.0, f"{label}: faces point inward (volume {vol})"
+            _uv_islands_disjoint(me)
+        finally:
+            bpy.data.meshes.remove(me)
+
+
 def t_quad_bake_is_deterministic():
     """Quad Bake: 同じ形状からは毎回同じメッシュが出る。"""
     col, props = _fresh_part()
@@ -3316,6 +3363,7 @@ def main():
     check("quad bake: coons faces are grids", t_quad_bake_coons_faces_are_grids)
     check("quad bake: UV, seams and sharp edges", t_quad_bake_uv_seams_and_sharp)
     check("quad bake: join triangles", t_quad_bake_join_triangles)
+    check("quad bake: holed plates are quad-dominant", t_quad_bake_holed_plates_are_quad_dominant)
     check("quad bake operator", t_quad_bake_operator)
     check("project geometry onto the sketch plane", t_project_geometry_onto_sketch_plane)
     check("split cuts with a plane", t_split_cuts_with_a_plane)
