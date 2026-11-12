@@ -813,6 +813,28 @@ class SeamlessProperties(bpy.types.PropertyGroup):
         ],
         default='TRIS',
     )
+    quad_bake_join_tris: bpy.props.BoolProperty(
+        name="Join Triangles",
+        description="Join triangle pairs that form a clean quad (within one CAD face)",
+        default=True,
+    )
+    quad_bake_join_shape: bpy.props.FloatProperty(
+        name="Join Shape",
+        description="How far from a right-angled quad a joined triangle pair may be (degrees). "
+                    "40 = Blender's Tris to Quads default; larger joins more, with worse quads",
+        default=40.0,
+        min=0.0,
+        max=180.0,
+        precision=1,
+    )
+    quad_bake_sharp_angle: bpy.props.FloatProperty(
+        name="Sharp Angle",
+        description="CAD edges whose faces meet at more than this angle are marked sharp",
+        default=30.0,
+        min=0.0,
+        max=180.0,
+        precision=1,
+    )
     quad_bake_tol: bpy.props.FloatProperty(
         name="Quad Tolerance",
         description="Max chord deviation of a curved edge span, in Blender units. Lower = denser",

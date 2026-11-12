@@ -75,24 +75,23 @@ class SEAMLESS_OT_BakeMesh(bpy.types.Operator):
         return {'FINISHED'}
 
     def _bake_quad(self, context, core, props, stack_ptr):
-        """Quad Bake P0: shared-edge topology from the kernel, filled in
-        operators/quad_bake.py (n-gon planes, constrained triangulation)."""
-        from .quad_bake import build_quad_mesh
+        """Quad Bake: shared-edge topology from the kernel, filled in
+        operators/quad_bake.py, turned into a mesh with UVs / seams / sharp
+        edges in operators/quad_bake_mesh.py."""
+        from .quad_bake_mesh import make_quad_bake_mesh
         data = core.quad_topology(stack_ptr, props.quad_bake_tol)
         if not data:
             self.report({'ERROR'}, "Quad Bake: kernel returned no topology")
             return {'CANCELLED'}
-        verts, polys, poly_face, rep = build_quad_mesh(data)
-        if not polys:
+        mesh, rep = make_quad_bake_mesh(
+            "SeamlessQuadBake", data,
+            join_tris=props.quad_bake_join_tris,
+            sharp_angle_deg=props.quad_bake_sharp_angle,
+            join_shape_deg=props.quad_bake_join_shape)
+        if mesh is None:
             self.report({'ERROR'}, "Quad Bake: no faces could be filled")
             return {'CANCELLED'}
-
-        mesh = bpy.data.meshes.new("SeamlessQuadBake")
-        mesh.from_pydata(verts, [], polys)
-        attr = mesh.attributes.new("cad_face", 'INT', 'FACE')
-        attr.data.foreach_set("value", poly_face)
-        mesh.validate(clean_customdata=False)
-        mesh.update()
+        polys = mesh.polygons
         obj = bpy.data.objects.new("SeamlessQuadBake", mesh)
         parent_col = bpy.data.collections.get("Seamless_CAD")
         if parent_col is None:
@@ -109,8 +108,8 @@ class SEAMLESS_OT_BakeMesh(bpy.types.Operator):
 
         for line in rep["errors"][:20]:
             print("[QuadBake]", line)
-        msg = ("Quad Bake: %d faces (%d n-gon, %d triangulated), %d polygons"
-               % (rep["faces"], rep["ngon"], rep["cdt"], len(polys)))
+        msg = ("Quad Bake: %d faces (%d ruled, %d grid, %d n-gon, %d triangulated), %d polygons"
+               % (rep["faces"], rep["ruled"], rep["coons"], rep["ngon"], rep["cdt"], len(polys)))
         if rep["failed"] or rep["edge_fail"]:
             msg += " — %d face(s) / %d edge(s) failed, see console" % (rep["failed"], rep["edge_fail"])
             self.report({'WARNING'}, msg)

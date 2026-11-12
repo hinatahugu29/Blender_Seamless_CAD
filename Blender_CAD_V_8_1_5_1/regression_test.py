@@ -2682,6 +2682,102 @@ def t_quad_bake_coons_faces_are_grids():
         bm.free()
 
 
+def _quad_bake_blender_mesh(col, tol=0.01, join_tris=True, join_shape_deg=40.0):
+    """Quad Bake P3 の完成メッシュ(UV・シーム・シャープ・三角形結合込み)。"""
+    from CAD_8_1_5_1 import core_bridge
+    from CAD_8_1_5_1.operators.quad_bake_mesh import make_quad_bake_mesh
+    core_bridge.update_cad_preview_forced(bpy.context)
+    data = core_bridge.get_core().quad_topology(int(col.seamless_cad_stack_ptr), tol)
+    assert data, "quad_topology returned nothing"
+    me, rep = make_quad_bake_mesh("QB_test", data, join_tris=join_tris, join_shape_deg=join_shape_deg)
+    assert me is not None, f"nothing filled: {rep}"
+    return me, rep
+
+
+def _uv_islands_disjoint(me):
+    """CAD 面ごとの UV アイランドが [0,1] に収まり、外接矩形が重ならない。"""
+    uv = me.uv_layers["UVMap"].data
+    cad = me.attributes["cad_face"].data
+    boxes = {}
+    for p in me.polygons:
+        b = boxes.setdefault(cad[p.index].value, [9.0, 9.0, -9.0, -9.0])
+        for li in p.loop_indices:
+            u, v = uv[li].uv
+            assert -1e-6 <= u <= 1 + 1e-6 and -1e-6 <= v <= 1 + 1e-6, f"UV {u, v} outside the unit square"
+            b[0] = min(b[0], u); b[1] = min(b[1], v); b[2] = max(b[2], u); b[3] = max(b[3], v)
+    keys = sorted(boxes)
+    for i, a in enumerate(keys):
+        for c in keys[i + 1:]:
+            A, B = boxes[a], boxes[c]
+            overlap = (min(A[2], B[2]) - max(A[0], B[0]) > 1e-6) and (min(A[3], B[3]) - max(A[1], B[1]) > 1e-6)
+            assert not overlap, f"UV islands of CAD faces {a} and {c} overlap"
+    return len(boxes)
+
+
+def t_quad_bake_uv_seams_and_sharp():
+    """Quad Bake P3: CAD 面ごとに UV アイランド、CAD エッジにシーム、
+    角度のある CAD エッジだけシャープ(フィレットの接線つなぎは滑らか)。"""
+    import bmesh
+    col, props = _fresh_part()
+    bpy.ops.seamless.add_primitive(type='BOX')
+    me, rep = _quad_bake_blender_mesh(col)
+    try:
+        assert _uv_islands_disjoint(me) == 6, "a box should have 6 UV islands"
+        seams = sum(1 for e in me.edges if e.use_seam)
+        sharp = sum(1 for e in me.edges if e.use_edge_sharp)
+        assert seams == 12 and sharp == 12, f"box: {seams} seams / {sharp} sharp, expected 12 / 12"
+    finally:
+        bpy.data.meshes.remove(me)
+
+    col, props = _fresh_part()
+    bpy.ops.seamless.add_primitive(type='BOX')
+    lineages = _capture_edge_lineages(col)
+    bpy.ops.seamless.add_primitive(type='FILLET')
+    props = utils_props()
+    props.primitives[-1].target_lineages = "|".join(lineages)
+    props.primitives[-1].radius = 0.1
+    me, rep = _quad_bake_blender_mesh(col)
+    try:
+        _uv_islands_disjoint(me)
+        sharp = sum(1 for e in me.edges if e.use_edge_sharp)
+        assert sharp == 0, f"a fully filleted box is tangent everywhere, yet {sharp} edge(s) are sharp"
+        assert sum(1 for e in me.edges if e.use_seam) > 0, "no UV seams on the CAD edges"
+        bm = bmesh.new(); bm.from_mesh(me)
+        bad = [e for e in bm.edges if not e.is_manifold]
+        bm.free()
+        assert not bad, f"{len(bad)} non-manifold edge(s) after building the mesh"
+    finally:
+        bpy.data.meshes.remove(me)
+
+
+def t_quad_bake_join_triangles():
+    """Quad Bake P3: 三角形で埋めた面(穴あき平面)の三角形ペアを quad にまとめても水密。
+    既定の形状閾値 40 度ではこの板の細い三角形は1組も結合しないので、90 度で検査する。"""
+    import bmesh
+    col, props = _fresh_part()
+    bpy.ops.seamless.add_primitive(type='BOX')
+    bpy.ops.seamless.add_primitive(type='CYLINDER')
+    props = utils_props()
+    props.primitives[1].operation = 'SUB'
+    props.primitives[1].size = (0.3, 0.3, 1.5)
+    me0, _ = _quad_bake_blender_mesh(col, join_tris=False)
+    me1, rep = _quad_bake_blender_mesh(col, join_tris=True, join_shape_deg=90.0)
+    try:
+        t0 = sum(1 for p in me0.polygons if len(p.vertices) == 3)
+        t1 = sum(1 for p in me1.polygons if len(p.vertices) == 3)
+        assert rep["joined"] > 0 and t1 < t0, f"joining did not reduce triangles ({t0} -> {t1})"
+        bm = bmesh.new(); bm.from_mesh(me1)
+        bad = [e for e in bm.edges if not e.is_manifold]
+        vol = bm.calc_volume(signed=True)
+        bm.free()
+        assert not bad, f"{len(bad)} non-manifold edge(s) after joining"
+        assert 0.6 < vol < 0.8, f"volume {vol} after joining"
+        _uv_islands_disjoint(me1)
+    finally:
+        bpy.data.meshes.remove(me0)
+        bpy.data.meshes.remove(me1)
+
+
 def t_quad_bake_is_deterministic():
     """Quad Bake: 同じ形状からは毎回同じメッシュが出る。"""
     col, props = _fresh_part()
@@ -3218,6 +3314,8 @@ def main():
     check("quad bake is deterministic", t_quad_bake_is_deterministic)
     check("quad bake: ruled walls are quads", t_quad_bake_ruled_walls_are_quads)
     check("quad bake: coons faces are grids", t_quad_bake_coons_faces_are_grids)
+    check("quad bake: UV, seams and sharp edges", t_quad_bake_uv_seams_and_sharp)
+    check("quad bake: join triangles", t_quad_bake_join_triangles)
     check("quad bake operator", t_quad_bake_operator)
     check("project geometry onto the sketch plane", t_project_geometry_onto_sketch_plane)
     check("split cuts with a plane", t_split_cuts_with_a_plane)

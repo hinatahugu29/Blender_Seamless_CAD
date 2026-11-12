@@ -110,6 +110,11 @@ class SEAMLESS_PT_QualityBakePanel(bpy.types.Panel):
         box_q.prop(props, "bake_topology", text="Topology")
         if props.bake_topology == 'QUAD':
             box_q.prop(props, "quad_bake_tol", text="Quad Tol")
+            row = box_q.row(align=True)
+            row.prop(props, "quad_bake_join_tris", text="Join Tris", toggle=True)
+            row.prop(props, "quad_bake_sharp_angle", text="Sharp")
+            if props.quad_bake_join_tris:
+                box_q.prop(props, "quad_bake_join_shape", text="Join Shape")
         
         layout.operator("seamless.bake_mesh", text="Bake to Mesh", icon='MESH_DATA')
         

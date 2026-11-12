@@ -1,4 +1,4 @@
-"""Quad Bake P0 — fill the kernel's shared-edge topology into one mesh.
+"""Quad Bake — fill the kernel's shared-edge topology into one mesh.
 
 The kernel (src_rust/src/occ_quad.cpp, action ``quad_topology``) discretises
 every CAD edge ONCE and hands each face its boundary loops as
@@ -7,13 +7,20 @@ interior points already evaluated on the surface. Because a boundary point is
 the same vertex index on both sides of an edge, the result is watertight by
 construction — no position-based welding.
 
-Per face (the "kernel ladder", design doc QUAD_TESSELLATION_DESIGN.md §3.5):
-  K1  plane, one loop        -> one n-gon
-  K9  everything else        -> constrained Delaunay triangulation in UV
-                                (mathutils.geometry.delaunay_2d_cdt), boundary
-                                verbatim, interior points from the kernel
+Per face, the first kernel whose preconditions hold wins (design doc
+QUAD_TESSELLATION_DESIGN.md §3.5):
+  K3  ruled wall (cylinder / cone, rim-ruling-rim-ruling) -> one row of quads
+  K4  four-sided curved face                                -> Coons quad grid
+  K1  plane, one loop                                       -> one n-gon
+  K9  everything else                                       -> constrained
+      Delaunay triangulation in UV (mathutils.geometry.delaunay_2d_cdt)
 A face the kernel could not read (missing pcurve, ...) is reported and left
-open — P0 does not mix in BRepMesh triangles, which would not weld.
+open — no BRepMesh triangles are mixed in, they would not weld.
+
+Every polygon corner carries the face's own parametrisation, scaled to model
+units (u·|dS/du|, v·|dS/dv|), so each CAD face is one UV island cut along its
+CAD edges; `pack_islands` lays the islands out without overlap at one common
+texel density.
 
 Pure Python + mathutils: no bpy here, so the fill is testable headless.
 """
@@ -36,14 +43,31 @@ def _signed_area(pts):
     return 0.5 * a
 
 
-def _dedup_cyclic(vids):
+def _dedup_cyclic(corners):
+    """Drop consecutive corners on the same vertex (a pole, an apex)."""
     out = []
-    for v in vids:
-        if not out or out[-1] != v:
-            out.append(v)
-    while len(out) > 1 and out[0] == out[-1]:
+    for c in corners:
+        if not out or out[-1][0] != c[0]:
+            out.append(c)
+    while len(out) > 1 and out[0][0] == out[-1][0]:
         out.pop()
     return out
+
+
+def _corner(face, p):
+    """A loop point [vid, u, v] as a corner (vid, U, V) in model units."""
+    return (p[0], p[1] * face["su"], p[2] * face["sv"])
+
+
+def _orient_poly(face, loop_area, polys):
+    """Corners were built in the loop's direction; make them face outward."""
+    flip = loop_area < 0.0
+    if face["rev"]:
+        flip = not flip
+    if flip:
+        for q in polys:
+            q.reverse()
+    return polys
 
 
 def _fill_ngon(face):
@@ -52,16 +76,11 @@ def _fill_ngon(face):
     if face["kind"] != "plane" or len(loops) != 1:
         return None
     loop = loops[0]
-    vids = [p[0] for p in loop]
-    uv = [(p[1], p[2]) for p in loop]
-    poly = _dedup_cyclic(vids)
-    if len(poly) < 3 or len(set(poly)) != len(poly):
+    poly = _dedup_cyclic([_corner(face, p) for p in loop])
+    vids = [c[0] for c in poly]
+    if len(poly) < 3 or len(set(vids)) != len(vids):
         return None
-    if _signed_area(uv) < 0.0:
-        poly.reverse()
-    if face["rev"]:
-        poly.reverse()
-    return [poly]
+    return _orient_poly(face, _signed_area([(p[1], p[2]) for p in loop]), [poly])
 
 
 def _fill_ruled(face):
@@ -86,26 +105,22 @@ def _fill_ruled(face):
     for i in range(n + 1):
         if abs(A[i][1] - B[n - i][1]) > 0.5 * pitch + 1e-12:
             return None
-    flip = _signed_area([(p[1], p[2]) for p in loop]) < 0.0
-    if face["rev"]:
-        flip = not flip
     polys = []
     for i in range(n):
-        q = [A[i][0], A[i + 1][0], B[n - 1 - i][0], B[n - i][0]]
-        if len(set(q)) != 4:
+        q = [_corner(face, p) for p in (A[i], A[i + 1], B[n - 1 - i], B[n - i])]
+        if len({c[0] for c in q}) != 4:
             return None
-        if flip:
-            q.reverse()
         polys.append(q)
-    return polys
+    return _orient_poly(face, _signed_area([(p[1], p[2]) for p in loop]), polys)
 
 
 def _fill_coons(face, base, extra_verts):
     """K4: a four-sided curved face as an n x m quad grid. The kernel found
     the four sides, made opposite sides carry the same span count, blended the
     boundary in UV (Coons) and evaluated the interior on the surface
-    (`coons.pts`, row-major over i = 1..n-1, j = 1..m-1). A cell on a pole side
-    collapses to a triangle. Returns None when the data does not fit."""
+    (`coons.pts` xyz and `coons.uv`, row-major over i = 1..n-1, j = 1..m-1). A
+    cell on a pole side collapses to a triangle. Returns None when the data
+    does not fit."""
     c = face.get("coons")
     if c is None or len(face["loops"]) != 1:
         return None
@@ -113,15 +128,18 @@ def _fill_coons(face, base, extra_verts):
     n, m, rs = c["n"], c["m"], c["start"]
     M = len(loop)
     pts = c["pts"]
-    if M != 2 * (n + m) or len(pts) != 3 * (n - 1) * (m - 1):
+    uvs = c.get("uv", [])
+    n_in = (n - 1) * (m - 1)
+    if M != 2 * (n + m) or len(pts) != 3 * n_in or len(uvs) != 2 * n_in:
         return None
 
     def at(k):
-        return loop[(rs + k) % M][0]
+        return _corner(face, loop[(rs + k) % M])
 
     interior0 = base + len(extra_verts)
     for k in range(0, len(pts), 3):
         extra_verts.append((pts[k], pts[k + 1], pts[k + 2]))
+    su, sv = face["su"], face["sv"]
 
     def G(i, j):
         if j == 0:
@@ -132,21 +150,18 @@ def _fill_coons(face, base, extra_verts):
             return at(n + m + (n - i))
         if i == 0:
             return at(2 * n + m + (m - j))
-        return interior0 + (i - 1) * (m - 1) + (j - 1)
+        k = (i - 1) * (m - 1) + (j - 1)
+        return (interior0 + k, uvs[2 * k] * su, uvs[2 * k + 1] * sv)
 
-    flip = _signed_area([(p[1], p[2]) for p in loop]) < 0.0
-    if face["rev"]:
-        flip = not flip
     polys = []
     for i in range(n):
         for j in range(m):
             q = _dedup_cyclic([G(i, j), G(i + 1, j), G(i + 1, j + 1), G(i, j + 1)])
-            if len(q) < 3 or len(set(q)) != len(q):
+            vids = [x[0] for x in q]
+            if len(q) < 3 or len(set(vids)) != len(vids):
                 continue
-            if flip:
-                q.reverse()
             polys.append(q)
-    return polys
+    return _orient_poly(face, _signed_area([(p[1], p[2]) for p in loop]), polys)
 
 
 def _orient(a, b, c):
@@ -292,28 +307,69 @@ def _fill_cdt(face, verts3d, extra_verts, n_cad, stats):
     polys = []
     for tri in tris:
         a, b, c = (out_v[t] for t in tri)
-        g = [gmap[t] for t in tri]
-        if len(set(g)) < 3:
+        q = [(gmap[t], out_v[t].x, out_v[t].y) for t in tri]
+        if len({x[0] for x in q}) < 3:
             stats["degenerate_dropped"] += 1      # collapsed onto a pole / apex
             continue
         if _orient(a, b, c) < 0.0:
-            g.reverse()
+            q.reverse()
         if face["rev"]:
-            g.reverse()
-        polys.append(g)
+            q.reverse()
+        polys.append(q)
     return polys
 
 
-def build_quad_mesh(data):
+def pack_islands(poly_uvs, poly_face, margin_frac=0.02):
+    """Lay the per-face UV islands into the unit square without overlap.
+
+    poly_uvs: per polygon, a list of (U, V) in model units. Every island keeps
+    its size relative to the others (one texel density for the whole mesh);
+    islands are sorted by height and placed on shelves, then everything is
+    scaled by one factor to fit. Mutates and returns `poly_uvs`."""
+    boxes = {}
+    for uvs, fi in zip(poly_uvs, poly_face):
+        b = boxes.setdefault(fi, [1e300, 1e300, -1e300, -1e300])
+        for u, v in uvs:
+            b[0] = min(b[0], u); b[1] = min(b[1], v)
+            b[2] = max(b[2], u); b[3] = max(b[3], v)
+    if not boxes:
+        return poly_uvs
+    area = sum((b[2] - b[0]) * (b[3] - b[1]) for b in boxes.values())
+    width = max(max(b[2] - b[0] for b in boxes.values()), area ** 0.5 * 1.2, 1e-12)
+    gap = margin_frac * width
+    order = sorted(boxes, key=lambda f: (-(boxes[f][3] - boxes[f][1]), f))
+    offset = {}
+    x = y = shelf_h = 0.0
+    for fi in order:
+        b = boxes[fi]
+        w, h = b[2] - b[0], b[3] - b[1]
+        if x > 0.0 and x + w > width:
+            x = 0.0
+            y += shelf_h + gap
+            shelf_h = 0.0
+        offset[fi] = (x - b[0], y - b[1])
+        x += w + gap
+        shelf_h = max(shelf_h, h)
+    total = max(width, y + shelf_h, 1e-12)
+    s = 1.0 / total
+    for k, (uvs, fi) in enumerate(zip(poly_uvs, poly_face)):
+        ox, oy = offset[fi]
+        poly_uvs[k] = [((u + ox) * s, (v + oy) * s) for u, v in uvs]
+    return poly_uvs
+
+
+def build_quad_mesh_uv(data):
     """data: the dict from core_bridge.quad_topology.
 
-    Returns (verts, polys, poly_face_index, report) where poly_face_index is
-    the 1-based CAD face index of each polygon."""
+    Returns (verts, polys, poly_face_index, poly_uvs, report): poly_face_index
+    is the 1-based CAD face index of each polygon, poly_uvs the packed UV of
+    each polygon corner."""
     flat = data.get("verts", [])
     verts3d = [(flat[i], flat[i + 1], flat[i + 2]) for i in range(0, len(flat), 3)]
     n_cad = int(data.get("n_cad_verts", 0))
     extra = []
     polys = []
+    uvs = []
     poly_face = []
     stats = {"faces": 0, "ngon": 0, "cdt": 0, "failed": 0,
              "ruled": 0, "coons": 0, "cdt_new_verts": 0, "degenerate_dropped": 0, "ears_flipped": 0,
@@ -341,6 +397,29 @@ def build_quad_mesh(data):
             if not out:
                 stats["failed"] += 1
                 stats["errors"].append("Face %d (%s): empty triangulation" % (face["i"], face["kind"]))
-        polys.extend(out)
-        poly_face.extend([face["i"]] * len(out))
-    return verts3d + extra, polys, poly_face, stats
+        for q in out:
+            polys.append([c[0] for c in q])
+            uvs.append([(c[1], c[2]) for c in q])
+            poly_face.append(face["i"])
+    pack_islands(uvs, poly_face)
+    return verts3d + extra, polys, poly_face, uvs, stats
+
+
+def build_quad_mesh(data):
+    """Like build_quad_mesh_uv without the UVs: (verts, polys, poly_face, report)."""
+    verts, polys, poly_face, _uvs, stats = build_quad_mesh_uv(data)
+    return verts, polys, poly_face, stats
+
+
+def cad_edge_pairs(data):
+    """Every mesh edge that lies on a CAD edge, as a set of frozenset vid pairs
+    (consecutive points of a face loop). Used for UV seams / sharp edges."""
+    pairs = set()
+    for face in data.get("faces", []):
+        for loop in face.get("loops", []):
+            n = len(loop)
+            for k in range(n):
+                a, b = loop[k][0], loop[(k + 1) % n][0]
+                if a != b:
+                    pairs.add(frozenset((a, b)))
+    return pairs

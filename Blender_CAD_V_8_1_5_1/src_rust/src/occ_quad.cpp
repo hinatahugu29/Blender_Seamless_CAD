@@ -657,6 +657,15 @@ std::string quad_topology_json(void* stack_ptr, double tol) {
                             jnum(out, q.X()); out += ","; jnum(out, q.Y()); out += ","; jnum(out, q.Z());
                         }
                     }
+                    out += "],\"uv\":[";   // the same interior points in (u, v)
+                    fp = true;
+                    for (int i = 1; i < nn; ++i) {
+                        for (int j = 1; j < mm; ++j) {
+                            if (!fp) out += ",";
+                            fp = false;
+                            jnum(out, gu[i * (mm + 1) + j]); out += ","; jnum(out, gv[i * (mm + 1) + j]);
+                        }
+                    }
                     out += "]}";
                 }
             }
