@@ -362,6 +362,12 @@ def _fill_holed_plane(face, verts3d, extra_verts, n_cad, stats, max_steiner=2000
         return None
     su, sv = face["su"], face["sv"]
     base = len(verts3d)
+    # the outer loop is the one enclosing the largest area — never trust the
+    # order alone: a hole ring laid around the OUTER loop would leave the part
+    areas = [abs(_signed_area([(p[1] * su, p[2] * sv) for p in L])) for L in loops]
+    big = max(range(len(loops)), key=lambda k: areas[k])
+    if big != 0:
+        loops = [loops[big]] + [L for k, L in enumerate(loops) if k != big]
 
     def pos3(vid):
         return Vector(verts3d[vid] if vid < base else extra_verts[vid - base])

@@ -2825,6 +2825,107 @@ def t_quad_bake_holed_plates_are_quad_dominant():
             bpy.data.meshes.remove(me)
 
 
+def _max_deviation_per_face(col, me, ref_defl=0.0005, vertices_only=False):
+    """Quad Bake のメッシュが元形状からどれだけ離れるか。CAD 面ごとの最大値。
+    基準は細かい三角形 Bake。辺の 1/4・1/2・3/4 点とポリゴン重心で測る
+    (vertices_only なら頂点だけ)。"""
+    from mathutils.bvhtree import BVHTree
+    from CAD_8_1_5_1.core_bridge import get_core
+    fv, ft, _f, _c = get_core().generate_mesh(int(col.seamless_cad_stack_ptr), ref_defl, math.radians(2.0))
+    FV = [(float(fv[i]), float(fv[i + 1]), float(fv[i + 2])) for i in range(0, len(fv), 3)]
+    FT = [(int(ft[i]), int(ft[i + 1]), int(ft[i + 2])) for i in range(0, len(ft), 3)]
+    bvh = BVHTree.FromPolygons(FV, FT)
+    cad = me.attributes["cad_face"].data
+    worst = {}
+    for p in me.polygons:
+        co = [me.vertices[v].co for v in p.vertices]
+        if vertices_only:
+            pts = list(co)
+        else:
+            pts = [sum(co, mathutils.Vector()) / len(co)]
+        for k in range(0 if vertices_only else len(co)):
+            a, b = co[k], co[(k + 1) % len(co)]
+            pts += [a.lerp(b, t) for t in (0.25, 0.5, 0.75)]
+        d = max(bvh.find_nearest(q)[3] for q in pts)
+        fi = cad[p.index].value
+        worst[fi] = max(worst.get(fi, 0.0), d)
+    return worst
+
+
+def t_quad_bake_outer_loop_is_the_largest():
+    """Quad Bake: 穴あき平面の外周は「面積が最大の輪」。カーネルが小さい輪を先に
+    渡しても(実機 TEST-1.blend で BRepTools::OuterWire が起こした取り違え)、穴の
+    リングは部品の内側に張られ、外へ張り出さない。カーネル無しで再現する単体検査。"""
+    from CAD_8_1_5_1.operators.quad_bake import build_quad_mesh_uv
+    verts = [(-1.0, -1.0, 0.0), (1.0, -1.0, 0.0), (1.0, 1.0, 0.0), (-1.0, 1.0, 0.0)]
+    outer = [[0, -1.0, -1.0], [1, 1.0, -1.0], [2, 1.0, 1.0], [3, -1.0, 1.0]]
+    hole = []
+    for k in range(16):
+        a = -2.0 * math.pi * k / 16          # 穴は外周と逆回り
+        x, y = 0.3 * math.cos(a), 0.3 * math.sin(a)
+        hole.append([len(verts), x, y])
+        verts.append((x, y, 0.0))
+    face = {"i": 1, "kind": "plane", "rev": False, "su": 1.0, "sv": 1.0,
+            "c": [0.0, 0.0, 0.0], "loops": [hole, outer], "steiner": []}   # 小さい輪が先
+    data = {"verts": [c for v in verts for c in v], "faces": [face], "n_cad_verts": 4}
+    out_v, polys, _pf, _uv, rep = build_quad_mesh_uv(data)
+    assert rep["holed"] == 1 and rep["hole_rings"] == 1, f"no hole ring: {rep}"
+    used = {i for p in polys for i in p}
+    for i in used:
+        x, y, z = out_v[i]
+        assert abs(x) <= 1.0 + 1e-9 and abs(y) <= 1.0 + 1e-9, f"vertex {i} {out_v[i]} is off the plate"
+        assert math.hypot(x, y) >= 0.3 * math.cos(math.pi / 16) - 1e-9, f"vertex {i} {out_v[i]} is inside the hole"
+
+
+def t_quad_bake_annulus_stays_on_the_part():
+    """Quad Bake: 円柱に球を足し、接合部と縁をフィレットすると上面は輪(ドーナツ)状の平面になる。外周の取り違え
+    (BRepTools::OuterWire が小さい輪を外周と判定)で穴のリングが部品の外へ張り出し、
+    0.024 ずれていた(実機 TEST-1.blend)。平面の頂点は部品上(1e-4 以内)、曲面は 2 x tol + 基準誤差 以内。"""
+    col, props = _fresh_part()
+    bpy.ops.seamless.add_primitive(type='CYLINDER')
+    bpy.ops.seamless.add_primitive(type='SPHERE')
+    props = utils_props()
+    props.primitives[1].location = (0.0, 0.0, 1.1437207460403442)
+    # TEST-1 と同じく、高さ ±0.5 の3本(球との接合円・円柱の上下の縁)を R0.04 で丸める
+    picked = []
+    for lin in _capture_edge_lineages(col):
+        if not str(lin).startswith("Edge:") or "@" not in str(lin):
+            continue
+        xyz = str(lin).split("@", 1)[1].split("#", 1)[0].split(";")
+        try:
+            z = float(xyz[2])
+        except (IndexError, ValueError):
+            continue
+        # 同じ位置の lineage が2つ出る円があるので、位置ごとに最初の1本(TEST-1 と同じ選び方)
+        if abs(abs(z) - 0.5) < 1e-3 and all(str(q).split("@", 1)[1] != str(lin).split("@", 1)[1].split("#", 1)[0]
+                                            for q in picked):
+            picked.append(lin.split("#", 1)[0] if isinstance(lin, str) else lin)
+    assert len(picked) == 3, f"expected the 3 edges at z = +-0.5, got {picked}"
+    bpy.ops.seamless.add_primitive(type='FILLET')
+    props = utils_props()
+    props.primitives[-1].target_lineages = "|".join(picked)
+    props.primitives[-1].radius = 0.04
+    tol = 0.001                     # TEST-1 と同じ。0.002 では外周の取り違えが起きなかった
+    me, rep = _quad_bake_blender_mesh(col, tol=tol)
+    try:
+        assert rep["holed"] >= 1 and rep["hole_rings"] >= 1, f"no annulus plane with a ring: {rep}"
+        from CAD_8_1_5_1 import core_bridge
+        data = core_bridge.get_core().quad_topology(int(col.seamless_cad_stack_ptr), tol)
+        planes = {f["i"] for f in data["faces"] if f["kind"] == "plane"}
+        worst = _max_deviation_per_face(col, me)
+        # 平面の頂点(穴のリング・格子点)は厳密に置けるので実質 0。壊れた版では
+        # リングが部品の外に出た。辺の中点は穴の縁で弦誤差ぶん空中に出てよいので見ない
+        on = _max_deviation_per_face(col, me, vertices_only=True)
+        off_plane = {k: round(v, 6) for k, v in on.items() if k in planes and v > 1e-4}
+        assert not off_plane, f"plane faces off the part: {off_plane}"
+        # 曲面の格子は u と v の弦誤差が重なって最大 2 x tol。基準メッシュ自身の誤差(0.0005)を足す
+        limit = 2.0 * tol + 0.0005
+        bad = {k: round(v, 5) for k, v in worst.items() if v > limit}
+        assert not bad, f"faces off the part by more than 2 x tol + ref ({limit}): {bad}"
+    finally:
+        bpy.data.meshes.remove(me)
+
+
 def t_quad_bake_is_deterministic():
     """Quad Bake: 同じ形状からは毎回同じメッシュが出る。"""
     col, props = _fresh_part()
@@ -3364,6 +3465,8 @@ def main():
     check("quad bake: UV, seams and sharp edges", t_quad_bake_uv_seams_and_sharp)
     check("quad bake: join triangles", t_quad_bake_join_triangles)
     check("quad bake: holed plates are quad-dominant", t_quad_bake_holed_plates_are_quad_dominant)
+    check("quad bake: outer loop is the largest", t_quad_bake_outer_loop_is_the_largest)
+    check("quad bake: annulus stays on the part", t_quad_bake_annulus_stays_on_the_part)
     check("quad bake operator", t_quad_bake_operator)
     check("project geometry onto the sketch plane", t_project_geometry_onto_sketch_plane)
     check("split cuts with a plane", t_split_cuts_with_a_plane)

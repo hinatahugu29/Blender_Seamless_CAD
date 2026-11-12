@@ -24,6 +24,7 @@
 #include <BRepAdaptor_Surface.hxx>
 #include <BRepTools.hxx>
 #include <BRepTools_WireExplorer.hxx>
+#include <ShapeAnalysis.hxx>
 #include <BRepTopAdaptor_FClass2d.hxx>
 #include <BRep_Tool.hxx>
 #include <GCPnts_AbscissaPoint.hxx>
@@ -47,6 +48,18 @@ namespace occ_core {
 namespace {
 
 const int kMaxSpans = 512;
+
+// The face's outer boundary. BRepTools::OuterWire guesses (it picked the
+// SMALL ring of an annulus — a cylinder top cut by a sphere — as "outer", and
+// the hole ring was then laid off the part); ShapeAnalysis::OuterWire
+// classifies the wires against the face. Falls back to BRepTools on failure.
+TopoDS_Wire outer_wire(const TopoDS_Face& f) {
+    try {
+        TopoDS_Wire w = ShapeAnalysis::OuterWire(f);
+        if (!w.IsNull()) return w;
+    } catch (...) {}
+    return BRepTools::OuterWire(f);
+}
 
 struct EdgeSamples {
     bool ok = false;
@@ -184,7 +197,7 @@ RuledFace analyse_ruled(const TopoDS_Face& ff, const TopTools_IndexedMapOfShape&
     int nw = 0;
     for (TopExp_Explorer wx(ff, TopAbs_WIRE); wx.More(); wx.Next()) ++nw;
     if (nw != 1) return r;
-    TopoDS_Wire w = BRepTools::OuterWire(ff);
+    TopoDS_Wire w = outer_wire(ff);
     if (w.IsNull()) return r;
     std::vector<int> eids;
     std::vector<bool> ruling;
@@ -248,7 +261,7 @@ CoonsFace analyse_coons(const TopoDS_Face& ff, const TopTools_IndexedMapOfShape&
     int nw = 0;
     for (TopExp_Explorer wx(ff, TopAbs_WIRE); wx.More(); wx.Next()) ++nw;
     if (nw != 1) return r;
-    TopoDS_Wire w = BRepTools::OuterWire(ff);
+    TopoDS_Wire w = outer_wire(ff);
     if (w.IsNull()) return r;
     std::vector<int> eids;
     std::vector<gp_Vec2d> t0, t1;           // UV tangent at start / end (walk direction)
@@ -355,7 +368,7 @@ std::string quad_topology_json(void* stack_ptr, double tol) {
             TopoDS_Face ff = TopoDS::Face(fm.FindKey(fi).Oriented(TopAbs_FORWARD));
             try {
                 if (BRepAdaptor_Surface(ff, Standard_False).GetType() != GeomAbs_Plane) continue;
-                TopoDS_Wire outer = BRepTools::OuterWire(ff);
+                TopoDS_Wire outer = outer_wire(ff);
                 if (outer.IsNull()) continue;
                 double hl = 0.0; int hn = 0;
                 std::vector<int> lines;
@@ -541,7 +554,7 @@ std::string quad_topology_json(void* stack_ptr, double tol) {
         std::string why;
         std::vector<std::vector<LoopPt>> loops;
         try {
-            TopoDS_Wire outer = BRepTools::OuterWire(ff);
+            TopoDS_Wire outer = outer_wire(ff);
             if (outer.IsNull()) why = "no outer wire";
             else {
                 loops.emplace_back();
