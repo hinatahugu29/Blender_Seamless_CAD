@@ -26,6 +26,7 @@
 #include <BRepTools_WireExplorer.hxx>
 #include <BRepTopAdaptor_FClass2d.hxx>
 #include <BRep_Tool.hxx>
+#include <GCPnts_AbscissaPoint.hxx>
 #include <GCPnts_TangentialDeflection.hxx>
 #include <GCPnts_UniformAbscissa.hxx>
 #include <Geom2d_Curve.hxx>
@@ -162,6 +163,67 @@ bool walk_wire(const TopoDS_Wire& w, const TopoDS_Face& face, const TopTools_Ind
     return true;
 }
 
+// A ruled wall: a cylinder / cone face with ONE wire made of two rims joined
+// by exactly two RULINGS (straight generators: u = const in the pcurve — the
+// seam of a full wall, or a side line of a partial one). rim_a / rim_b are the
+// edge indices of the two rims; first_a is the position (in wire order) of
+// rim A's first edge, which Python turns into a loop index.
+struct RuledFace {
+    bool ok = false;
+    std::vector<int> rim_a, rim_b, order;
+    int first_a = -1;
+};
+
+RuledFace analyse_ruled(const TopoDS_Face& ff, const TopTools_IndexedMapOfShape& em) {
+    RuledFace r;
+    BRepAdaptor_Surface sa(ff, Standard_False);
+    if (sa.GetType() != GeomAbs_Cylinder && sa.GetType() != GeomAbs_Cone) return r;
+    int nw = 0;
+    for (TopExp_Explorer wx(ff, TopAbs_WIRE); wx.More(); wx.Next()) ++nw;
+    if (nw != 1) return r;
+    TopoDS_Wire w = BRepTools::OuterWire(ff);
+    if (w.IsNull()) return r;
+    std::vector<int> eids;
+    std::vector<bool> ruling;
+    for (BRepTools_WireExplorer wx(w, ff); wx.More(); wx.Next()) {
+        TopoDS_Edge e = wx.Current();
+        if (BRep_Tool::Degenerated(e)) return r;      // a cone apex: not P1
+        int ei = em.FindIndex(e);
+        if (ei < 1) return r;
+        double f, l;
+        Handle(Geom2d_Curve) pc = BRep_Tool::CurveOnSurface(e, ff, f, l);
+        if (pc.IsNull()) return r;
+        gp_Pnt2d p0 = pc->Value(f), p1 = pc->Value(l);
+        bool is_rule = false;
+        if (BRepAdaptor_Curve(e).GetType() == GeomAbs_Line)
+            is_rule = std::fabs(p1.X() - p0.X()) < 1e-7 && std::fabs(p1.Y() - p0.Y()) > 1e-9;
+        eids.push_back(ei);
+        ruling.push_back(is_rule);
+    }
+    int n = (int)eids.size(), nr = 0;
+    for (bool b : ruling) nr += b ? 1 : 0;
+    if (nr != 2 || n < 4) return r;
+    // rotate so that position 0 is a ruling; then the two runs between rulings
+    int r0 = 0;
+    while (!ruling[r0]) ++r0;
+    std::vector<int> run1, run2;
+    int pos1 = -1;
+    bool second = false;
+    for (int k = 1; k < n; ++k) {
+        int p = (r0 + k) % n;
+        if (ruling[p]) { second = true; continue; }
+        if (!second) { if (run1.empty()) pos1 = p; run1.push_back(eids[p]); }
+        else run2.push_back(eids[p]);
+    }
+    if (run1.empty() || run2.empty()) return r;
+    r.rim_a = run1;
+    r.rim_b = run2;
+    r.first_a = pos1;
+    r.order = eids;
+    r.ok = true;
+    return r;
+}
+
 }  // namespace
 
 std::string quad_topology_json(void* stack_ptr, double tol) {
@@ -178,6 +240,47 @@ std::string quad_topology_json(void* stack_ptr, double tol) {
     std::vector<gp_Pnt> verts;
     verts.reserve(vm.Extent() * 4);
     for (int i = 1; i <= vm.Extent(); ++i) verts.push_back(BRep_Tool::Pnt(TopoDS::Vertex(vm.FindKey(i))));
+
+    // ── span law per edge ─────────────────────────────────────────────────
+    std::vector<int> nspan(em.Extent() + 1, 1);
+    std::vector<double> elen(em.Extent() + 1, 0.0);
+    for (int i = 1; i <= em.Extent(); ++i) {
+        TopoDS_Edge e = TopoDS::Edge(em.FindKey(i));
+        try {
+            if (BRep_Tool::Degenerated(e)) { nspan[i] = 1; continue; }
+            nspan[i] = edge_spans(e, tol);
+            BRepAdaptor_Curve c(e);
+            elen[i] = GCPnts_AbscissaPoint::Length(c);
+        } catch (...) {}
+    }
+
+    // ── P1: ruled walls (cylinder / cone) and their HARD rim equality ─────
+    std::vector<RuledFace> ruled(fm.Extent() + 1);
+    for (int fi = 1; fi <= fm.Extent(); ++fi) {
+        TopoDS_Face ff = TopoDS::Face(fm.FindKey(fi).Oriented(TopAbs_FORWARD));
+        try { ruled[fi] = analyse_ruled(ff, em); } catch (...) { ruled[fi] = RuledFace(); }
+    }
+    // A rim may be shared by several walls (a stack of tubes), so iterate:
+    // the lower rim RISES to the higher one (never goes down) until stable.
+    for (int round = 0; round < 32; ++round) {
+        bool moved = false;
+        for (int fi = 1; fi <= fm.Extent(); ++fi) {
+            const RuledFace& r = ruled[fi];
+            if (!r.ok) continue;
+            int sa = 0, sb = 0;
+            for (int ei : r.rim_a) sa += nspan[ei];
+            for (int ei : r.rim_b) sb += nspan[ei];
+            if (sa == sb) continue;
+            const std::vector<int>& low = (sa < sb) ? r.rim_a : r.rim_b;
+            int need = std::abs(sa - sb);
+            // add to the longest edge of the lower rim (deterministic: first max)
+            int best = low[0];
+            for (int ei : low) if (elen[ei] > elen[best] + 1e-12) best = ei;
+            nspan[best] = std::min(kMaxSpans, nspan[best] + need);
+            moved = true;
+        }
+        if (!moved) break;
+    }
 
     // ── edges: discretise ONCE ────────────────────────────────────────────
     std::vector<EdgeSamples> es(em.Extent() + 1);
@@ -199,7 +302,7 @@ std::string quad_topology_json(void* stack_ptr, double tol) {
                 s.ok = true;
                 continue;
             }
-            int n = edge_spans(e, tol);
+            int n = nspan[i];
             BRepAdaptor_Curve c(e);
             s.params.push_back(f);
             if (n > 1) {
@@ -338,6 +441,13 @@ std::string quad_topology_json(void* stack_ptr, double tol) {
         out += ",\"su\":"; jnum(out, su);
         out += ",\"sv\":"; jnum(out, sv);
         out += ",\"c\":["; jnum(out, c.X()); out += ","; jnum(out, c.Y()); out += ","; jnum(out, c.Z()); out += "]";
+        if (why.empty() && ruled[fi].ok) {
+            // loop index where rim A starts = points contributed by the edges
+            // before it in wire order (an edge of n spans gives n points)
+            int rs = 0;
+            for (int k = 0; k < ruled[fi].first_a; ++k) rs += (int)es[ruled[fi].order[k]].params.size() - 1;
+            out += ",\"ruled\":" + std::to_string(rs);
+        }
         if (!why.empty()) {
             out += ",\"error\":\"" + why + "\",\"loops\":[],\"steiner\":[]}";
             continue;

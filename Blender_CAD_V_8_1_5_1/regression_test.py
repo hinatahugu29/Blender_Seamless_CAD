@@ -2567,7 +2567,8 @@ def t_quad_bake_fillet_and_hole():
     props.primitives[-1].radius = 0.1
     bm, rep, _ = _quad_bake_mesh(col)
     try:
-        assert rep["cdt"] >= 4, f"the fillet did not reach the shape (no curved faces): {rep}"
+        assert rep["cdt"] + rep["ruled"] >= 4, f"the fillet did not reach the shape (no curved faces): {rep}"
+        assert rep["ruled"] == 4, f"the four fillet strips should be ruled quads: {rep}"
         _assert_quad_bake_sound(bm, rep, "filleted box")
     finally:
         bm.free()
@@ -2584,6 +2585,56 @@ def t_quad_bake_fillet_and_hole():
         box_vol = bm.calc_volume(signed=True)
         assert box_vol < 0.95, f"the hole did not reach the shape (volume {box_vol})"
         _assert_quad_bake_sound(bm, rep, "box with a hole")
+    finally:
+        bm.free()
+
+
+def _fine_volume(col):
+    """細かい三角形 Bake(BRepMesh, 0.001 / 1度)で測った基準体積。"""
+    import bmesh
+    from CAD_8_1_5_1.core_bridge import get_core
+    v, t, _f, _c = get_core().generate_mesh(int(col.seamless_cad_stack_ptr), 0.001, math.radians(1.0))
+    bm = bmesh.new()
+    bv = [bm.verts.new((float(v[i]), float(v[i + 1]), float(v[i + 2]))) for i in range(0, len(v), 3)]
+    for i in range(0, len(t), 3):
+        try:
+            bm.faces.new((bv[t[i]], bv[t[i + 1]], bv[t[i + 2]]))
+        except ValueError:
+            pass
+    vol = bm.calc_volume(signed=True)
+    bm.free()
+    return vol
+
+
+def t_quad_bake_ruled_walls_are_quads():
+    """Quad Bake P1: 円柱・円錐の側面は1段の quad 帯になり、上下リムの分割数が揃う。
+    形状誤差は細かい三角形 Bake との体積差 3% 以内。"""
+    for kind in ('CYLINDER', 'CONE'):
+        col, props = _fresh_part()
+        bpy.ops.seamless.add_primitive(type=kind)
+        bm, rep, _ = _quad_bake_mesh(col)
+        try:
+            _assert_quad_bake_sound(bm, rep, kind)
+            assert rep["ruled"] == 1, f"{kind}: side wall was not laid as a ruled grid: {rep}"
+            n_tri = sum(1 for f in bm.faces if len(f.verts) == 3)
+            assert n_tri == 0, f"{kind}: {n_tri} triangle(s) left -- caps are n-gons, the wall quads"
+            vol = bm.calc_volume(signed=True)
+        finally:
+            bm.free()
+        ref = _fine_volume(col)
+        assert abs(vol - ref) <= 0.03 * abs(ref), f"{kind}: volume {vol:.4f} vs reference {ref:.4f}"
+
+    # 筒(円柱から細い円柱を引く): 内壁も ruled
+    col, props = _fresh_part()
+    bpy.ops.seamless.add_primitive(type='CYLINDER')
+    bpy.ops.seamless.add_primitive(type='CYLINDER')
+    props = utils_props()
+    props.primitives[1].operation = 'SUB'
+    props.primitives[1].size = (0.4, 0.4, 3.0)
+    bm, rep, _ = _quad_bake_mesh(col)
+    try:
+        _assert_quad_bake_sound(bm, rep, "pipe")
+        assert rep["ruled"] == 2, f"pipe: expected inner and outer walls ruled, got {rep}"
     finally:
         bm.free()
 
@@ -3122,6 +3173,7 @@ def main():
     check("quad bake: curved primitives weld", t_quad_bake_curved_primitives_weld)
     check("quad bake: fillet and hole weld", t_quad_bake_fillet_and_hole)
     check("quad bake is deterministic", t_quad_bake_is_deterministic)
+    check("quad bake: ruled walls are quads", t_quad_bake_ruled_walls_are_quads)
     check("quad bake operator", t_quad_bake_operator)
     check("project geometry onto the sketch plane", t_project_geometry_onto_sketch_plane)
     check("split cuts with a plane", t_split_cuts_with_a_plane)

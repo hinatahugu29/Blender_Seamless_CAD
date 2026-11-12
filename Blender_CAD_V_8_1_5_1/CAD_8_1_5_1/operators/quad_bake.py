@@ -64,6 +64,42 @@ def _fill_ngon(face):
     return [poly]
 
 
+def _fill_ruled(face):
+    """K3: a ruled wall (cylinder / cone, one wire = rim A, ruling, rim B,
+    ruling) as ONE row of quads, station i of rim A to the station facing it on
+    rim B. The kernel already made both rims carry the same span count (hard
+    rim equality) and marks where rim A starts in the loop (`ruled`). Returns
+    None when the loop does not have that shape after all — the caller then
+    falls back to the triangulation."""
+    rs = face.get("ruled")
+    if rs is None or len(face["loops"]) != 1:
+        return None
+    loop = face["loops"][0]
+    m = len(loop)
+    if m < 4 or m % 2:
+        return None
+    n = m // 2 - 1                                  # spans per rim
+    A = [loop[(rs + i) % m] for i in range(n + 1)]
+    B = [loop[(rs + n + 1 + i) % m] for i in range(n + 1)]
+    # pairing by angle: station A[i] must face B[n-i] (same u on the wall)
+    pitch = min(abs(A[i + 1][1] - A[i][1]) for i in range(n)) if n else 0.0
+    for i in range(n + 1):
+        if abs(A[i][1] - B[n - i][1]) > 0.5 * pitch + 1e-12:
+            return None
+    flip = _signed_area([(p[1], p[2]) for p in loop]) < 0.0
+    if face["rev"]:
+        flip = not flip
+    polys = []
+    for i in range(n):
+        q = [A[i][0], A[i + 1][0], B[n - 1 - i][0], B[n - i][0]]
+        if len(set(q)) != 4:
+            return None
+        if flip:
+            q.reverse()
+        polys.append(q)
+    return polys
+
+
 def _orient(a, b, c):
     return (b.x - a.x) * (c.y - a.y) - (c.x - a.x) * (b.y - a.y)
 
@@ -231,7 +267,7 @@ def build_quad_mesh(data):
     polys = []
     poly_face = []
     stats = {"faces": 0, "ngon": 0, "cdt": 0, "failed": 0,
-             "cdt_new_verts": 0, "degenerate_dropped": 0, "ears_flipped": 0,
+             "ruled": 0, "cdt_new_verts": 0, "degenerate_dropped": 0, "ears_flipped": 0,
              "edge_fail": int(data.get("n_edge_fail", 0)), "errors": []}
     for face in data.get("faces", []):
         stats["faces"] += 1
@@ -239,10 +275,14 @@ def build_quad_mesh(data):
             stats["failed"] += 1
             stats["errors"].append("Face %d (%s): %s" % (face["i"], face["kind"], face["error"]))
             continue
-        out = _fill_ngon(face)
+        out = _fill_ruled(face)
         if out is not None:
-            stats["ngon"] += 1
+            stats["ruled"] += 1
         else:
+            out = _fill_ngon(face)
+            if out is not None:
+                stats["ngon"] += 1
+        if out is None:
             out = _fill_cdt(face, verts3d, extra, n_cad, stats)
             stats["cdt"] += 1
             if not out:
