@@ -232,6 +232,7 @@ bool walk_wire(const TopoDS_Wire& w, const TopoDS_Face& face, const TopTools_Ind
 // rim A's first edge, which Python turns into a loop index.
 struct RuledFace {
     bool ok = false;
+    bool cone = false;      // a cone keeps each rim's own count (no equality)
     std::vector<int> rim_a, rim_b, order;
     int first_a = -1;
 };
@@ -281,6 +282,7 @@ RuledFace analyse_ruled(const TopoDS_Face& ff, const TopTools_IndexedMapOfShape&
     r.rim_a = run1;
     r.rim_b = run2;
     r.first_a = pos1;
+    r.cone = (sa.GetType() == GeomAbs_Cone);
     r.order = eids;
     r.ok = true;
     return r;
@@ -384,6 +386,39 @@ std::string quad_topology_json(void* stack_ptr, double tol) {
             BRepAdaptor_Curve c(e);
             elen[i] = GCPnts_AbscissaPoint::Length(c);
         } catch (...) {}
+    }
+
+    // ── radius classes: one full-ring count per radius ──────────────────────
+    // Every circular arc of one radius takes its share of ONE ring count (the
+    // ring law, snapped up), rounded UP by angle — so the same fillet or bore
+    // has the same pitch wherever it appears, and a quarter arc is a quarter of
+    // the full ring of that radius. Rounding up never breaks the chord law.
+    {
+        struct Arc { int i; double R, theta; };
+        std::vector<Arc> arcs;
+        for (int i = 1; i <= em.Extent(); ++i) {
+            if (degen[i]) continue;
+            try {
+                BRepAdaptor_Curve c(TopoDS::Edge(em.FindKey(i)));
+                if (c.GetType() != GeomAbs_Circle) continue;
+                arcs.push_back({i, c.Circle().Radius(), std::fabs(c.LastParameter() - c.FirstParameter())});
+            } catch (...) {}
+        }
+        std::sort(arcs.begin(), arcs.end(), [](const Arc& a, const Arc& b) {
+            return a.R < b.R || (a.R == b.R && a.i < b.i);
+        });
+        size_t k = 0;
+        while (k < arcs.size()) {
+            size_t m = k + 1;
+            while (m < arcs.size() && arcs[m].R - arcs[k].R <= 1e-6 * std::max(1.0, arcs[k].R)) ++m;
+            int ring = arc_spans(6.283185307179586, arcs[k].R, tol);
+            for (size_t q = k; q < m; ++q) {
+                double share = ring * arcs[q].theta / 6.283185307179586;
+                int n = std::max(2, (int)std::ceil(share - 1e-6));
+                nspan[arcs[q].i] = std::min(kMaxSpans, n);
+            }
+            k = m;
+        }
     }
 
     // ── P1: ruled walls (cylinder / cone) and their HARD rim equality ─────
@@ -520,7 +555,7 @@ std::string quad_topology_json(void* stack_ptr, double tol) {
         }
         for (int fi = 1; fi <= fm.Extent(); ++fi) {
             const RuledFace& r = ruled[fi];
-            if (!r.ok) continue;
+            if (!r.ok || r.cone) continue;
             int sa = 0, sb = 0;
             for (int ei : r.rim_a) sa += nspan[ei];
             for (int ei : r.rim_b) sb += nspan[ei];
@@ -787,6 +822,9 @@ std::string quad_topology_json(void* stack_ptr, double tol) {
             int rs = 0;
             for (int k = 0; k < ruled[fi].first_a; ++k) rs += (int)es[ruled[fi].order[k]].params.size() - 1;
             out += ",\"ruled\":" + std::to_string(rs);
+            int na = 0;
+            for (int ei : ruled[fi].rim_a) na += (int)es[ei].params.size() - 1;
+            out += ",\"ruled_a\":" + std::to_string(na);
         }
         if (!why.empty()) {
             out += ",\"error\":\"" + why + "\",\"loops\":[],\"steiner\":[]}";

@@ -2613,17 +2613,26 @@ def _volume_bound(bm, tol=0.01):
 
 
 def t_quad_bake_ruled_walls_are_quads():
-    """Quad Bake P1: 円柱・円錐の側面は1段の quad 帯になり、上下リムの分割数が揃う。
+    """Quad Bake P1: 円柱・円錐の側面は1段の帯。円柱は上下リムの分割数が揃って全部 quad。
+    円錐は細い側のリムを太い側に合わせて増やさない(HardCraft 0.8.8 と同じ)ので、
+    帯は quad と遷移の三角形になる(結合後も quad が多数派)。
     形状誤差は細かい三角形 Bake との体積差が 表面積 x tol 以内。"""
     for kind in ('CYLINDER', 'CONE'):
         col, props = _fresh_part()
         bpy.ops.seamless.add_primitive(type=kind)
-        bm, rep, _ = _quad_bake_mesh(col)
+        bm, rep, (verts, polys) = _quad_bake_mesh(col)
         try:
             _assert_quad_bake_sound(bm, rep, kind)
             assert rep["ruled"] == 1, f"{kind}: side wall was not laid as a ruled grid: {rep}"
             n_tri = sum(1 for f in bm.faces if len(f.verts) == 3)
-            assert n_tri == 0, f"{kind}: {n_tri} triangle(s) left -- caps are n-gons, the wall quads"
+            if kind == 'CYLINDER':
+                assert n_tri == 0, f"{kind}: {n_tri} triangle(s) left -- caps are n-gons, the wall quads"
+            else:
+                caps = sorted(len(f.verts) for f in bm.faces if len(f.verts) > 4)
+                assert len(caps) == 2 and caps[0] < caps[1], \
+                    f"cone: the narrow rim must keep its own (smaller) count, caps {caps}"
+                n_quad = sum(1 for f in bm.faces if len(f.verts) == 4)
+                assert n_tri > 0 and n_quad > 0, f"cone: expected a quad + transition band, got {n_quad} / {n_tri}"
             vol = bm.calc_volume(signed=True)
             bound = _volume_bound(bm)
         finally:
@@ -2644,6 +2653,41 @@ def t_quad_bake_ruled_walls_are_quads():
         assert rep["ruled"] == 2, f"pipe: expected inner and outer walls ruled, got {rep}"
     finally:
         bm.free()
+
+
+def t_quad_bake_radius_classes_share_one_ring():
+    """Quad Bake: 同じ半径の円弧は全周の分割数を1つ共有し、角度に比例して受け持つ。
+    箱に半径 0.3 の貫通穴(全周)と、縁にかかる同じ半径の半円の切り欠きを作ると、
+    切り欠きの弧は全周の半分の分割数になる(円弧ごとの法則だと 16 に対して 7)。"""
+    from CAD_8_1_5_1 import core_bridge
+    col, props = _fresh_part()
+    bpy.ops.seamless.add_primitive(type='BOX')
+    bpy.ops.seamless.add_primitive(type='CYLINDER')
+    bpy.ops.seamless.add_primitive(type='CYLINDER')
+    props = utils_props()
+    props.primitives[0].size = (2.0, 1.0, 1.0)
+    for k, x in ((1, -0.4), (2, 1.0)):
+        props.primitives[k].operation = 'SUB'
+        props.primitives[k].size = (0.3, 0.3, 1.5)
+        props.primitives[k].location = (x, 0.0, 0.0)
+    core_bridge.update_cad_preview_forced(bpy.context)
+    data = core_bridge.get_core().quad_topology(int(col.seamless_cad_stack_ptr), 0.01)
+    flat = data["verts"]
+
+    def xyz(v):
+        return flat[3 * v], flat[3 * v + 1], flat[3 * v + 2]
+
+    def on_circle(rec, cx):
+        vids = rec[1:]
+        return all(abs(math.hypot(xyz(v)[0] - cx, xyz(v)[1]) - 0.3) < 1e-4 for v in vids)
+    rings = [len(r) - 2 for r in data["edges"] if on_circle(r, -0.4) and r[1] == r[-1]]
+    # 切り欠きの上下の弧(高さ一定)。縦の直線も平面図では円上に乗るので除く
+    halves = [len(r) - 2 for r in data["edges"] if on_circle(r, 1.0) and r[1] != r[-1]
+              and abs(xyz(r[1])[2]) > 0.49 and all(abs(xyz(v)[2] - xyz(r[1])[2]) < 1e-6 for v in r[1:])]
+    assert rings and halves, f"did not find the hole rims {rings} / notch arcs {halves}"
+    ring = rings[0]
+    assert all(x == ring for x in rings), f"hole rims disagree: {rings}"
+    assert all(2 * h == ring for h in halves), f"notch arcs {halves} are not half of the ring {ring}"
 
 
 def t_quad_bake_coons_faces_are_grids():
@@ -3580,6 +3624,7 @@ def main():
     check("quad bake is deterministic", t_quad_bake_is_deterministic)
     check("quad bake: ruled walls are quads", t_quad_bake_ruled_walls_are_quads)
     check("quad bake: coons faces are grids", t_quad_bake_coons_faces_are_grids)
+    check("quad bake: radius classes share one ring", t_quad_bake_radius_classes_share_one_ring)
     check("quad bake: UV, seams and sharp edges", t_quad_bake_uv_seams_and_sharp)
     check("quad bake: join triangles", t_quad_bake_join_triangles)
     check("vendored blossom is optimal", t_vendored_blossom_is_optimal)

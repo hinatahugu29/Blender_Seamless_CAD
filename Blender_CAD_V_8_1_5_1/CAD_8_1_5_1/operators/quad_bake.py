@@ -94,11 +94,15 @@ def _no(why, reason):
 
 def _fill_ruled(face, why=None):
     """K3: a ruled wall (cylinder / cone, one wire = rim A, ruling, rim B,
-    ruling) as ONE row of quads, station i of rim A to the station facing it on
-    rim B. The kernel already made both rims carry the same span count (hard
-    rim equality) and marks where rim A starts in the loop (`ruled`). Returns
-    None when the loop does not have that shape after all — the caller then
-    falls back to the triangulation."""
+    ruling) as ONE row between the rims. The kernel marks where rim A starts in
+    the loop (`ruled`) and how many spans it has (`ruled_a`; absent = the rims
+    are equal). A cylinder's rims are forced equal by the kernel, so every
+    station faces one on the other rim and the row is all quads. A cone keeps
+    each rim's own count (HardCraft 0.8.8: no densifying the narrow rim); the
+    row then walks both rims in angle order — a quad where both advance
+    together, a triangle where only the denser rim does (the triangle join
+    pairs what it can afterwards). Returns None when the loop does not have
+    that shape after all — the caller then falls back to the triangulation."""
     rs = face.get("ruled")
     if rs is None:
         return _no(why, "not a ruled wall (a cylinder / cone whose one outline is rim, ruling, rim, ruling)")
@@ -106,21 +110,47 @@ def _fill_ruled(face, why=None):
         return _no(why, "the wall has holes")
     loop = face["loops"][0]
     m = len(loop)
-    if m < 4 or m % 2:
-        return _no(why, "the two rims carry different span counts (%d points)" % m)
-    n = m // 2 - 1                                  # spans per rim
-    A = [loop[(rs + i) % m] for i in range(n + 1)]
-    B = [loop[(rs + n + 1 + i) % m] for i in range(n + 1)]
-    # pairing by angle: station A[i] must face B[n-i] (same u on the wall)
-    pitch = min(abs(A[i + 1][1] - A[i][1]) for i in range(n)) if n else 0.0
-    for i in range(n + 1):
-        if abs(A[i][1] - B[n - i][1]) > 0.5 * pitch + 1e-12:
-            return _no(why, "rim stations do not face each other by angle (station %d)" % i)
+    na = face.get("ruled_a")
+    if na is None:
+        if m % 2:
+            return _no(why, "the two rims carry different span counts (%d points)" % m)
+        na = m // 2 - 1
+    nb = m - na - 2                                 # loop = na+1 points of A, nb+1 of B
+    if na < 1 or nb < 1:
+        return _no(why, "a rim has no span (%d / %d)" % (na, nb))
+    A = [loop[(rs + i) % m] for i in range(na + 1)]
+    Br = [loop[(rs + na + 1 + nb - j) % m] for j in range(nb + 1)]   # B, walked like A
+    # both rims run between the same two rulings: same u at the ends
+    for a_, b_ in ((A[0], Br[0]), (A[-1], Br[-1])):
+        if abs(a_[1] - b_[1]) > 1e-6 * max(1.0, abs(a_[1])):
+            return _no(why, "the rims do not start and end on the same rulings")
+    u0, u1 = A[0][1], A[-1][1]
+    span = u1 - u0
+    if abs(span) < 1e-12:
+        return _no(why, "the rim has no angular extent")
+
+    def frac(p):
+        return (p[1] - u0) / span
+
     polys = []
-    for i in range(n):
-        q = [_corner(face, p) for p in (A[i], A[i + 1], B[n - 1 - i], B[n - i])]
-        if len({c[0] for c in q}) != 4:
-            return _no(why, "a wall quad collapses (shared vertex)")
+    i = j = 0
+    eps = 1e-9
+    while i < na or j < nb:
+        ta = frac(A[i + 1]) if i < na else 2.0
+        tb = frac(Br[j + 1]) if j < nb else 2.0
+        if abs(ta - tb) <= eps + 1e-6 * abs(ta):
+            corners = (A[i], A[i + 1], Br[j + 1], Br[j])
+            i += 1
+            j += 1
+        elif ta < tb:
+            corners = (A[i], A[i + 1], Br[j])
+            i += 1
+        else:
+            corners = (A[i], Br[j + 1], Br[j])
+            j += 1
+        q = [_corner(face, p) for p in corners]
+        if len({c[0] for c in q}) != len(q):
+            return _no(why, "a wall polygon collapses (shared vertex)")
         polys.append(q)
     return _orient_poly(face, _signed_area([(p[1], p[2]) for p in loop]), polys)
 
