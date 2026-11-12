@@ -820,6 +820,12 @@ class SeamlessProperties(bpy.types.PropertyGroup):
         ],
         default='TRIS',
     )
+    quad_bake_uniform: bpy.props.BoolProperty(
+        name="Uniform Density",
+        description="Cut cylinder walls into rows at their rim pitch and lay dense planes as a quad lattice "
+                    "instead of one large n-gon (off: lowest polygon count)",
+        default=True,
+    )
     quad_bake_join_tris: bpy.props.BoolProperty(
         name="Join Triangles",
         description="Join triangle pairs that form a clean quad (within one CAD face)",

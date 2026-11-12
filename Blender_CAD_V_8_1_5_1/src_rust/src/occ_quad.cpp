@@ -359,7 +359,7 @@ CoonsFace analyse_coons(const TopoDS_Face& ff, const TopTools_IndexedMapOfShape&
 
 }  // namespace
 
-std::string quad_topology_json(void* stack_ptr, double tol) {
+std::string quad_topology_json(void* stack_ptr, double tol, bool uniform) {
     CADStack* stack = static_cast<CADStack*>(stack_ptr);
     if (!stack || stack->current_shape.IsNull()) return std::string();
     if (!(tol > 0.0)) tol = 0.01;
@@ -571,6 +571,95 @@ std::string quad_topology_json(void* stack_ptr, double tol) {
         if (!moved) break;
     }
 
+    // ── uniform density (optional) ──────────────────────────────────────────
+    // 1) A cylinder wall gets rows along its length at its rim pitch: both
+    //    rulings take round(length / rim step) spans (equal on both sides,
+    //    raised to the larger when a ruling is shared). Cones keep one row.
+    // 2) A plane's straight edges take the pitch of its dense edges (curves,
+    //    dense rulings), so the plane can be laid as a lattice instead of a
+    //    huge n-gon. Edges of grid / ruled faces are left alone.
+    std::vector<char> lattice(fm.Extent() + 1, 0);   // plane to lay as a lattice
+    if (uniform) {
+        auto rulings_of = [&](const RuledFace& r) {
+            std::vector<int> out_r;
+            for (int ei : r.order) {
+                bool rim = std::find(r.rim_a.begin(), r.rim_a.end(), ei) != r.rim_a.end()
+                        || std::find(r.rim_b.begin(), r.rim_b.end(), ei) != r.rim_b.end();
+                if (!rim) out_r.push_back(ei);
+            }
+            return out_r;
+        };
+        for (int fi = 1; fi <= fm.Extent(); ++fi) {
+            const RuledFace& r = ruled[fi];
+            if (!r.ok || r.cone) continue;
+            double L = 0.0; int n = 0;
+            for (int ei : r.rim_a) { L += elen[ei]; n += nspan[ei]; }
+            if (n < 1 || !(L > 1e-12)) continue;
+            double step = L / n, rl = 0.0;
+            for (int ei : rulings_of(r)) rl = std::max(rl, elen[ei]);
+            int want = std::max(1, std::min(64, (int)std::lround(rl / step)));
+            for (int ei : rulings_of(r)) nspan[ei] = std::max(nspan[ei], want);
+        }
+        for (int round = 0; round < 32; ++round) {
+            bool moved = false;
+            for (int fi = 1; fi <= fm.Extent(); ++fi) {
+                const RuledFace& r = ruled[fi];
+                if (!r.ok) continue;
+                int hi = 1;
+                for (int ei : rulings_of(r)) hi = std::max(hi, nspan[ei]);
+                for (int ei : rulings_of(r)) if (nspan[ei] != hi) { nspan[ei] = hi; moved = true; }
+            }
+            if (!moved) break;
+        }
+        // edges owned by grid / ruled faces must not move any more
+        std::vector<char> locked(em.Extent() + 1, 0);
+        for (int fi = 1; fi <= fm.Extent(); ++fi) {
+            if (!ruled[fi].ok && !coons[fi].ok) continue;
+            for (TopExp_Explorer ex(fm.FindKey(fi), TopAbs_EDGE); ex.More(); ex.Next()) {
+                int ei = em.FindIndex(ex.Current());
+                if (ei > 0) locked[ei] = 1;
+            }
+        }
+        for (int fi = 1; fi <= fm.Extent(); ++fi) {
+            TopoDS_Face ff = TopoDS::Face(fm.FindKey(fi).Oriented(TopAbs_FORWARD));
+            try {
+                if (BRepAdaptor_Surface(ff, Standard_False).GetType() != GeomAbs_Plane) continue;
+                double dl = 0.0; int dn = 0;
+                std::vector<int> lines;
+                for (TopExp_Explorer ex(ff, TopAbs_EDGE); ex.More(); ex.Next()) {
+                    int ei = em.FindIndex(ex.Current());
+                    if (ei < 1 || degen[ei]) continue;
+                    bool is_line = BRepAdaptor_Curve(TopoDS::Edge(ex.Current())).GetType() == GeomAbs_Line;
+                    if (is_line && !locked[ei]) { lines.push_back(ei); continue; }
+                    if (nspan[ei] > 1) { dl += elen[ei]; dn += nspan[ei]; }
+                }
+                if (dn == 0) continue;
+                double step = dl / dn;
+                if (!(step > 1e-9)) continue;
+                for (int ei : lines) {
+                    int want = std::max(1, std::min(64, (int)std::lround(elen[ei] / step)));
+                    if (want > nspan[ei]) nspan[ei] = want;
+                }
+            } catch (...) {}
+        }
+        // a plane whose straight edges ended up cut (by itself or a neighbour)
+        // is laid as a lattice; an all-curve outline (a cylinder cap) stays an n-gon
+        for (int fi = 1; fi <= fm.Extent(); ++fi) {
+            try {
+                TopoDS_Face ff = TopoDS::Face(fm.FindKey(fi));
+                if (BRepAdaptor_Surface(ff, Standard_False).GetType() != GeomAbs_Plane) continue;
+                for (TopExp_Explorer ex(ff, TopAbs_EDGE); ex.More(); ex.Next()) {
+                    int ei = em.FindIndex(ex.Current());
+                    if (ei < 1 || degen[ei] || nspan[ei] < 2) continue;
+                    if (BRepAdaptor_Curve(TopoDS::Edge(ex.Current())).GetType() == GeomAbs_Line) {
+                        lattice[fi] = 1;
+                        break;
+                    }
+                }
+            } catch (...) {}
+        }
+    }
+
     // ── edges: discretise ONCE ────────────────────────────────────────────
     std::vector<EdgeSamples> es(em.Extent() + 1);
     int n_edge_fail = 0;
@@ -622,6 +711,7 @@ std::string quad_topology_json(void* stack_ptr, double tol) {
     out.reserve(1 << 20);
     out += "{\"version\":1,\"tol\":";
     jnum(out, tol);
+    out += uniform ? ",\"uniform\":true" : ",\"uniform\":false";
     out += ",\"faces\":[";
 
     // ── faces ─────────────────────────────────────────────────────────────
@@ -732,6 +822,7 @@ std::string quad_topology_json(void* stack_ptr, double tol) {
         out += rev ? "true" : "false";
         out += ",\"su\":"; jnum(out, su);
         out += ",\"sv\":"; jnum(out, sv);
+        if (lattice[fi]) out += ",\"lattice\":true";
         out += ",\"c\":["; jnum(out, c.X()); out += ","; jnum(out, c.Y()); out += ","; jnum(out, c.Z()); out += "]";
         if (why.empty() && coons[fi].ok && loops.size() == 1) {
             const CoonsFace& cf = coons[fi];
@@ -825,6 +916,44 @@ std::string quad_topology_json(void* stack_ptr, double tol) {
             int na = 0;
             for (int ei : ruled[fi].rim_a) na += (int)es[ei].params.size() - 1;
             out += ",\"ruled_a\":" + std::to_string(na);
+            // rows along the length: both rulings carry nr spans; the interior
+            // rows (k = 1..nr-1) blend rim A and rim B in UV station by station
+            // and are evaluated on the surface (cylinders only: equal rims)
+            std::vector<int> rl;
+            for (int ei : ruled[fi].order) {
+                const RuledFace& r = ruled[fi];
+                bool rim = std::find(r.rim_a.begin(), r.rim_a.end(), ei) != r.rim_a.end()
+                        || std::find(r.rim_b.begin(), r.rim_b.end(), ei) != r.rim_b.end();
+                if (!rim) rl.push_back((int)es[ei].params.size() - 1);
+            }
+            int nr = rl.empty() ? 1 : rl[0];
+            bool same = true;
+            for (int x : rl) same = same && x == nr;
+            const std::vector<LoopPt>& L = loops[0];
+            int M = (int)L.size();
+            int nb = M - na - 2 * nr;
+            if (same && nr > 1 && nb == na && loops.size() == 1) {
+                auto at = [&](int k) -> const LoopPt& { return L[((rs + k) % M + M) % M]; };
+                out += ",\"ruled_r\":" + std::to_string(nr) + ",\"rows\":{\"pts\":[";
+                std::string uvs;
+                bool fp = true;
+                for (int k = 1; k < nr; ++k) {
+                    double t = (double)k / nr;
+                    for (int i = 1; i < na; ++i) {
+                        const LoopPt& a = at(i);
+                        const LoopPt& b = at(na + nr + nb - i);
+                        double u = a.u + t * (b.u - a.u), v = a.v + t * (b.v - a.v);
+                        gp_Pnt q = sa.Value(u, v);
+                        if (!fp) { out += ","; uvs += ","; }
+                        fp = false;
+                        jnum(out, q.X()); out += ","; jnum(out, q.Y()); out += ","; jnum(out, q.Z());
+                        jnum(uvs, u); uvs += ","; jnum(uvs, v);
+                    }
+                }
+                out += "],\"uv\":[" + uvs + "]}";
+            } else if (nr > 1) {
+                out += ",\"ruled_r\":" + std::to_string(same ? nr : -1);
+            }
         }
         if (!why.empty()) {
             out += ",\"error\":\"" + why + "\",\"loops\":[],\"steiner\":[]}";
@@ -888,9 +1017,9 @@ std::string quad_topology_json(void* stack_ptr, double tol) {
     return out;
 }
 
-void quad_topology(void* stack_ptr, double tol, void* str_vec, PushStringFn ps) {
+void quad_topology(void* stack_ptr, double tol, int uniform, void* str_vec, PushStringFn ps) {
     try {
-        std::string s = quad_topology_json(stack_ptr, tol);
+        std::string s = quad_topology_json(stack_ptr, tol, uniform != 0);
         if (!s.empty()) ps(str_vec, s.c_str());
     } catch (...) {}
 }

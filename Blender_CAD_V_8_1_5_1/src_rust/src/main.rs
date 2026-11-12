@@ -417,7 +417,8 @@ fn handle_client(mut stream: TcpStream, workers: StackWorkers) {
             // Quad Bake P0: 1u8 + u32 len + JSON (built in occ_quad.cpp)
             let stack_ptr = req["stack_ptr"].as_i64().unwrap_or(0) as isize;
             let tol       = req["tol"].as_f64().unwrap_or(0.01);
-            match seamless_core::quad_topology(stack_ptr, tol) {
+            let uniform   = req["uniform"].as_bool().unwrap_or(false);
+            match seamless_core::quad_topology(stack_ptr, tol, uniform) {
                 Ok(js) => {
                     stream.write_all(&[1u8]).unwrap();
                     let jb = js.into_bytes();

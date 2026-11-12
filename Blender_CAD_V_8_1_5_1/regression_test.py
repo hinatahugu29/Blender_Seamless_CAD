@@ -2493,14 +2493,14 @@ def t_bake_to_mesh():
     assert v >= 8, f"baked mesh has only {v} vertices; the kernel likely returned garbage"
 
 
-def _quad_bake_mesh(col, tol=0.01):
+def _quad_bake_mesh(col, tol=0.01, uniform=False):
     """Quad Bake P0 を operator を通さずに直接回し、bmesh と報告を返す。"""
     import bmesh
     from CAD_8_1_5_1 import core_bridge
     from CAD_8_1_5_1.core_bridge import get_core
     from CAD_8_1_5_1.operators.quad_bake import build_quad_mesh
     core_bridge.update_cad_preview_forced(bpy.context)
-    data = get_core().quad_topology(int(col.seamless_cad_stack_ptr), tol)
+    data = get_core().quad_topology(int(col.seamless_cad_stack_ptr), tol, uniform)
     assert data, "quad_topology returned nothing"
     verts, polys, poly_face, rep = build_quad_mesh(data)
     bm = bmesh.new()
@@ -2528,6 +2528,68 @@ def _assert_quad_bake_sound(bm, rep, label):
     # 閉じたソリッドなので体積は正(=全ポリゴンが外向き)
     vol = bm.calc_volume(signed=True)
     assert vol > 0.0, f"{label}: signed volume {vol} -- faces point inward"
+
+
+def t_quad_bake_uniform_cylinder_rows():
+    """Quad Bake Uniform Density: 長い円柱の側面は長さ方向にも段に分かれ、全部 quad。
+    段の高さはリムの刻みと同程度(正方形に近い)。Uniform オフでは 1 段のまま。"""
+    import math as _m
+    col, props = _fresh_part()
+    bpy.ops.seamless.add_primitive(type='CYLINDER')
+    props = utils_props()
+    props.primitives[0].size = (0.5, 0.5, 3.0)
+    for uni in (False, True):
+        bm, rep, _ = _quad_bake_mesh(col, uniform=uni)
+        try:
+            _assert_quad_bake_sound(bm, rep, f"cylinder uniform={uni}")
+            walls = [f for f in bm.faces if len(f.verts) == 4]
+            n_tri = sum(1 for f in bm.faces if len(f.verts) == 3)
+            assert n_tri == 0, f"uniform={uni}: {n_tri} triangles on the wall"
+            zs = sorted({round(v.co.z, 6) for v in bm.verts})
+            if not uni:
+                assert len(zs) == 2, f"uniform off should keep one row, z levels {zs}"
+            else:
+                rows = len(zs) - 1
+                ring = max(len(f.verts) for f in bm.faces)
+                pitch = 2 * _m.pi * 0.5 / ring
+                height = (zs[-1] - zs[0]) / rows
+                assert rows > 1, "uniform: the wall was not cut along its length"
+                assert 0.5 < height / pitch < 2.0, f"rows {rows}: row height {height} vs rim pitch {pitch}"
+            vol = bm.calc_volume(signed=True)
+            ring = max(len(f.verts) for f in bm.faces)
+            want = 0.5 * ring * 0.25 * _m.sin(2 * _m.pi / ring) * (zs[-1] - zs[0])   # inscribed prism
+            assert abs(vol - want) < 1e-3, f"volume {vol} vs prism {want}"
+        finally:
+            bm.free()
+
+
+def t_quad_bake_uniform_dense_plane_is_lattice():
+    """Quad Bake Uniform Density: 曲線の辺で細かく刻まれた平面は巨大な n-gon にならず、
+    quad 主体の格子になる(穴なしでも)。水密は保つ。Uniform オフでは n-gon が残る。"""
+    col, props = _fresh_part()
+    bpy.ops.seamless.add_primitive(type='BOX')
+    bpy.ops.seamless.add_primitive(type='CYLINDER')
+    props = utils_props()
+    props.primitives[0].size = (2.0, 1.0, 1.0)
+    props.primitives[1].operation = 'SUB'
+    props.primitives[1].size = (0.3, 0.3, 1.5)
+    props.primitives[1].location = (1.0, 0.0, 0.0)
+    big = {}
+    for uni in (False, True):
+        bm, rep, _ = _quad_bake_mesh(col, uniform=uni)
+        try:
+            _assert_quad_bake_sound(bm, rep, f"notched box uniform={uni}")
+            big[uni] = max(len(f.verts) for f in bm.faces)
+        finally:
+            bm.free()
+    me, rep = _quad_bake_blender_mesh(col, uniform=True)
+    try:
+        quads = sum(1 for p in me.polygons if len(p.vertices) == 4)
+        assert quads > 0.6 * len(me.polygons), f"after joining: {quads} quads of {len(me.polygons)}"
+    finally:
+        bpy.data.meshes.remove(me)
+    assert big[False] > 8, f"uniform off: the notched face should stay an n-gon ({big[False]})"
+    assert big[True] <= 8, f"uniform on: a polygon with {big[True]} corners is left"
 
 
 def t_quad_bake_box_is_six_ngons():
@@ -2727,12 +2789,12 @@ def t_quad_bake_coons_faces_are_grids():
 
 
 def _quad_bake_blender_mesh(col, tol=0.01, join_tris=True, join_shape_deg=60.0,
-                            sharp_mode='CAD', sharp_angle_deg=30.0):
+                            sharp_mode='CAD', sharp_angle_deg=30.0, uniform=False):
     """Quad Bake P3 の完成メッシュ(UV・シーム・シャープ・三角形結合込み)。"""
     from CAD_8_1_5_1 import core_bridge
     from CAD_8_1_5_1.operators.quad_bake_mesh import make_quad_bake_mesh
     core_bridge.update_cad_preview_forced(bpy.context)
-    data = core_bridge.get_core().quad_topology(int(col.seamless_cad_stack_ptr), tol)
+    data = core_bridge.get_core().quad_topology(int(col.seamless_cad_stack_ptr), tol, uniform)
     assert data, "quad_topology returned nothing"
     me, rep = make_quad_bake_mesh("QB_test", data, join_tris=join_tris, join_shape_deg=join_shape_deg,
                                   sharp_mode=sharp_mode, sharp_angle_deg=sharp_angle_deg)
@@ -3652,6 +3714,8 @@ def main():
     check("quad bake: ruled walls are quads", t_quad_bake_ruled_walls_are_quads)
     check("quad bake: coons faces are grids", t_quad_bake_coons_faces_are_grids)
     check("quad bake: radius classes share one ring", t_quad_bake_radius_classes_share_one_ring)
+    check("quad bake: uniform cylinder rows", t_quad_bake_uniform_cylinder_rows)
+    check("quad bake: uniform dense plane is a lattice", t_quad_bake_uniform_dense_plane_is_lattice)
     check("quad bake: UV, seams and sharp edges", t_quad_bake_uv_seams_and_sharp)
     check("quad bake: join triangles", t_quad_bake_join_triangles)
     check("vendored blossom is optimal", t_vendored_blossom_is_optimal)

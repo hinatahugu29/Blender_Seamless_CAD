@@ -97,7 +97,8 @@ class SEAMLESS_OT_BakeMesh(bpy.types.Operator):
         operators/quad_bake.py, turned into a mesh with UVs / seams / sharp
         edges in operators/quad_bake_mesh.py."""
         from .quad_bake_mesh import make_quad_bake_mesh
-        data = core.quad_topology(stack_ptr, props.quad_bake_tol)
+        data = core.quad_topology(stack_ptr, props.quad_bake_tol,
+                                  getattr(props, "quad_bake_uniform", True))
         if not data:
             self.report({'ERROR'}, "Quad Bake: kernel returned no topology")
             return {'CANCELLED'}

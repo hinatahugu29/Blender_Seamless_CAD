@@ -70,14 +70,23 @@ def _orient_poly(face, loop_area, polys):
     return polys
 
 
-def _fill_ngon(face, why=None):
-    """K1: a hole-free plane as one n-gon, or None when it is not that."""
+NGON_MAX_UNIFORM = 8   # uniform density: a plane outline above this is laid as a lattice
+
+
+def _fill_ngon(face, why=None, uniform=False):
+    """K1: a hole-free plane as one n-gon, or None when it is not that.
+    With uniform density a plane the kernel marked `lattice` (its straight
+    edges were cut to the pitch of its dense edges) with more than
+    NGON_MAX_UNIFORM points is declined, so the lattice fill lays it as quads.
+    An all-curve outline (a cylinder cap) stays one n-gon."""
     loops = face["loops"]
     if face["kind"] != "plane":
         return _no(why, "not a plane")
     if len(loops) != 1:
         return _no(why, "the plane has holes")
     loop = loops[0]
+    if uniform and face.get("lattice") and len(loop) > NGON_MAX_UNIFORM:
+        return _no(why, "uniform density: the outline has %d points, laid as a lattice" % len(loop))
     poly = _dedup_cyclic([_corner(face, p) for p in loop])
     vids = [c[0] for c in poly]
     if len(poly) < 3 or len(set(vids)) != len(vids):
@@ -92,7 +101,7 @@ def _no(why, reason):
     return None
 
 
-def _fill_ruled(face, why=None):
+def _fill_ruled(face, base=0, extra_verts=None, why=None):
     """K3: a ruled wall (cylinder / cone, one wire = rim A, ruling, rim B,
     ruling) as ONE row between the rims. The kernel marks where rim A starts in
     the loop (`ruled`) and how many spans it has (`ruled_a`; absent = the rims
@@ -110,12 +119,17 @@ def _fill_ruled(face, why=None):
         return _no(why, "the wall has holes")
     loop = face["loops"][0]
     m = len(loop)
+    nr = int(face.get("ruled_r", 1))                # spans along each ruling
+    if nr < 1:
+        return _no(why, "the two rulings carry different span counts")
     na = face.get("ruled_a")
     if na is None:
         if m % 2:
             return _no(why, "the two rims carry different span counts (%d points)" % m)
         na = m // 2 - 1
-    nb = m - na - 2                                 # loop = na+1 points of A, nb+1 of B
+    nb = m - na - 2 * nr                            # loop = A, ruling, B, ruling
+    if nr > 1:
+        return _fill_ruled_rows(face, loop, rs, na, nb, nr, base, extra_verts, why)
     if na < 1 or nb < 1:
         return _no(why, "a rim has no span (%d / %d)" % (na, nb))
     A = [loop[(rs + i) % m] for i in range(na + 1)]
@@ -152,6 +166,50 @@ def _fill_ruled(face, why=None):
         if len({c[0] for c in q}) != len(q):
             return _no(why, "a wall polygon collapses (shared vertex)")
         polys.append(q)
+    return _orient_poly(face, _signed_area([(p[1], p[2]) for p in loop]), polys)
+
+
+def _fill_ruled_rows(face, loop, rs, na, nb, nr, base, extra_verts, why):
+    """Uniform density: a cylinder wall in nr rows. Row 0 is rim A, row nr rim
+    B (walked like A), rows between run from ruling 2's point k to ruling 1's
+    point k through the kernel's interior stations (`rows.pts` / `rows.uv`,
+    row-major over k = 1..nr-1, i = 1..na-1)."""
+    rows = face.get("rows")
+    m = len(loop)
+    if rows is None or na != nb or extra_verts is None:
+        return _no(why, "rows along the wall need equal rims and the kernel's interior stations")
+    pts, uvs = rows["pts"], rows.get("uv", [])
+    n_in = (nr - 1) * (na - 1)
+    if len(pts) != 3 * n_in or len(uvs) != 2 * n_in:
+        return _no(why, "row data does not match the outline")
+    first = base + len(extra_verts)
+    for k in range(0, len(pts), 3):
+        extra_verts.append((pts[k], pts[k + 1], pts[k + 2]))
+
+    def at(k):
+        return _corner(face, loop[(rs + k) % m])
+
+    su, sv = face["su"], face["sv"]
+
+    def G(k, i):
+        if k == 0:
+            return at(i)
+        if k == nr:
+            return at(na + nr + nb - i)
+        if i == 0:
+            return at(-k)
+        if i == na:
+            return at(na + k)
+        q = (k - 1) * (na - 1) + (i - 1)
+        return (first + q, uvs[2 * q] * su, uvs[2 * q + 1] * sv)
+
+    polys = []
+    for k in range(nr):
+        for i in range(na):
+            q = [G(k, i), G(k, i + 1), G(k + 1, i + 1), G(k + 1, i)]
+            if len({c[0] for c in q}) != 4:
+                return _no(why, "a wall polygon collapses (shared vertex)")
+            polys.append(q)
     return _orient_poly(face, _signed_area([(p[1], p[2]) for p in loop]), polys)
 
 
@@ -392,7 +450,7 @@ def _segments_cross(a, b, c, d):
     return (o(a, b, c) * o(a, b, d) < 0.0) and (o(c, d, a) * o(c, d, b) < 0.0)
 
 
-def _fill_holed_plane(face, verts3d, extra_verts, n_cad, stats, max_steiner=20000, why=None):
+def _fill_holed_plane(face, verts3d, extra_verts, n_cad, stats, max_steiner=20000, why=None, plain=False):
     """K2: a plane with holes. Each hole gets a ring of quads one hole-step
     wide (hole point i, its neighbour, and their offsets into the material);
     the rest — outer loop plus the rings as holes — is triangulated with a
@@ -404,7 +462,7 @@ def _fill_holed_plane(face, verts3d, extra_verts, n_cad, stats, max_steiner=2000
     loops = face["loops"]
     if face["kind"] != "plane":
         return _no(why, "not a plane")
-    if len(loops) < 2:
+    if len(loops) < 2 and not plain:
         return _no(why, "the plane has no holes")
     su, sv = face["su"], face["sv"]
     base = len(verts3d)
@@ -518,7 +576,12 @@ def _fill_holed_plane(face, verts3d, extra_verts, n_cad, stats, max_steiner=2000
         stats["hole_rings"] = stats.get("hole_rings", 0) + 1
 
     # interior lattice at the holes' step, kept half a step off every boundary
+    # (no holes: the outline's own mean step)
     h = sum(steps) / len(steps) if steps else 0.0
+    if h <= 0.0 and plain:
+        R0 = xy[0]
+        h = sum(((R0[(q + 1) % len(R0)][0] - R0[q][0]) ** 2 + (R0[(q + 1) % len(R0)][1] - R0[q][1]) ** 2) ** 0.5
+                for q in range(len(R0))) / max(1, len(R0))
     steiner = []
     if h > 0.0:
         xs = [x for R in region_xy for x, _ in R]
@@ -595,6 +658,7 @@ def build_quad_mesh_uv(data):
     flat = data.get("verts", [])
     verts3d = [(flat[i], flat[i + 1], flat[i + 2]) for i in range(0, len(flat), 3)]
     n_cad = int(data.get("n_cad_verts", 0))
+    uniform = bool(data.get("uniform", False))
     extra = []
     polys = []
     uvs = []
@@ -614,10 +678,11 @@ def build_quad_mesh_uv(data):
         tried = []
         kernel = None
         ladder = (
-            ("ruled", lambda w: _fill_ruled(face, why=w)),
+            ("ruled", lambda w: _fill_ruled(face, len(verts3d), extra, why=w)),
             ("grid", lambda w: _fill_coons(face, len(verts3d), extra, why=w)),
-            ("ngon", lambda w: _fill_ngon(face, why=w)),
-            ("holed", lambda w: _fill_holed_plane(face, verts3d, extra, n_cad, stats, why=w)),
+            ("ngon", lambda w: _fill_ngon(face, why=w, uniform=uniform)),
+            ("holed", lambda w: _fill_holed_plane(face, verts3d, extra, n_cad, stats, why=w,
+                                                 plain=uniform and bool(face.get("lattice")))),
         )
         out = None
         notes = []
