@@ -190,4 +190,5 @@ fn main() {
     println!("cargo:rerun-if-changed=src/occ_arrays.hpp");
     println!("cargo:rerun-if-changed=src/occ_step.cpp");
     println!("cargo:rerun-if-changed=src/occ_step.hpp");
+    println!("cargo:rerun-if-changed=src/occ_quad.cpp");
 }

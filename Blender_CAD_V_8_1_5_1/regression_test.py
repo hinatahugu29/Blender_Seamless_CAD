@@ -2590,10 +2590,11 @@ def t_quad_bake_fillet_and_hole():
 
 
 def _fine_volume(col):
-    """細かい三角形 Bake(BRepMesh, 0.001 / 1度)で測った基準体積。"""
+    """細かい三角形 Bake(BRepMesh, 0.002 / 3度)で測った基準体積。
+    0.001 / 1度は球でソケットがタイムアウトする。"""
     import bmesh
     from CAD_8_1_5_1.core_bridge import get_core
-    v, t, _f, _c = get_core().generate_mesh(int(col.seamless_cad_stack_ptr), 0.001, math.radians(1.0))
+    v, t, _f, _c = get_core().generate_mesh(int(col.seamless_cad_stack_ptr), 0.002, math.radians(3.0))
     bm = bmesh.new()
     bv = [bm.verts.new((float(v[i]), float(v[i + 1]), float(v[i + 2]))) for i in range(0, len(v), 3)]
     for i in range(0, len(t), 3):
@@ -2606,9 +2607,14 @@ def _fine_volume(col):
     return vol
 
 
+def _volume_bound(bm, tol=0.01):
+    """弦誤差 tol の網の体積誤差の上限: 表面積 x tol(各面が最大 tol 内側に寄る)。"""
+    return sum(f.calc_area() for f in bm.faces) * tol
+
+
 def t_quad_bake_ruled_walls_are_quads():
     """Quad Bake P1: 円柱・円錐の側面は1段の quad 帯になり、上下リムの分割数が揃う。
-    形状誤差は細かい三角形 Bake との体積差 3% 以内。"""
+    形状誤差は細かい三角形 Bake との体積差が 表面積 x tol 以内。"""
     for kind in ('CYLINDER', 'CONE'):
         col, props = _fresh_part()
         bpy.ops.seamless.add_primitive(type=kind)
@@ -2619,10 +2625,11 @@ def t_quad_bake_ruled_walls_are_quads():
             n_tri = sum(1 for f in bm.faces if len(f.verts) == 3)
             assert n_tri == 0, f"{kind}: {n_tri} triangle(s) left -- caps are n-gons, the wall quads"
             vol = bm.calc_volume(signed=True)
+            bound = _volume_bound(bm)
         finally:
             bm.free()
         ref = _fine_volume(col)
-        assert abs(vol - ref) <= 0.03 * abs(ref), f"{kind}: volume {vol:.4f} vs reference {ref:.4f}"
+        assert abs(vol - ref) <= bound, f"{kind}: volume {vol:.4f} vs reference {ref:.4f} (bound {bound:.4f})"
 
     # 筒(円柱から細い円柱を引く): 内壁も ruled
     col, props = _fresh_part()
@@ -2635,6 +2642,42 @@ def t_quad_bake_ruled_walls_are_quads():
     try:
         _assert_quad_bake_sound(bm, rep, "pipe")
         assert rep["ruled"] == 2, f"pipe: expected inner and outer walls ruled, got {rep}"
+    finally:
+        bm.free()
+
+
+def t_quad_bake_coons_faces_are_grids():
+    """Quad Bake P2: 4辺の曲面(球・トーラス・全辺フィレットの角)は Coons の格子。
+    トーラスは全部 quad、球は極だけ三角形。体積誤差は 表面積 x tol 以内。"""
+    for kind in ('SPHERE', 'TORUS'):
+        col, props = _fresh_part()
+        bpy.ops.seamless.add_primitive(type=kind)
+        bm, rep, _ = _quad_bake_mesh(col)
+        try:
+            _assert_quad_bake_sound(bm, rep, kind)
+            assert rep["coons"] == 1 and rep["cdt"] == 0, f"{kind}: not laid as a grid: {rep}"
+            quads = sum(1 for f in bm.faces if len(f.verts) == 4)
+            assert quads >= 0.8 * len(bm.faces), f"{kind}: only {quads}/{len(bm.faces)} quads"
+            if kind == 'TORUS':
+                assert quads == len(bm.faces), f"torus: {len(bm.faces) - quads} non-quad face(s)"
+            vol = bm.calc_volume(signed=True)
+            bound = _volume_bound(bm)
+        finally:
+            bm.free()
+        ref = _fine_volume(col)
+        assert abs(vol - ref) <= bound, f"{kind}: volume {vol:.4f} vs reference {ref:.4f} (bound {bound:.4f})"
+
+    col, props = _fresh_part()
+    bpy.ops.seamless.add_primitive(type='BOX')
+    lineages = _capture_edge_lineages(col)
+    bpy.ops.seamless.add_primitive(type='FILLET')
+    props = utils_props()
+    props.primitives[-1].target_lineages = "|".join(lineages)
+    props.primitives[-1].radius = 0.1
+    bm, rep, _ = _quad_bake_mesh(col)
+    try:
+        _assert_quad_bake_sound(bm, rep, "fully filleted box")
+        assert rep["ruled"] == 12 and rep["coons"] == 8, f"fully filleted box: {rep}"
     finally:
         bm.free()
 
@@ -3174,6 +3217,7 @@ def main():
     check("quad bake: fillet and hole weld", t_quad_bake_fillet_and_hole)
     check("quad bake is deterministic", t_quad_bake_is_deterministic)
     check("quad bake: ruled walls are quads", t_quad_bake_ruled_walls_are_quads)
+    check("quad bake: coons faces are grids", t_quad_bake_coons_faces_are_grids)
     check("quad bake operator", t_quad_bake_operator)
     check("project geometry onto the sketch plane", t_project_geometry_onto_sketch_plane)
     check("split cuts with a plane", t_split_cuts_with_a_plane)

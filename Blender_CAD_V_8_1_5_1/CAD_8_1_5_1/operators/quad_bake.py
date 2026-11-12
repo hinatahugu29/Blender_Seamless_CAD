@@ -100,6 +100,55 @@ def _fill_ruled(face):
     return polys
 
 
+def _fill_coons(face, base, extra_verts):
+    """K4: a four-sided curved face as an n x m quad grid. The kernel found
+    the four sides, made opposite sides carry the same span count, blended the
+    boundary in UV (Coons) and evaluated the interior on the surface
+    (`coons.pts`, row-major over i = 1..n-1, j = 1..m-1). A cell on a pole side
+    collapses to a triangle. Returns None when the data does not fit."""
+    c = face.get("coons")
+    if c is None or len(face["loops"]) != 1:
+        return None
+    loop = face["loops"][0]
+    n, m, rs = c["n"], c["m"], c["start"]
+    M = len(loop)
+    pts = c["pts"]
+    if M != 2 * (n + m) or len(pts) != 3 * (n - 1) * (m - 1):
+        return None
+
+    def at(k):
+        return loop[(rs + k) % M][0]
+
+    interior0 = base + len(extra_verts)
+    for k in range(0, len(pts), 3):
+        extra_verts.append((pts[k], pts[k + 1], pts[k + 2]))
+
+    def G(i, j):
+        if j == 0:
+            return at(i)
+        if i == n:
+            return at(n + j)
+        if j == m:
+            return at(n + m + (n - i))
+        if i == 0:
+            return at(2 * n + m + (m - j))
+        return interior0 + (i - 1) * (m - 1) + (j - 1)
+
+    flip = _signed_area([(p[1], p[2]) for p in loop]) < 0.0
+    if face["rev"]:
+        flip = not flip
+    polys = []
+    for i in range(n):
+        for j in range(m):
+            q = _dedup_cyclic([G(i, j), G(i + 1, j), G(i + 1, j + 1), G(i, j + 1)])
+            if len(q) < 3 or len(set(q)) != len(q):
+                continue
+            if flip:
+                q.reverse()
+            polys.append(q)
+    return polys
+
+
 def _orient(a, b, c):
     return (b.x - a.x) * (c.y - a.y) - (c.x - a.x) * (b.y - a.y)
 
@@ -267,7 +316,7 @@ def build_quad_mesh(data):
     polys = []
     poly_face = []
     stats = {"faces": 0, "ngon": 0, "cdt": 0, "failed": 0,
-             "ruled": 0, "cdt_new_verts": 0, "degenerate_dropped": 0, "ears_flipped": 0,
+             "ruled": 0, "coons": 0, "cdt_new_verts": 0, "degenerate_dropped": 0, "ears_flipped": 0,
              "edge_fail": int(data.get("n_edge_fail", 0)), "errors": []}
     for face in data.get("faces", []):
         stats["faces"] += 1
@@ -278,7 +327,11 @@ def build_quad_mesh(data):
         out = _fill_ruled(face)
         if out is not None:
             stats["ruled"] += 1
-        else:
+        if out is None:
+            out = _fill_coons(face, len(verts3d), extra)
+            if out is not None:
+                stats["coons"] += 1
+        if out is None:
             out = _fill_ngon(face)
             if out is not None:
                 stats["ngon"] += 1

@@ -62,17 +62,16 @@ void jnum(std::string& out, double v) {
     out += buf;
 }
 
+// A full ring snaps UP to the next preferred count (4/8/12/16/24/32/48/64,
+// then multiples of 16) when that is within +35% of the law; it never goes
+// below the law, which would break the chord tolerance (a torus tube of
+// r = 0.2 at tol 0.01 needs 10 spans: rounding down to 8 lost 11% volume).
 int snap_ring(int n) {
     static const int pref[] = {4, 8, 12, 16, 24, 32, 48, 64};
-    int best = n;
-    double bestd = 1e300;
-    for (int c : pref) {
-        if (c < n * 0.65 - 1e-9 || c > n * 1.35 + 1e-9) continue;
-        double d = std::fabs(c - n);
-        if (d < bestd - 1e-9 || (std::fabs(d - bestd) <= 1e-9 && c < best)) { bestd = d; best = c; }
-    }
-    if (n > 64) best = ((n + 15) / 16) * 16;
-    return best;
+    for (int c : pref)
+        if (c >= n) return (c <= n * 1.35 + 1e-9) ? c : n;
+    int c = ((n + 15) / 16) * 16;
+    return (c <= n * 1.35 + 1e-9) ? c : n;
 }
 
 int arc_spans(double theta, double R, double tol) {
@@ -88,12 +87,7 @@ int arc_spans(double theta, double R, double tol) {
     return std::min(n, kMaxSpans);
 }
 
-int free_curve_spans(const BRepAdaptor_Curve& c, double tol) {
-    std::vector<gp_Pnt> P;
-    try {
-        GCPnts_TangentialDeflection td(c, 0.05, std::max(tol * 0.05, 1e-9), 3);
-        for (int i = 1; i <= td.NbPoints(); ++i) P.push_back(td.Value(i));
-    } catch (...) {}
+int polyline_spans(const std::vector<gp_Pnt>& P, double tol) {
     if (P.size() < 3) return 1;
     double total = 0.0;
     for (size_t i = 1; i + 1 < P.size(); ++i) {
@@ -105,6 +99,15 @@ int free_curve_spans(const BRepAdaptor_Curve& c, double tol) {
     }
     int n = std::max(1, (int)std::ceil(total - 1e-9));
     return std::min(n, kMaxSpans);
+}
+
+int free_curve_spans(const BRepAdaptor_Curve& c, double tol) {
+    std::vector<gp_Pnt> P;
+    try {
+        GCPnts_TangentialDeflection td(c, 0.05, std::max(tol * 0.05, 1e-9), 3);
+        for (int i = 1; i <= td.NbPoints(); ++i) P.push_back(td.Value(i));
+    } catch (...) {}
+    return polyline_spans(P, tol);
 }
 
 int edge_spans(const TopoDS_Edge& e, double tol) {
@@ -224,6 +227,75 @@ RuledFace analyse_ruled(const TopoDS_Face& ff, const TopTools_IndexedMapOfShape&
     return r;
 }
 
+// A four-sided curved face: ONE wire whose UV boundary turns by more than 30
+// degrees at exactly four junctions (a pole's degenerate edge counts as a
+// side). sides[k] are the edge indices of side k in wire order; first is the
+// wire position of side 0's first edge. mid_uv[k] is the UV midpoint of side k,
+// used to measure the surface across the face when both opposite sides are
+// poles (a sphere).
+struct CoonsFace {
+    bool ok = false;
+    std::vector<int> sides[4];
+    std::vector<int> order;
+    int first = -1;
+    gp_Pnt2d mid_uv[4];
+};
+
+CoonsFace analyse_coons(const TopoDS_Face& ff, const TopTools_IndexedMapOfShape& em, double su, double sv) {
+    CoonsFace r;
+    BRepAdaptor_Surface sa(ff, Standard_False);
+    if (sa.GetType() == GeomAbs_Plane) return r;
+    int nw = 0;
+    for (TopExp_Explorer wx(ff, TopAbs_WIRE); wx.More(); wx.Next()) ++nw;
+    if (nw != 1) return r;
+    TopoDS_Wire w = BRepTools::OuterWire(ff);
+    if (w.IsNull()) return r;
+    std::vector<int> eids;
+    std::vector<gp_Vec2d> t0, t1;           // UV tangent at start / end (walk direction)
+    std::vector<gp_Pnt2d> mid;
+    for (BRepTools_WireExplorer wx(w, ff); wx.More(); wx.Next()) {
+        TopoDS_Edge e = wx.Current();
+        int ei = em.FindIndex(e);
+        if (ei < 1) return r;
+        double f, l;
+        Handle(Geom2d_Curve) pc = BRep_Tool::CurveOnSurface(e, ff, f, l);
+        if (pc.IsNull()) return r;
+        bool rv = (e.Orientation() == TopAbs_REVERSED);
+        gp_Pnt2d p; gp_Vec2d da, db;
+        pc->D1(f, p, da);
+        pc->D1(l, p, db);
+        if (rv) { gp_Vec2d tmp = da; da = -db; db = -tmp; }
+        da.SetCoord(da.X() * su, da.Y() * sv);
+        db.SetCoord(db.X() * su, db.Y() * sv);
+        if (da.Magnitude() < 1e-14 || db.Magnitude() < 1e-14) return r;
+        eids.push_back(ei);
+        t0.push_back(da);
+        t1.push_back(db);
+        mid.push_back(pc->Value(0.5 * (f + l)));
+    }
+    int n = (int)eids.size();
+    if (n < 4) return r;
+    std::vector<int> corner;              // a corner BEFORE edge k
+    for (int k = 0; k < n; ++k) {
+        const gp_Vec2d& a = t1[(k + n - 1) % n];
+        const gp_Vec2d& b = t0[k];
+        double ang = std::fabs(a.Angle(b));
+        if (ang > 30.0 * 3.14159265358979 / 180.0) corner.push_back(k);
+    }
+    if (corner.size() != 4) return r;
+    for (int sd = 0; sd < 4; ++sd) {
+        int a = corner[sd], b = corner[(sd + 1) % 4];
+        int k = a;
+        do { r.sides[sd].push_back(eids[k]); k = (k + 1) % n; } while (k != b);
+        int m = (int)r.sides[sd].size();
+        r.mid_uv[sd] = mid[(a + m / 2) % n];
+    }
+    r.first = corner[0];
+    r.order = eids;
+    r.ok = true;
+    return r;
+}
+
 }  // namespace
 
 std::string quad_topology_json(void* stack_ptr, double tol) {
@@ -244,10 +316,11 @@ std::string quad_topology_json(void* stack_ptr, double tol) {
     // ── span law per edge ─────────────────────────────────────────────────
     std::vector<int> nspan(em.Extent() + 1, 1);
     std::vector<double> elen(em.Extent() + 1, 0.0);
+    std::vector<char> degen(em.Extent() + 1, 0);
     for (int i = 1; i <= em.Extent(); ++i) {
         TopoDS_Edge e = TopoDS::Edge(em.FindKey(i));
         try {
-            if (BRep_Tool::Degenerated(e)) { nspan[i] = 1; continue; }
+            if (BRep_Tool::Degenerated(e)) { nspan[i] = 1; degen[i] = 1; continue; }
             nspan[i] = edge_spans(e, tol);
             BRepAdaptor_Curve c(e);
             elen[i] = GCPnts_AbscissaPoint::Length(c);
@@ -260,10 +333,80 @@ std::string quad_topology_json(void* stack_ptr, double tol) {
         TopoDS_Face ff = TopoDS::Face(fm.FindKey(fi).Oriented(TopAbs_FORWARD));
         try { ruled[fi] = analyse_ruled(ff, em); } catch (...) { ruled[fi] = RuledFace(); }
     }
+    // ── P2: four-sided curved faces (Coons) ─────────────────────────────────
+    std::vector<CoonsFace> coons(fm.Extent() + 1);
+    for (int fi = 1; fi <= fm.Extent(); ++fi) {
+        if (ruled[fi].ok) continue;
+        TopoDS_Face ff = TopoDS::Face(fm.FindKey(fi).Oriented(TopAbs_FORWARD));
+        try {
+            BRepAdaptor_Surface sa(ff, Standard_True);
+            double u0, u1, v0, v1;
+            BRepTools::UVBounds(ff, u0, u1, v0, v1);
+            gp_Pnt p; gp_Vec du, dv;
+            sa.D1(0.5 * (u0 + u1), 0.5 * (v0 + v1), p, du, dv);
+            double su = du.Magnitude() > 1e-12 ? du.Magnitude() : 1.0;
+            double sv = dv.Magnitude() > 1e-12 ? dv.Magnitude() : 1.0;
+            coons[fi] = analyse_coons(ff, em, su, sv);
+            if (!coons[fi].ok) continue;
+            // a pair of POLE sides (a sphere): their count is the surface's own
+            // demand along the midline between the two other sides
+            for (int pr = 0; pr < 2; ++pr) {
+                auto all_degen = [&](const std::vector<int>& sd) {
+                    for (int ei : sd) if (!degen[ei]) return false;
+                    return true;
+                };
+                if (!all_degen(coons[fi].sides[pr]) || !all_degen(coons[fi].sides[pr + 2])) continue;
+                gp_Pnt2d a = coons[fi].mid_uv[pr + 1], b = coons[fi].mid_uv[(pr + 3) % 4];
+                std::vector<gp_Pnt> P;
+                for (int k = 0; k <= 128; ++k) {
+                    double t = k / 128.0;
+                    P.push_back(sa.Value(a.X() + t * (b.X() - a.X()), a.Y() + t * (b.Y() - a.Y())));
+                }
+                int nm = std::max(4, polyline_spans(P, tol));
+                if (std::fabs(b.X() - a.X()) > 6.28 || std::fabs(b.Y() - a.Y()) > 6.28) nm = std::max(4, snap_ring(nm));
+                nspan[coons[fi].sides[pr][0]] = nm;
+                nspan[coons[fi].sides[pr + 2][0]] = nm;
+            }
+        } catch (...) { coons[fi] = CoonsFace(); }
+    }
+
     // A rim may be shared by several walls (a stack of tubes), so iterate:
     // the lower rim RISES to the higher one (never goes down) until stable.
+    // Coons sides follow the same rule, but SOFTLY: a pole side takes its
+    // opposite's count, and two real sides meet only when the lower one need
+    // not rise by more than max(2, half of the higher) -- otherwise the face
+    // stays unsatisfied and falls back to the triangulation.
     for (int round = 0; round < 32; ++round) {
         bool moved = false;
+        for (int fi = 1; fi <= fm.Extent(); ++fi) {
+            const CoonsFace& cf = coons[fi];
+            if (!cf.ok) continue;
+            for (int pr = 0; pr < 2; ++pr) {
+                const std::vector<int>& A = cf.sides[pr];
+                const std::vector<int>& B = cf.sides[pr + 2];
+                int sa = 0, sb = 0;
+                bool da = true, db = true;
+                for (int ei : A) { sa += nspan[ei]; da = da && degen[ei]; }
+                for (int ei : B) { sb += nspan[ei]; db = db && degen[ei]; }
+                if (sa == sb) continue;
+                if (da != db) {
+                    const std::vector<int>& pole = da ? A : B;
+                    int target = da ? sb : sa;
+                    int other = 0;
+                    for (size_t k = 1; k < pole.size(); ++k) other += nspan[pole[k]];
+                    nspan[pole[0]] = std::max(1, target - other);
+                    moved = true;
+                    continue;
+                }
+                int hi = std::max(sa, sb), lo = std::min(sa, sb);
+                if (hi - lo > std::max(2, hi / 2)) continue;
+                const std::vector<int>& low = (sa < sb) ? A : B;
+                int best = low[0];
+                for (int ei : low) if (elen[ei] > elen[best] + 1e-12) best = ei;
+                nspan[best] = std::min(kMaxSpans, nspan[best] + (hi - lo));
+                moved = true;
+            }
+        }
         for (int fi = 1; fi <= fm.Extent(); ++fi) {
             const RuledFace& r = ruled[fi];
             if (!r.ok) continue;
@@ -297,8 +440,11 @@ std::string quad_topology_json(void* stack_ptr, double tol) {
             BRep_Tool::Range(e, f, l);
             if (BRep_Tool::Degenerated(e)) {
                 s.degenerated = true;
-                s.params = {f, l};
-                s.vids = {i0, i0};
+                int nd = std::max(1, nspan[i]);
+                for (int k = 0; k <= nd; ++k) {
+                    s.params.push_back(f + (l - f) * k / nd);
+                    s.vids.push_back(i0);
+                }
                 s.ok = true;
                 continue;
             }
@@ -441,6 +587,80 @@ std::string quad_topology_json(void* stack_ptr, double tol) {
         out += ",\"su\":"; jnum(out, su);
         out += ",\"sv\":"; jnum(out, sv);
         out += ",\"c\":["; jnum(out, c.X()); out += ","; jnum(out, c.Y()); out += ","; jnum(out, c.Z()); out += "]";
+        if (why.empty() && coons[fi].ok && loops.size() == 1) {
+            const CoonsFace& cf = coons[fi];
+            int cnt[4] = {0, 0, 0, 0};
+            for (int sd = 0; sd < 4; ++sd)
+                for (int ei : cf.sides[sd]) cnt[sd] += (int)es[ei].params.size() - 1;
+            int nn = cnt[0], mm = cnt[1];
+            const std::vector<LoopPt>& L = loops[0];
+            int M = (int)L.size();
+            if (cnt[2] == nn && cnt[3] == mm && nn >= 1 && mm >= 1 && M == 2 * (nn + mm)) {
+                int rs = 0;
+                for (int k = 0; k < cf.first; ++k) rs += (int)es[cf.order[k]].params.size() - 1;
+                auto at = [&](int k) -> const LoopPt& { return L[((rs + k) % M + M) % M]; };
+                // boundary in UV, grid G[i][j]: i along side 0, j along side 1
+                auto B0 = [&](int i) { return at(i); };                       // (i, 0)
+                auto B1 = [&](int j) { return at(nn + j); };                  // (nn, j)
+                auto B2 = [&](int i) { return at(nn + mm + (nn - i)); };      // (i, mm)
+                auto B3 = [&](int j) { return at(2 * nn + mm + (mm - j)); };  // (0, j)
+                double area = 0.0;
+                for (int k = 0; k < M; ++k) {
+                    const LoopPt& a = L[k]; const LoopPt& b = L[(k + 1) % M];
+                    area += (a.u * su) * (b.v * sv) - (b.u * su) * (a.v * sv);
+                }
+                std::vector<double> gu((nn + 1) * (mm + 1)), gv((nn + 1) * (mm + 1));
+                for (int i = 0; i <= nn; ++i) {
+                    for (int j = 0; j <= mm; ++j) {
+                        double s_ = (double)i / nn, t_ = (double)j / mm;
+                        double u, v;
+                        if (j == 0) { u = B0(i).u; v = B0(i).v; }
+                        else if (j == mm) { u = B2(i).u; v = B2(i).v; }
+                        else if (i == 0) { u = B3(j).u; v = B3(j).v; }
+                        else if (i == nn) { u = B1(j).u; v = B1(j).v; }
+                        else {
+                            u = (1 - t_) * B0(i).u + t_ * B2(i).u + (1 - s_) * B3(j).u + s_ * B1(j).u
+                              - ((1 - s_) * (1 - t_) * B0(0).u + s_ * (1 - t_) * B0(nn).u
+                                 + (1 - s_) * t_ * B2(0).u + s_ * t_ * B2(nn).u);
+                            v = (1 - t_) * B0(i).v + t_ * B2(i).v + (1 - s_) * B3(j).v + s_ * B1(j).v
+                              - ((1 - s_) * (1 - t_) * B0(0).v + s_ * (1 - t_) * B0(nn).v
+                                 + (1 - s_) * t_ * B2(0).v + s_ * t_ * B2(nn).v);
+                        }
+                        gu[i * (mm + 1) + j] = u;
+                        gv[i * (mm + 1) + j] = v;
+                    }
+                }
+                // quality gate: every UV cell keeps the loop's winding
+                bool good = true;
+                for (int i = 0; i < nn && good; ++i) {
+                    for (int j = 0; j < mm && good; ++j) {
+                        int c[4] = {i * (mm + 1) + j, (i + 1) * (mm + 1) + j,
+                                    (i + 1) * (mm + 1) + j + 1, i * (mm + 1) + j + 1};
+                        double a2 = 0.0;
+                        for (int q = 0; q < 4; ++q) {
+                            int x = c[q], y = c[(q + 1) % 4];
+                            a2 += (gu[x] * su) * (gv[y] * sv) - (gu[y] * su) * (gv[x] * sv);
+                        }
+                        // a cell on a pole side collapses to a triangle: zero is fine
+                        if (a2 * area < -1e-18) good = false;
+                    }
+                }
+                if (good) {
+                    out += ",\"coons\":{\"n\":" + std::to_string(nn) + ",\"m\":" + std::to_string(mm)
+                         + ",\"start\":" + std::to_string(rs) + ",\"pts\":[";
+                    bool fp = true;
+                    for (int i = 1; i < nn; ++i) {
+                        for (int j = 1; j < mm; ++j) {
+                            gp_Pnt q = sa.Value(gu[i * (mm + 1) + j], gv[i * (mm + 1) + j]);
+                            if (!fp) out += ",";
+                            fp = false;
+                            jnum(out, q.X()); out += ","; jnum(out, q.Y()); out += ","; jnum(out, q.Z());
+                        }
+                    }
+                    out += "]}";
+                }
+            }
+        }
         if (why.empty() && ruled[fi].ok) {
             // loop index where rim A starts = points contributed by the edges
             // before it in wire order (an edge of n spans gives n points)
