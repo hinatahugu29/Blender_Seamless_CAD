@@ -210,6 +210,8 @@ public:
     int get_face_count(void* stack_ptr);
     int get_face_hash(void* stack_ptr, int i);
     int get_edge_hash(void* stack_ptr, int i);
+    // Quad Bake P0 (occ_quad.cpp): topology + shared edge samples as one JSON string.
+    void quad_topology(void* stack_ptr, double tol, void* str_vec, PushStringFn push_string);
     void get_face_mesh(void* stack_ptr, int i, double deflection, void* verts_vec, void* tris_vec, void* f_ids_vec, void* f_t_counts_vec, PushPointFn push_point, PushCountFn push_count, PushStringFn push_string);
 
 bool pick_edge(

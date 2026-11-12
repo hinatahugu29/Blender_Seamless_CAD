@@ -801,6 +801,26 @@ class SeamlessProperties(bpy.types.PropertyGroup):
         description="Automatically use Bake Quality when baking to mesh",
         default=True
     )
+    # Quad Bake P0 (operators/quad_bake.py): seam-exact bake mesh built from the
+    # BRep topology. QUAD fills hole-free planes as one n-gon and triangulates
+    # the rest inside shared, once-discretised edges.
+    bake_topology: bpy.props.EnumProperty(
+        name="Bake Topology",
+        description="Mesh layout produced by Bake to Mesh",
+        items=[
+            ('TRIS', "Triangles", "Classic tessellation (BRepMesh)"),
+            ('QUAD', "Quad (Beta)", "Low-poly bake: shared edge samples, n-gon planes, constrained triangulation elsewhere"),
+        ],
+        default='TRIS',
+    )
+    quad_bake_tol: bpy.props.FloatProperty(
+        name="Quad Tolerance",
+        description="Max chord deviation of a curved edge span, in Blender units. Lower = denser",
+        default=0.01,
+        min=0.0001,
+        max=1.0,
+        precision=4,
+    )
     
     # 2Dスケッチ用のプロパティ定義
     sketch_points: bpy.props.CollectionProperty(type=SeamlessSketchPoint)

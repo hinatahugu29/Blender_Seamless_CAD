@@ -413,6 +413,25 @@ fn handle_client(mut stream: TcpStream, workers: StackWorkers) {
                 stream.write_all(vb).unwrap(); stream.write_all(tb).unwrap(); stream.write_all(tc).unwrap();
             } else { stream.write_all(&[0u8]).unwrap(); }
 
+        } else if action == "quad_topology" {
+            // Quad Bake P0: 1u8 + u32 len + JSON (built in occ_quad.cpp)
+            let stack_ptr = req["stack_ptr"].as_i64().unwrap_or(0) as isize;
+            let tol       = req["tol"].as_f64().unwrap_or(0.01);
+            match seamless_core::quad_topology(stack_ptr, tol) {
+                Ok(js) => {
+                    stream.write_all(&[1u8]).unwrap();
+                    let jb = js.into_bytes();
+                    stream.write_all(&(jb.len() as u32).to_le_bytes()).unwrap();
+                    stream.write_all(&jb).unwrap();
+                },
+                Err(e) => {
+                    stream.write_all(&[0u8]).unwrap();
+                    let eb = e.as_bytes();
+                    stream.write_all(&(eb.len() as u32).to_le_bytes()).unwrap();
+                    stream.write_all(eb).unwrap();
+                }
+            }
+
         } else if action == "pick_vertex_from_stack" {
             let stack_ptr = req["stack_ptr"].as_i64().unwrap_or(0) as isize;
             let stack_idx = req["stack_idx"].as_i64().unwrap_or(0) as i32;

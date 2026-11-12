@@ -191,3 +191,24 @@ pub fn tessellate_preview_meshes(
 }
 
 
+
+/// Quad Bake P0: the shape's topology with every edge discretised once
+/// (shared by index between its faces), per-face pcurve loops and interior
+/// surface points — one JSON document built in occ_quad.cpp. The fill itself
+/// runs in Python (operators/quad_bake.py). Read-only w.r.t. the OCC stack.
+pub fn quad_topology(stack_ptr: isize, tol: f64) -> Result<String, String> {
+    if !crate::is_valid_stack_ptr(stack_ptr) {
+        return Err(format!("quad_topology: unknown or already-deleted stack_ptr {}", stack_ptr));
+    }
+    let occ_mutex = get_stack_lock(stack_ptr);
+    let _occ_lock = occ_mutex.lock().unwrap();
+    unsafe {
+        let mut out: Vec<String> = Vec::new();
+        let s_ptr = &mut out as *mut Vec<String> as *mut std::ffi::c_void;
+        let rps: extern "C" fn(*mut Vec<String>, *const std::ffi::c_char) = rust_push_string;
+        cpp!([stack_ptr as "void*", tol as "double", s_ptr as "void*", rps as "PushStringFn"] {
+            occ_core::quad_topology(stack_ptr, tol, s_ptr, rps);
+        });
+        out.pop().ok_or_else(|| "quad_topology: empty shape or kernel failure".to_string())
+    }
+}

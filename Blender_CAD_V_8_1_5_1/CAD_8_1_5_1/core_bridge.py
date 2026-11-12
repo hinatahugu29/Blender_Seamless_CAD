@@ -1036,6 +1036,16 @@ def generate_mesh(stack_ptr, deflection, angular_deflection):
     }
     return send_and_receive(req_dict)
 
+def quad_topology(stack_ptr, tol):
+    """Quad Bake P0: the shape's topology with shared edge samples as a dict
+    (see src_rust/src/occ_quad.cpp for the schema), or None."""
+    req_dict = {
+        "action": "quad_topology",
+        "stack_ptr": stack_ptr,
+        "tol": float(tol),
+    }
+    return send_and_receive(req_dict)
+
 def pick_face(stack_ptr, origin, direction, tolerance=0.1):
     return _pick_common(2, "pick_face", stack_ptr, origin, direction, tolerance)
 
@@ -1101,7 +1111,7 @@ def send_and_receive(req_dict):
                 return ptr
             elif req_dict.get('action') == 'delete_stack':
                 return True
-            elif req_dict.get('action') in ('import_step', 'import_svg', 'project_to_sketch_plane'):
+            elif req_dict.get('action') in ('import_step', 'import_svg', 'project_to_sketch_plane', 'quad_topology'):
                 len_bytes = recv_exact(4)
                 res_len = struct.unpack('<I', len_bytes)[0]
                 data = recv_exact(res_len)

@@ -2,7 +2,7 @@ extern crate cpp_build;
 
 // C++ ソースはプラットフォーム非依存 (occ_*.cpp に #ifdef _WIN32 は1つも無い)。
 // 分岐するのは「OCCT がどこにあるか」と「コンパイラのフラグ方言」だけ。
-const CPP_SOURCES: [&str; 9] = [
+const CPP_SOURCES: [&str; 10] = [
     "src/occ_core.cpp",
     "src/occ_utils.cpp",
     "src/occ_primitives.cpp",
@@ -12,6 +12,7 @@ const CPP_SOURCES: [&str; 9] = [
     "src/occ_mesh.cpp",
     "src/occ_arrays.cpp",
     "src/occ_step.cpp",
+    "src/occ_quad.cpp",
 ];
 
 /// OCCT の展開先。CI では OS ごとに置き場所が違うので環境変数を最優先する。

@@ -2493,6 +2493,128 @@ def t_bake_to_mesh():
     assert v >= 8, f"baked mesh has only {v} vertices; the kernel likely returned garbage"
 
 
+def _quad_bake_mesh(col, tol=0.01):
+    """Quad Bake P0 を operator を通さずに直接回し、bmesh と報告を返す。"""
+    import bmesh
+    from CAD_8_1_5_1 import core_bridge
+    from CAD_8_1_5_1.core_bridge import get_core
+    from CAD_8_1_5_1.operators.quad_bake import build_quad_mesh
+    core_bridge.update_cad_preview_forced(bpy.context)
+    data = get_core().quad_topology(int(col.seamless_cad_stack_ptr), tol)
+    assert data, "quad_topology returned nothing"
+    verts, polys, poly_face, rep = build_quad_mesh(data)
+    bm = bmesh.new()
+    bv = [bm.verts.new(v) for v in verts]
+    for p in polys:
+        bm.faces.new([bv[i] for i in p])
+    bm.normal_update()
+    return bm, rep, (verts, polys)
+
+
+def _assert_quad_bake_sound(bm, rep, label):
+    """水密(非多様体エッジ0)・重複頂点なし・面の取りこぼしなし・向きが外向き。"""
+    import bmesh
+    assert rep["failed"] == 0 and rep["edge_fail"] == 0, f"{label}: {rep['errors']}"
+    bad = [e for e in bm.edges if not e.is_manifold]
+    assert not bad, f"{label}: {len(bad)} non-manifold edge(s) -- seams do not weld"
+    loose = [v for v in bm.verts if not v.link_faces]
+    assert not loose, f"{label}: {len(loose)} unused vertex/vertices"
+    n0 = len(bm.verts)
+    cp = bm.copy()
+    bmesh.ops.remove_doubles(cp, verts=cp.verts, dist=1e-6)
+    n1 = len(cp.verts)
+    cp.free()
+    assert n0 == n1, f"{label}: {n0 - n1} coincident vertices that are not shared"
+    # 閉じたソリッドなので体積は正(=全ポリゴンが外向き)
+    vol = bm.calc_volume(signed=True)
+    assert vol > 0.0, f"{label}: signed volume {vol} -- faces point inward"
+
+
+def t_quad_bake_box_is_six_ngons():
+    """Quad Bake: 箱は 8 頂点・6 枚の n-gon(四角形)になる。"""
+    col, props = _fresh_part()
+    bpy.ops.seamless.add_primitive(type='BOX')
+    bm, rep, (verts, polys) = _quad_bake_mesh(col)
+    try:
+        _assert_quad_bake_sound(bm, rep, "box")
+        assert rep["ngon"] == 6, f"expected 6 n-gon faces, got {rep}"
+        assert len(bm.verts) == 8 and len(bm.faces) == 6,             f"expected 8 verts / 6 quads, got {len(bm.verts)} / {len(bm.faces)}"
+        assert all(len(f.verts) == 4 for f in bm.faces), "a box face is not a quad"
+    finally:
+        bm.free()
+
+
+def t_quad_bake_curved_primitives_weld():
+    """Quad Bake: 曲面(円柱・円錐・球・トーラス)も継ぎ目が溶接され水密になる。"""
+    for kind in ('CYLINDER', 'CONE', 'SPHERE', 'TORUS'):
+        col, props = _fresh_part()
+        bpy.ops.seamless.add_primitive(type=kind)
+        bm, rep, _ = _quad_bake_mesh(col)
+        try:
+            _assert_quad_bake_sound(bm, rep, kind)
+        finally:
+            bm.free()
+
+
+def t_quad_bake_fillet_and_hole():
+    """Quad Bake: フィレット付きの箱、円柱で穴をあけた箱も水密。"""
+    col, props = _fresh_part()
+    bpy.ops.seamless.add_primitive(type='BOX')
+    lineages = _capture_edge_lineages(col)
+    bpy.ops.seamless.add_primitive(type='FILLET')
+    props = utils_props()
+    props.primitives[-1].target_lineages = "|".join(lineages[:4])
+    props.primitives[-1].radius = 0.1
+    bm, rep, _ = _quad_bake_mesh(col)
+    try:
+        assert rep["cdt"] >= 4, f"the fillet did not reach the shape (no curved faces): {rep}"
+        _assert_quad_bake_sound(bm, rep, "filleted box")
+    finally:
+        bm.free()
+
+    col, props = _fresh_part()
+    bpy.ops.seamless.add_primitive(type='BOX')
+    bpy.ops.seamless.add_primitive(type='CYLINDER')
+    props = utils_props()
+    cyl = props.primitives[1]
+    cyl.operation = 'SUB'
+    cyl.size = (0.3, 0.3, 1.5)          # 円柱の寸法は radius ではなく size で決まる
+    bm, rep, _ = _quad_bake_mesh(col)
+    try:
+        box_vol = bm.calc_volume(signed=True)
+        assert box_vol < 0.95, f"the hole did not reach the shape (volume {box_vol})"
+        _assert_quad_bake_sound(bm, rep, "box with a hole")
+    finally:
+        bm.free()
+
+
+def t_quad_bake_is_deterministic():
+    """Quad Bake: 同じ形状からは毎回同じメッシュが出る。"""
+    col, props = _fresh_part()
+    bpy.ops.seamless.add_primitive(type='CYLINDER')
+    bm1, _r1, a = _quad_bake_mesh(col)
+    bm2, _r2, b = _quad_bake_mesh(col)
+    bm1.free(); bm2.free()
+    assert a == b, "two quad bakes of the same shape differ"
+
+
+def t_quad_bake_operator():
+    """Quad Bake: Bake to Mesh の Topology=Quad 経路でメッシュができる。"""
+    col, props = _fresh_part()
+    bpy.ops.seamless.add_primitive(type='BOX')
+    props = utils_props()
+    props.bake_topology = 'QUAD'
+    before = set(bpy.data.objects.keys())
+    res = bpy.ops.seamless.bake_mesh()
+    assert res == {'FINISHED'}, f"bake_mesh returned {res}"
+    new = [bpy.data.objects[n] for n in set(bpy.data.objects.keys()) - before]
+    baked = [o for o in new if o.type == 'MESH' and o.data and len(o.data.polygons) > 0]
+    assert baked, "quad bake produced no mesh"
+    me = baked[0].data
+    assert len(me.polygons) == 6, f"quad-baked box should have 6 faces, got {len(me.polygons)}"
+    assert "cad_face" in me.attributes, "quad bake lost the cad_face attribute"
+
+
 def t_project_geometry_onto_sketch_plane():
     """既存形状をスケッチ平面へ投影すると、線は線・円は円として入る。
 
@@ -2996,6 +3118,11 @@ def main():
     check("panels registered", t_panels_registered)
     check("panel draw does not raise", t_panel_draw_does_not_raise)
     check("bake to mesh", t_bake_to_mesh)
+    check("quad bake: box is six n-gons", t_quad_bake_box_is_six_ngons)
+    check("quad bake: curved primitives weld", t_quad_bake_curved_primitives_weld)
+    check("quad bake: fillet and hole weld", t_quad_bake_fillet_and_hole)
+    check("quad bake is deterministic", t_quad_bake_is_deterministic)
+    check("quad bake operator", t_quad_bake_operator)
     check("project geometry onto the sketch plane", t_project_geometry_onto_sketch_plane)
     check("split cuts with a plane", t_split_cuts_with_a_plane)
     check("STEP export", t_step_export)
