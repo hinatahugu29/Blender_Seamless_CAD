@@ -2712,6 +2712,28 @@ def t_quad_bake_phase0():
     assert abs(props.quad_bake_tol - 0.01) < 1e-9
 
 
+def t_quad_bake_uniform_cone_rows():
+    """Quad Bake 1-3: Uniform では円錐の側面も長さ方向に段に分かれ、段ごとに周方向の
+    分割数がリムからリムへ変わる。水密・体積は保つ。結合後は quad が多数派。"""
+    col, props = _fresh_part()
+    bpy.ops.seamless.add_primitive(type='CONE')
+    bm, rep, _ = _quad_bake_mesh(col, uniform=True)
+    try:
+        _assert_quad_bake_sound(bm, rep, "cone, uniform")
+        wall = [f for f in rep["face_log"] if f["kind"] == "cone"]
+        assert wall and wall[0]["kernel"] == "ruled", f"cone wall not laid as rows: {wall}"
+        zs = sorted({round(v.co.z, 5) for v in bm.verts})
+        assert len(zs) > 3, f"cone wall still one row: z levels {zs}"
+    finally:
+        bm.free()
+    me, rep = _quad_bake_blender_mesh(col, uniform=True)
+    try:
+        quads = sum(1 for p in me.polygons if len(p.vertices) == 4)
+        assert quads > 0.6 * len(me.polygons), f"{quads} quads of {len(me.polygons)}"
+    finally:
+        bpy.data.meshes.remove(me)
+
+
 def t_quad_bake_box_is_six_ngons():
     """Quad Bake: 箱は 8 頂点・6 枚の n-gon(四角形)になる。"""
     col, props = _fresh_part()
@@ -3839,6 +3861,7 @@ def main():
     check("quad bake: uniform dense plane is a lattice", t_quad_bake_uniform_dense_plane_is_lattice)
     check("quad bake: uniform spreads to box sides", t_quad_bake_uniform_spreads_to_box_sides)
     check("quad bake: uniform cuts grid sides", t_quad_bake_uniform_cuts_grid_sides)
+    check("quad bake: uniform cone rows", t_quad_bake_uniform_cone_rows)
     check("quad bake: UV, seams and sharp edges", t_quad_bake_uv_seams_and_sharp)
     check("quad bake: join triangles", t_quad_bake_join_triangles)
     check("vendored blossom is optimal", t_vendored_blossom_is_optimal)

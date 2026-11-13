@@ -591,11 +591,16 @@ std::string quad_topology_json(void* stack_ptr, double tol, bool uniform) {
         };
         for (int fi = 1; fi <= fm.Extent(); ++fi) {
             const RuledFace& r = ruled[fi];
-            if (!r.ok || r.cone) continue;
+            if (!r.ok) continue;
             double L = 0.0; int n = 0;
             for (int ei : r.rim_a) { L += elen[ei]; n += nspan[ei]; }
             if (n < 1 || !(L > 1e-12)) continue;
             double step = L / n, rl = 0.0;
+            if (r.cone) {            // a cone: the mean pitch of its two rims
+                double Lb = 0.0; int nb_ = 0;
+                for (int ei : r.rim_b) { Lb += elen[ei]; nb_ += nspan[ei]; }
+                if (nb_ > 0 && Lb > 1e-12) step = 0.5 * (step + Lb / nb_);
+            }
             for (int ei : rulings_of(r)) rl = std::max(rl, elen[ei]);
             int want = std::max(1, std::min(64, (int)std::lround(rl / step)));
             for (int ei : rulings_of(r)) nspan[ei] = std::max(nspan[ei], want);
@@ -993,6 +998,31 @@ std::string quad_topology_json(void* stack_ptr, double tol, bool uniform) {
                     }
                 }
                 out += "],\"uv\":[" + uvs + "]}";
+            } else if (same && nr > 1 && ruled[fi].cone && loops.size() == 1 && nb >= 1) {
+                // a cone: row k carries round(na + (nb - na) k / nr) spans, its
+                // stations evenly spaced in angle between the two rulings, at the
+                // height blended between the rims; filled band by band in Python
+                auto at = [&](int k) -> const LoopPt& { return L[((rs + k) % M + M) % M]; };
+                double u0 = at(0).u, u1 = at(na).u;
+                double va = at(0).v, vb = at(na + nr + nb).v;
+                out += ",\"ruled_r\":" + std::to_string(nr) + ",\"rows\":{\"counts\":[";
+                std::string pts, uvs;
+                bool fp = true;
+                for (int k = 1; k < nr; ++k) {
+                    double t = (double)k / nr;
+                    int nk = std::max(1, (int)std::lround(na + (nb - na) * t));
+                    out += (k > 1 ? "," : "") + std::to_string(nk);
+                    double v = va + t * (vb - va);
+                    for (int i = 1; i < nk; ++i) {
+                        double u = u0 + (u1 - u0) * i / nk;
+                        gp_Pnt q = sa.Value(u, v);
+                        if (!fp) { pts += ","; uvs += ","; }
+                        fp = false;
+                        jnum(pts, q.X()); pts += ","; jnum(pts, q.Y()); pts += ","; jnum(pts, q.Z());
+                        jnum(uvs, u); uvs += ","; jnum(uvs, v);
+                    }
+                }
+                out += "],\"pts\":[" + pts + "],\"uv\":[" + uvs + "]}";
             } else if (nr > 1) {
                 out += ",\"ruled_r\":" + std::to_string(same ? nr : -1);
             }

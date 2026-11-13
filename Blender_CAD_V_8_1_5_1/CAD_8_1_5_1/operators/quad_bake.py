@@ -176,6 +176,8 @@ def _fill_ruled_rows(face, loop, rs, na, nb, nr, base, extra_verts, why):
     row-major over k = 1..nr-1, i = 1..na-1)."""
     rows = face.get("rows")
     m = len(loop)
+    if rows is not None and "counts" in rows and extra_verts is not None:
+        return _fill_cone_rows(face, loop, rs, na, nb, nr, rows, base, extra_verts, why)
     if rows is None or na != nb or extra_verts is None:
         return _no(why, "rows along the wall need equal rims and the kernel's interior stations")
     pts, uvs = rows["pts"], rows.get("uv", [])
@@ -210,6 +212,70 @@ def _fill_ruled_rows(face, loop, rs, na, nb, nr, base, extra_verts, why):
             if len({c[0] for c in q}) != 4:
                 return _no(why, "a wall polygon collapses (shared vertex)")
             polys.append(q)
+    return _orient_poly(face, _signed_area([(p[1], p[2]) for p in loop]), polys)
+
+
+def _band(face, P, Q, u0, span):
+    """Fill between two rows of loop points [vid, u, v] that run between the
+    same two rulings, walking both in angle order: a quad where both advance
+    together, a triangle where only one does."""
+    def frac(p):
+        return (p[1] - u0) / span
+    out = []
+    i = j = 0
+    na, nb = len(P) - 1, len(Q) - 1
+    while i < na or j < nb:
+        ta = frac(P[i + 1]) if i < na else 2.0
+        tb = frac(Q[j + 1]) if j < nb else 2.0
+        if abs(ta - tb) <= 1e-9 + 1e-6 * abs(ta):
+            corners = (P[i], P[i + 1], Q[j + 1], Q[j]); i += 1; j += 1
+        elif ta < tb:
+            corners = (P[i], P[i + 1], Q[j]); i += 1
+        else:
+            corners = (P[i], Q[j + 1], Q[j]); j += 1
+        q = [_corner(face, p) for p in corners]
+        if len({c[0] for c in q}) != len(q):
+            return None
+        out.append(q)
+    return out
+
+
+def _fill_cone_rows(face, loop, rs, na, nb, nr, rows, base, extra_verts, why):
+    """Uniform density on a cone: nr rows whose span counts step from rim A's
+    to rim B's (`rows.counts` for the inner rows), each band walked in angle
+    order (quads, plus a triangle where a row gains a station; the join pairs
+    what it can)."""
+    m = len(loop)
+    counts = rows["counts"]
+    pts, uvs = rows["pts"], rows.get("uv", [])
+    if len(counts) != nr - 1 or len(pts) != 3 * sum(c - 1 for c in counts) or len(uvs) * 3 != len(pts) * 2:
+        return _no(why, "cone row data does not match the outline")
+
+    def at(k):
+        return loop[(rs + k) % m]
+
+    first = base + len(extra_verts)
+    for k in range(0, len(pts), 3):
+        extra_verts.append((pts[k], pts[k + 1], pts[k + 2]))
+    R = [[at(i) for i in range(na + 1)]]
+    q = 0
+    for k in range(1, nr):
+        row = [at(-k)]
+        for _ in range(counts[k - 1] - 1):
+            row.append([first + q, uvs[2 * q], uvs[2 * q + 1]])
+            q += 1
+        row.append(at(na + k))
+        R.append(row)
+    R.append([at(na + nr + nb - j) for j in range(nb + 1)])
+    u0, u1 = R[0][0][1], R[0][-1][1]
+    if abs(u1 - u0) < 1e-12:
+        return _no(why, "the rim has no angular extent")
+    polys = []
+    for k in range(nr):
+        b = _band(face, R[k], R[k + 1], u0, u1 - u0)
+        if b is None:
+            return _no(why, "a cone band collapses (shared vertex)")
+        polys.extend(b)
     return _orient_poly(face, _signed_area([(p[1], p[2]) for p in loop]), polys)
 
 
