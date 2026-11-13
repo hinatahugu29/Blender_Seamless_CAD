@@ -660,6 +660,27 @@ std::string quad_topology_json(void* stack_ptr, double tol, bool uniform, const 
             }
             if (!moved) break;
         }
+        std::vector<char> is_line_e(em.Extent() + 1, 0);
+        for (int i = 1; i <= em.Extent(); ++i) {
+            if (degen[i]) continue;
+            try {
+                // a line, or any curve that is straight in fact (a draft or an
+                // offset often hands back a straight edge as a B-spline)
+                BRepAdaptor_Curve c(TopoDS::Edge(em.FindKey(i)));
+                if (c.GetType() == GeomAbs_Line) { is_line_e[i] = 1; continue; }
+                double f = c.FirstParameter(), l = c.LastParameter();
+                gp_Pnt p0 = c.Value(f), p1 = c.Value(l);
+                gp_Vec ch(p0, p1);
+                double cl = ch.Magnitude();
+                if (!(cl > 1e-9)) continue;
+                bool straight = true;
+                for (int k = 1; k < 16 && straight; ++k) {
+                    gp_Vec w(p0, c.Value(f + (l - f) * k / 16.0));
+                    if (w.Crossed(ch).Magnitude() / cl > 1e-6 * std::max(1.0, cl)) straight = false;
+                }
+                is_line_e[i] = straight ? 1 : 0;
+            } catch (...) {}
+        }
         // 3) A four-sided grid whose opposite sides are single straight edges
         //    (an extrusion, a slanted push-pull) cuts them at the pitch of the
         //    other pair, so it is not a row of long strips. Both sides take the
@@ -680,7 +701,7 @@ std::string quad_topology_json(void* stack_ptr, double tol, bool uniform, const 
                     for (int pr = 0; pr < 2; ++pr) {
                         const std::vector<int>& A = cf.sides[pr];
                         const std::vector<int>& B = cf.sides[pr + 2];
-                        if (A.size() != 1 || B.size() != 1 || !is_line[A[0]] || !is_line[B[0]]) continue;
+                        if (A.size() != 1 || B.size() != 1 || !is_line_e[A[0]] || !is_line_e[B[0]]) continue;
                         double L = 0.0; int n = 0;
                         for (int sd : {1 - pr, 3 - pr})
                             for (int ei : cf.sides[sd]) if (!degen[ei]) { L += elen[ei]; n += nspan[ei]; }
@@ -695,9 +716,31 @@ std::string quad_topology_json(void* stack_ptr, double tol, bool uniform, const 
                 if (!moved) break;
             }
         }
+        // A ruled wall whose two rims are single non-circular edges is close to
+        // flat in practice (a draft / slanted push-pull of a box side: a line,
+        // or the slight hyperbola where a drafted cone met the cut). Left at its own
+        // rim pitch it stays one long quad and locks its edges, so the dense
+        // plane next to it fans into a 1-span edge. It joins the pitch spread
+        // below instead: rims raised together, rulings raised together.
+        std::vector<char> flat_ruled(fm.Extent() + 1, 0);
+        for (int fi = 1; fi <= fm.Extent(); ++fi) {
+            const RuledFace& r = ruled[fi];
+            if (!r.ok || r.cone || r.rim_a.size() != 1 || r.rim_b.size() != 1) continue;
+            if (rulings_of(r).size() != 2) continue;
+            // a cylinder's rims are circles: they keep their snapped ring count
+            // (and their radius class); any other single-edge rim may be raised
+            bool circ = false;
+            for (int ei : {r.rim_a[0], r.rim_b[0]}) {
+                try {
+                    if (BRepAdaptor_Curve(TopoDS::Edge(em.FindKey(ei))).GetType() == GeomAbs_Circle) circ = true;
+                } catch (...) { circ = true; }
+            }
+            if (!circ) flat_ruled[fi] = 1;
+        }
         // edges owned by grid / ruled faces must not move any more
         std::vector<char> locked(em.Extent() + 1, 0);
         for (int fi = 1; fi <= fm.Extent(); ++fi) {
+            if (flat_ruled[fi]) continue;
             if (!ruled[fi].ok && !coons[fi].ok) continue;
             for (TopExp_Explorer ex(fm.FindKey(fi), TopAbs_EDGE); ex.More(); ex.Next()) {
                 int ei = em.FindIndex(ex.Current());
@@ -710,6 +753,26 @@ std::string quad_topology_json(void* stack_ptr, double tol, bool uniform, const 
         for (int round = 0; round < 16; ++round) {
             bool moved = false;
             for (int fi = 1; fi <= fm.Extent(); ++fi) {
+                if (!flat_ruled[fi]) continue;
+                const RuledFace& r = ruled[fi];
+                std::vector<int> rl = rulings_of(r);
+                double dl = 0.0; int dn = 0;
+                for (int ei : {r.rim_a[0], r.rim_b[0], rl[0], rl[1]})
+                    if (nspan[ei] > 1) { dl += elen[ei]; dn += nspan[ei]; }
+                if (dn == 0) continue;
+                double step = dl / dn;
+                if (!(step > 1e-9)) continue;
+                auto pair_up = [&](int a, int b) {
+                    if (locked[a] || locked[b]) return;
+                    int want = (int)std::lround(std::max(elen[a], elen[b]) / step);
+                    int hi = std::max({1, std::min(64, want), nspan[a], nspan[b]});
+                    if (nspan[a] != hi) { nspan[a] = hi; moved = true; }
+                    if (nspan[b] != hi) { nspan[b] = hi; moved = true; }
+                };
+                pair_up(r.rim_a[0], r.rim_b[0]);
+                pair_up(rl[0], rl[1]);
+            }
+            for (int fi = 1; fi <= fm.Extent(); ++fi) {
                 TopoDS_Face ff = TopoDS::Face(fm.FindKey(fi).Oriented(TopAbs_FORWARD));
                 try {
                     if (BRepAdaptor_Surface(ff, Standard_False).GetType() != GeomAbs_Plane) continue;
@@ -718,8 +781,7 @@ std::string quad_topology_json(void* stack_ptr, double tol, bool uniform, const 
                     for (TopExp_Explorer ex(ff, TopAbs_EDGE); ex.More(); ex.Next()) {
                         int ei = em.FindIndex(ex.Current());
                         if (ei < 1 || degen[ei]) continue;
-                        bool is_line = BRepAdaptor_Curve(TopoDS::Edge(ex.Current())).GetType() == GeomAbs_Line;
-                        if (is_line && !locked[ei]) lines.push_back(ei);
+                        if (is_line_e[ei] && !locked[ei]) lines.push_back(ei);
                         if (nspan[ei] > 1) { dl += elen[ei]; dn += nspan[ei]; }
                     }
                     if (dn == 0) continue;
