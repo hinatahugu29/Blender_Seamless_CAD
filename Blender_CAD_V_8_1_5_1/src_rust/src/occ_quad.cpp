@@ -611,6 +611,41 @@ std::string quad_topology_json(void* stack_ptr, double tol, bool uniform) {
             }
             if (!moved) break;
         }
+        // 3) A four-sided grid whose opposite sides are single straight edges
+        //    (an extrusion, a slanted push-pull) cuts them at the pitch of the
+        //    other pair, so it is not a row of long strips. Both sides take the
+        //    same count; shared lines spread to the neighbours over the rounds.
+        {
+            std::vector<char> is_line(em.Extent() + 1, 0);
+            for (int i = 1; i <= em.Extent(); ++i) {
+                if (degen[i]) continue;
+                try {
+                    is_line[i] = BRepAdaptor_Curve(TopoDS::Edge(em.FindKey(i))).GetType() == GeomAbs_Line;
+                } catch (...) {}
+            }
+            for (int round = 0; round < 16; ++round) {
+                bool moved = false;
+                for (int fi = 1; fi <= fm.Extent(); ++fi) {
+                    const CoonsFace& cf = coons[fi];
+                    if (!cf.ok) continue;
+                    for (int pr = 0; pr < 2; ++pr) {
+                        const std::vector<int>& A = cf.sides[pr];
+                        const std::vector<int>& B = cf.sides[pr + 2];
+                        if (A.size() != 1 || B.size() != 1 || !is_line[A[0]] || !is_line[B[0]]) continue;
+                        double L = 0.0; int n = 0;
+                        for (int sd : {1 - pr, 3 - pr})
+                            for (int ei : cf.sides[sd]) if (!degen[ei]) { L += elen[ei]; n += nspan[ei]; }
+                        if (n < 1 || !(L > 1e-12)) continue;
+                        double step = L / n;
+                        int want = (int)std::lround(std::max(elen[A[0]], elen[B[0]]) / step);
+                        int hi = std::max({1, std::min(64, want), nspan[A[0]], nspan[B[0]]});
+                        if (nspan[A[0]] != hi) { nspan[A[0]] = hi; moved = true; }
+                        if (nspan[B[0]] != hi) { nspan[B[0]] = hi; moved = true; }
+                    }
+                }
+                if (!moved) break;
+            }
+        }
         // edges owned by grid / ruled faces must not move any more
         std::vector<char> locked(em.Extent() + 1, 0);
         for (int fi = 1; fi <= fm.Extent(); ++fi) {

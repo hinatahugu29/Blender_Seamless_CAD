@@ -2644,6 +2644,30 @@ def t_quad_bake_uniform_spreads_to_box_sides():
         bpy.data.meshes.remove(me)
 
 
+def t_quad_bake_uniform_cuts_grid_sides():
+    """Quad Bake Uniform Density: 4 辺グリッド面の、向かい合う直線の辺(押し出しの側面)も
+    反対側の刻みで分割される。直線 1 スパンの細い短冊にならない。"""
+    from CAD_8_1_5_1 import core_bridge
+    col, props = _fresh_part()
+    bpy.ops.seamless.add_primitive(type='SLOT')
+    core_bridge.update_cad_preview_forced(bpy.context)
+    for uni in (False, True):
+        data = core_bridge.get_core().quad_topology(int(col.seamless_cad_stack_ptr), 0.01, uni)
+        grids = [f for f in data["faces"] if f.get("coons")]
+        if not grids:
+            return          # the slot has no four-sided curved face in this build: nothing to check
+        thin = [min(f["coons"]["n"], f["coons"]["m"]) for f in grids]
+        if uni:
+            long_ = [f for f in grids if max(f["coons"]["n"], f["coons"]["m"]) > 8]
+            assert all(min(f["coons"]["n"], f["coons"]["m"]) > 1 for f in long_), \
+                f"grid faces still one strip wide: {thin}"
+    bm, rep, _ = _quad_bake_mesh(col, uniform=True)
+    try:
+        _assert_quad_bake_sound(bm, rep, "slot, uniform")
+    finally:
+        bm.free()
+
+
 def t_quad_bake_box_is_six_ngons():
     """Quad Bake: 箱は 8 頂点・6 枚の n-gon(四角形)になる。"""
     col, props = _fresh_part()
@@ -3770,6 +3794,7 @@ def main():
     check("quad bake: uniform cylinder rows", t_quad_bake_uniform_cylinder_rows)
     check("quad bake: uniform dense plane is a lattice", t_quad_bake_uniform_dense_plane_is_lattice)
     check("quad bake: uniform spreads to box sides", t_quad_bake_uniform_spreads_to_box_sides)
+    check("quad bake: uniform cuts grid sides", t_quad_bake_uniform_cuts_grid_sides)
     check("quad bake: UV, seams and sharp edges", t_quad_bake_uv_seams_and_sharp)
     check("quad bake: join triangles", t_quad_bake_join_triangles)
     check("vendored blossom is optimal", t_vendored_blossom_is_optimal)
