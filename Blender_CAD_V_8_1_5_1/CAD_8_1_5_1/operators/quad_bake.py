@@ -793,10 +793,18 @@ def report_text(rep, title="Quad Bake report"):
              "polygons: %d quads, %d triangles, %d other; triangles joined: %d; sharp edges: %d (%s)"
              % (rep.get("quads", 0), rep.get("tris", 0), rep.get("ngons", 0), rep.get("joined", 0),
                 rep.get("sharp", 0), rep.get("sharp_source", "?")),
-             ""]
+             ]
+    q = rep.get("quality")
+    if q:
+        lines.append("quality: %.1f%% quads, %d poles (inner vertices with valence != 4), "
+                     "edge length p5/p95 %.3f" % (q["quad_pct"], q["poles"], q["edge_p5_p95"]))
+    lines.append("")
     for f in rep.get("face_log", []):
-        lines.append("F%-4d %-10s -> %-9s %4d polys (%d quads, %d tris)"
-                     % (f["i"], f["kind"], f["kernel"], f["polys"], f["quads"], f["tris"]))
+        line = ("F%-4d %-10s -> %-9s %4d polys (%d quads, %d tris)"
+                % (f["i"], f["kind"], f["kernel"], f["polys"], f["quads"], f["tris"]))
+        if "poles" in f:
+            line += "; after join %d quads, %d tris, %d poles" % (f["final_quads"], f["final_tris"], f["poles"])
+        lines.append(line)
         for name, why in f["tried"]:
             lines.append("        %-6s declined: %s" % (name, why))
         for note in f["notes"]:

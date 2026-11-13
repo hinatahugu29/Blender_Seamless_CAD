@@ -19,6 +19,9 @@ def ensure_result_collection(parent_col):
         parent_col.children.link(result_col)
     return result_col
 
+QUAD_BAKE_POLY_WARN = 200000   # 0-3: warn above this many polygons
+
+
 class SEAMLESS_OT_BakeMesh(bpy.types.Operator):
     bl_idname = "seamless.bake_mesh"
     bl_label = "Bake to Mesh"
@@ -97,6 +100,18 @@ class SEAMLESS_OT_BakeMesh(bpy.types.Operator):
         operators/quad_bake.py, turned into a mesh with UVs / seams / sharp
         edges in operators/quad_bake_mesh.py."""
         from .quad_bake_mesh import make_quad_bake_mesh
+        from .. import core_bridge
+        # 0-1: an edit that has not settled yet leaves the kernel stack half
+        # built (it read 0 faces in tests). Rebuild this part synchronously first.
+        # The proxies' matrix_world are read for the stack; right after a
+        # property edit the depsgraph has not run yet and they still hold the
+        # old transform (a SUB tool at its old size carved the whole box away).
+        col = utils.get_active_collection(context)
+        if col is not None:
+            utils.sync_proxies(context)       # props -> proxy transforms
+            context.view_layer.update()       # -> matrix_world
+            core_bridge._update_cad_preview_internal_for_col(col, context, force=True, sync=True)
+            stack_ptr = get_or_create_stack_ptr(col)
         data = core.quad_topology(stack_ptr, props.quad_bake_tol,
                                   getattr(props, "quad_bake_uniform", True))
         if not data:
@@ -132,7 +147,10 @@ class SEAMLESS_OT_BakeMesh(bpy.types.Operator):
         print(report_text(rep))
         msg = ("Quad Bake: %d faces (%d ruled, %d grid, %d n-gon, %d triangulated), %d polygons"
                % (rep["faces"], rep["ruled"], rep["coons"], rep["ngon"], rep["cdt"], len(polys)))
-        if rep["failed"] or rep["edge_fail"]:
+        if len(polys) > QUAD_BAKE_POLY_WARN:
+            msg += " — %d polygons is heavy: raise Quad Tol or use the Low preset" % len(polys)
+            self.report({'WARNING'}, msg)
+        elif rep["failed"] or rep["edge_fail"]:
             msg += " — %d face(s) / %d edge(s) failed, see console" % (rep["failed"], rep["edge_fail"])
             self.report({'WARNING'}, msg)
         else:

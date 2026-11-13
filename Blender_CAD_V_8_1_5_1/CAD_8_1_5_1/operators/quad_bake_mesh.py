@@ -135,6 +135,47 @@ def pair_triangles(bm, shape_deg=60.0, face_deg=PAIR_FACE_DEG, cap=PAIR_BLOSSOM_
     return len(pairs)
 
 
+def mesh_quality(bm, cad_pairs, rep):
+    """0-4: numbers to answer "where is it bad" with.
+
+    Per CAD face (into rep["face_log"]): final quads / triangles after the
+    join, and poles -- vertices inside the face (not on a CAD edge) whose
+    valence is not 4. Overall: quad share, pole count, and the edge-length
+    spread p5 / p95 (1 = all edges alike)."""
+    lay = bm.faces.layers.int.get("cad_face")
+    on_cad = set()
+    for key in cad_pairs:
+        on_cad.update(key)
+    per = {}
+    for f in bm.faces:
+        fi = f[lay] if lay is not None else 0
+        d = per.setdefault(fi, {"quads": 0, "tris": 0, "poles": 0})
+        n = len(f.verts)
+        if n == 4:
+            d["quads"] += 1
+        elif n == 3:
+            d["tris"] += 1
+    poles = 0
+    for v in bm.verts:
+        if v.index in on_cad or not v.link_faces:
+            continue
+        if len(v.link_edges) != 4:
+            poles += 1
+            fi = v.link_faces[0][lay] if lay is not None else 0
+            per.setdefault(fi, {"quads": 0, "tris": 0, "poles": 0})["poles"] += 1
+    for f in rep.get("face_log", []):
+        d = per.get(f["i"])
+        if d:
+            f["final_quads"], f["final_tris"], f["poles"] = d["quads"], d["tris"], d["poles"]
+    L = sorted(e.calc_length() for e in bm.edges)
+    ratio = 1.0
+    if len(L) >= 20 and L[-(len(L) // 20) - 1] > 0.0:
+        ratio = L[len(L) // 20] / L[-(len(L) // 20) - 1]
+    n = max(1, len(bm.faces))
+    return {"quad_pct": round(100.0 * rep["quads"] / n, 1), "poles": poles,
+            "edge_p5_p95": round(ratio, 3)}
+
+
 def make_quad_bake_mesh(name, data, join_tris=True, sharp_angle_deg=30.0, join_shape_deg=60.0,
                         sharp_mode='CAD'):
     """Build and return (mesh, report) from a quad_topology dict, or
@@ -187,6 +228,7 @@ def make_quad_bake_mesh(name, data, join_tris=True, sharp_angle_deg=30.0, join_s
     rep["quads"] = sizes.count(4)
     rep["tris"] = sizes.count(3)
     rep["ngons"] = len(sizes) - rep["quads"] - rep["tris"]
+    rep["quality"] = mesh_quality(bm, cad_pairs, rep)
     bm.to_mesh(me)
     bm.free()
     me.update()

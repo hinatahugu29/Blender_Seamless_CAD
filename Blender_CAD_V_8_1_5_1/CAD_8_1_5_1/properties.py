@@ -632,6 +632,16 @@ class SeamlessSketchConstraint(bpy.types.PropertyGroup):
     target_ids_str: bpy.props.StringProperty(name="Target IDs", default="")
     value: bpy.props.FloatProperty(name="Value", default=1.0, update=update_sketch_constraint_value)
 
+QUAD_PRESET_TOL = {'LOW': 0.04, 'MID': 0.01, 'HIGH': 0.0025}
+
+
+def _apply_quad_preset(props):
+    """Quad Density preset -> tolerance (Custom leaves the typed value)."""
+    tol = QUAD_PRESET_TOL.get(props.quad_bake_preset)
+    if tol is not None and abs(props.quad_bake_tol - tol) > 1e-9:
+        props.quad_bake_tol = tol
+
+
 class SeamlessProperties(bpy.types.PropertyGroup):
     primitives: bpy.props.CollectionProperty(type=SeamlessPrimitive)
     parameters: bpy.props.CollectionProperty(type=SeamlessParameter)
@@ -857,6 +867,18 @@ class SeamlessProperties(bpy.types.PropertyGroup):
         min=0.0,
         max=180.0,
         precision=1,
+    )
+    quad_bake_preset: bpy.props.EnumProperty(
+        name="Quad Density",
+        description="Preset for the Quad Bake tolerance (Custom: type the tolerance yourself)",
+        items=[
+            ('LOW', "Low", "Tolerance 0.04: lowest polygon count"),
+            ('MID', "Mid", "Tolerance 0.01: balanced (default)"),
+            ('HIGH', "High", "Tolerance 0.0025: dense, close to the CAD shape"),
+            ('CUSTOM', "Custom", "Use the tolerance typed below"),
+        ],
+        default='MID',
+        update=lambda self, ctx: _apply_quad_preset(self),
     )
     quad_bake_tol: bpy.props.FloatProperty(
         name="Quad Tolerance",

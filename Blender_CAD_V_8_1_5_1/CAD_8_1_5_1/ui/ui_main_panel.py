@@ -109,7 +109,11 @@ class SEAMLESS_PT_QualityBakePanel(bpy.types.Panel):
             row.prop(props, "bake_angular_quality", text="Bake Curvature")
         box_q.prop(props, "bake_topology", text="Topology")
         if props.bake_topology == 'QUAD':
-            box_q.prop(props, "quad_bake_tol", text="Quad Tol")
+            row = box_q.row(align=True)
+            row.prop(props, "quad_bake_preset", expand=True)
+            sub = box_q.row()
+            sub.enabled = props.quad_bake_preset == 'CUSTOM'
+            sub.prop(props, "quad_bake_tol", text="Quad Tol")
             box_q.prop(props, "quad_bake_uniform", toggle=True)
             row = box_q.row(align=True)
             row.prop(props, "quad_bake_join_tris", text="Join Tris", toggle=True)

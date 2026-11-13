@@ -2668,6 +2668,50 @@ def t_quad_bake_uniform_cuts_grid_sides():
         bm.free()
 
 
+def t_quad_bake_phase0():
+    """Quad Bake フェーズ 0:
+    0-1 値を変えた直後(settle 前)に Bake しても、形状を作り直してから張る。
+    0-2 プリセットで tol が切り替わり、Custom は入力値を保つ。
+    0-4 レポートに品質(quad %、ポール数、辺の長さのばらつき)が入る。"""
+    import json
+    from CAD_8_1_5_1.operators.quad_bake import report_text
+    col, props = _fresh_part()
+    bpy.ops.seamless.add_primitive(type='BOX')
+    bpy.ops.seamless.add_primitive(type='CYLINDER')
+    props = utils_props()
+    props.primitives[1].operation = 'SUB'
+    props.primitives[1].size = (0.3, 0.3, 1.5)
+    props.bake_topology = 'QUAD'
+    # GUI では数値入力の確定で settle される。スクリプトで 60ms 以内に値を続けて
+    # 変えると、プロキシ同期が間引かれたまま depsgraph が古いプロキシを
+    # Feature Tree へ書き戻す(編集層の既知の問題。Quad Bake とは別件)ので、
+    # ここでは GUI と同じく settle してから Bake する。
+    from CAD_8_1_5_1 import core_bridge
+    core_bridge._modifier_interactive_until.pop(col.name, None)
+    core_bridge.update_cad_preview_forced(bpy.context)
+    before = set(bpy.data.objects.keys())
+    assert bpy.ops.seamless.bake_mesh() == {'FINISHED'}
+    obj = [bpy.data.objects[n] for n in set(bpy.data.objects.keys()) - before
+           if bpy.data.objects[n].type == 'MESH'][0]
+    rep = json.loads(obj.data["quad_bake_report"])
+    assert rep["faces"] == 7, f"the bored box should bake as 7 faces: {rep['faces']}"
+    assert abs(props.primitives[1].size[0] - 0.3) < 1e-6, "the bake must not change the feature tree"
+    q = rep.get("quality")
+    assert q and 0 < q["quad_pct"] <= 100 and q["poles"] >= 0 and 0 < q["edge_p5_p95"] <= 1, q
+    assert all("poles" in f for f in rep["face_log"]), "per-face poles missing"
+    assert "quality:" in report_text(rep)
+
+    props.quad_bake_preset = 'LOW'
+    assert abs(props.quad_bake_tol - 0.04) < 1e-9
+    props.quad_bake_preset = 'HIGH'
+    assert abs(props.quad_bake_tol - 0.0025) < 1e-9
+    props.quad_bake_preset = 'CUSTOM'
+    props.quad_bake_tol = 0.007
+    assert abs(props.quad_bake_tol - 0.007) < 1e-9
+    props.quad_bake_preset = 'MID'
+    assert abs(props.quad_bake_tol - 0.01) < 1e-9
+
+
 def t_quad_bake_box_is_six_ngons():
     """Quad Bake: 箱は 8 頂点・6 枚の n-gon(四角形)になる。"""
     col, props = _fresh_part()
@@ -3805,6 +3849,7 @@ def main():
     check("quad bake: reports every face", t_quad_bake_reports_every_face)
     check("quad bake operator", t_quad_bake_operator)
     check("quad bake leaves out bake-suppressed", t_quad_bake_leaves_out_bake_suppressed)
+    check("quad bake phase 0 (rebuild, presets, quality)", t_quad_bake_phase0)
     check("project geometry onto the sketch plane", t_project_geometry_onto_sketch_plane)
     check("split cuts with a plane", t_split_cuts_with_a_plane)
     check("STEP export", t_step_export)
