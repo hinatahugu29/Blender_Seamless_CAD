@@ -193,6 +193,7 @@ def keep_unchanged_faces(mesh, prev, old_sigs, new_sigs, changed, eps=1e-6):
     ob = bmesh.new(); ob.from_mesh(prev)
     n_lay = nb.faces.layers.int.get("cad_face")
     o_lay = ob.faces.layers.int.get("cad_face")
+    n_edge = nb.edges.layers.int.get("cad_edge")
     n_uv = nb.loops.layers.uv.get("UVMap")
     o_uv = ob.loops.layers.uv.get("UVMap")
     if n_lay is None or o_lay is None:
@@ -228,14 +229,21 @@ def keep_unchanged_faces(mesh, prev, old_sigs, new_sigs, changed, eps=1e-6):
         n_by_key = {key(v.co): v for v in n_out}
         if len(o_out) != len(n_out) or any(key(v.co) not in n_by_key for v in o_out):
             continue
-        # drop the fresh polygons and their interior vertices
+        # drop the fresh polygons, their interior edges and interior vertices
+        fs = set(new_list)
+        inner_e = {e for f in new_list for e in f.edges
+                   if sum(1 for g in e.link_faces if g in fs) != 1}
         inner = {v for f in new_list for v in f.verts} - n_out
         for f in new_list:
             nb.faces.remove(f)
+        for e in inner_e:
+            if e.is_valid and not e.link_faces:
+                nb.edges.remove(e)
         for v in inner:
             if v.is_valid and not v.link_faces:
                 nb.verts.remove(v)
         vmap = {v: n_by_key[key(v.co)] for v in o_out}
+        n_out_edges = {e for v in n_out for e in v.link_edges}
         for f in old_list:
             vs = []
             for v in f.verts:
@@ -248,6 +256,10 @@ def keep_unchanged_faces(mesh, prev, old_sigs, new_sigs, changed, eps=1e-6):
                 continue
             g[n_lay] = fi
             g.smooth = f.smooth
+            if n_edge is not None:
+                for e in g.edges:
+                    if e not in n_out_edges:          # created here: inside the face
+                        e[n_edge] = -1
             if n_uv is not None and o_uv is not None:
                 for lo, ln in zip(f.loops, g.loops):
                     ln[n_uv].uv = lo[o_uv].uv

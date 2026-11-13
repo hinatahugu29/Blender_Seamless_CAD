@@ -2833,6 +2833,8 @@ def t_quad_bake_phase2_options():
     highs = [n for n in new if "_high" in n]
     assert lows and highs, new
     assert len(bpy.data.objects[highs[0]].data.polygons) > len(bpy.data.objects[lows[0]].data.polygons)
+    rh = json.loads(bpy.data.objects[highs[0]].data["quad_bake_report"])
+    assert "changed_faces" not in rh, "the high copy compared itself with the low copy of the same bake"
     props.quad_bake_pair = False
     # 1-5
     col, props = _fresh_part()
@@ -3001,6 +3003,11 @@ def t_quad_bake_changed_faces():
     assert not [e for e in bm.edges if not e.is_manifold], "kept faces did not weld"
     lay = bm.faces.layers.int.get("cad_face")
     tris_on_target = sum(1 for f in bm.faces if f[lay] == target and len(f.verts) == 3)
+    elay = bm.edges.layers.int.get("cad_edge")
+    inside = [e for e in bm.edges
+              if all(g[lay] == target for g in e.link_faces) and len(e.link_faces) == 2]
+    assert inside and all(e[elay] == -1 for e in inside), "kept face's inner edges claim a CAD edge"
+    assert not [e for e in bm.edges if not e.link_faces], "keep left loose edges"
     bm.free()
     assert tris_on_target >= 3, "the hand edit (poked face) was not carried over"
 

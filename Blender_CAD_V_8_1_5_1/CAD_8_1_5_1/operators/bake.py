@@ -36,6 +36,8 @@ class SEAMLESS_OT_BakeMesh(bpy.types.Operator):
         from .. import core_bridge
         # Bake 後は結果メッシュがアクティブになるので、戻す側は元の CAD コレクションを直接指す
         col = utils.get_active_collection(context)
+        if col is None:
+            return self._execute(context, props)
 
         def rebuild():
             core_bridge._update_cad_preview_internal_for_col(col, context, force=True, sync=True)
@@ -157,11 +159,15 @@ class SEAMLESS_OT_BakeMesh(bpy.types.Operator):
             import time
             from .quad_bake import face_signatures, compare_signatures
             sigs = face_signatures(data)
+            # a pair bake's high copy compares with earlier high copies only (and
+            # the low / single bake with earlier low / single ones): the other
+            # role of the SAME bake is not "the previous bake"
+            role = "high" if name.endswith("_high") else "low"
             prev = None
             if col is not None:
                 for m in bpy.data.meshes:
                     if (m is mesh or m.users == 0 or m.get("quad_bake_part") != col.name
-                            or not m.get("quad_bake_sigs")):
+                            or not m.get("quad_bake_sigs") or m.get("quad_bake_role", "low") != role):
                         continue
                     if prev is None or m.get("quad_bake_time", 0.0) > prev.get("quad_bake_time", 0.0):
                         prev = m
@@ -181,6 +187,7 @@ class SEAMLESS_OT_BakeMesh(bpy.types.Operator):
                     mesh, prev, json.loads(prev["quad_bake_sigs"]), sigs, set(rep.get("changed_faces", [])))
             mesh["quad_bake_sigs"] = json.dumps({str(k): v for k, v in sigs.items()})
             mesh["quad_bake_time"] = time.time()
+            mesh["quad_bake_role"] = role
             rep["overrides_applied"] = int(data.get("overrides_applied", 0))
             rep["overrides_given"] = len(overrides) // 4
             mesh["quad_bake_report"] = json.dumps(rep)
@@ -224,9 +231,11 @@ def parse_span_overrides(text):
         if len(parts) != 4:
             continue
         try:
-            out.extend(float(x) for x in parts)
+            vals = [float(x) for x in parts]
         except ValueError:
             continue
+        if all(math.isfinite(x) for x in vals):
+            out.extend(vals)
     return out
 
 
@@ -268,18 +277,24 @@ class SEAMLESS_OT_QuadBakeSetSpans(bpy.types.Operator):
             if e[lay] in picked:
                 groups.setdefault(e[lay], set()).update(v.co.copy() for v in e.verts)
         entries = [x for x in part.seamless_props.quad_span_overrides.split(";") if x.strip()]
-        mw = obj.matrix_world
+        # the mesh's own coordinates ARE the CAD coordinates (the bake object is
+        # made at the origin); the object's transform is ignored so a bake moved
+        # aside for comparison still records the right edges
         for pts in groups.values():
-            P = [mw @ p for p in pts]
+            P = list(pts)
             c = [0.5 * (min(p[a] for p in P) + max(p[a] for p in P)) for a in range(3)]
-            # replace an override already sitting on this edge
+            # replace an override already sitting on this edge (its centre may
+            # have shifted a little with the span count: within a quarter of
+            # the edge's extent, as the kernel matches)
+            ext = max(max(p[a] for p in P) - min(p[a] for p in P) for a in range(3))
+            lim2 = max(0.25 * ext, 1e-5) ** 2
             keep = []
             for it in entries:
                 try:
                     x, y, z, _n = (float(t) for t in it.split(","))
                 except ValueError:
                     continue
-                if (x - c[0]) ** 2 + (y - c[1]) ** 2 + (z - c[2]) ** 2 > 1e-10:
+                if (x - c[0]) ** 2 + (y - c[1]) ** 2 + (z - c[2]) ** 2 > lim2:
                     keep.append(it)
             entries = keep + ["%.6f,%.6f,%.6f,%d" % (c[0], c[1], c[2], self.spans)]
         part.seamless_props.quad_span_overrides = ";".join(entries)
