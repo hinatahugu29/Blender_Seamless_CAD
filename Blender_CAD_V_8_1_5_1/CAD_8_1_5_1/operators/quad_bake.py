@@ -438,6 +438,120 @@ def _fill_tri_plane(face, verts3d, extra_verts, why=None):
     return _orient_poly(face, area, polys)
 
 
+def _plane_frame(P, loop, pos3):
+    """An affine (U, V) -> 3D map for a plane from three well-spread outline
+    points, or None when the outline is degenerate."""
+    M = len(P)
+    best = None
+    for i in range(1, M):
+        for j in range(i + 1, M):
+            area = abs((P[i][0] - P[0][0]) * (P[j][1] - P[0][1]) - (P[j][0] - P[0][0]) * (P[i][1] - P[0][1]))
+            if best is None or area > best[0]:
+                best = (area, i, j)
+    if best is None or best[0] < 1e-18:
+        return None
+    _, i, j = best
+    o = pos3(loop[0][0])
+    du1, dv1 = P[i][0] - P[0][0], P[i][1] - P[0][1]
+    du2, dv2 = P[j][0] - P[0][0], P[j][1] - P[0][1]
+    det = du1 * dv2 - du2 * dv1
+    d1, d2 = pos3(loop[i][0]) - o, pos3(loop[j][0]) - o
+    fa = (d1 * dv2 - d2 * dv1) / det
+    fb = (d2 * du1 - d1 * du2) / det
+    U0, V0 = P[0]
+    return lambda U, V: tuple(o + fa * (U - U0) + fb * (V - V0))
+
+
+def _outline_corners(P, deg=30.0):
+    """Indices of outline points where the outline turns by more than `deg`."""
+    M = len(P)
+    out = []
+    lim = math.cos(math.radians(deg))
+    for k in range(M):
+        ax, ay = P[k - 1]; bx, by = P[k]; cx, cy = P[(k + 1) % M]
+        d1 = (bx - ax, by - ay); d2 = (cx - bx, cy - by)
+        l1 = (d1[0] ** 2 + d1[1] ** 2) ** 0.5; l2 = (d2[0] ** 2 + d2[1] ** 2) ** 0.5
+        if l1 < 1e-12 or l2 < 1e-12:
+            continue
+        if (d1[0] * d2[0] + d1[1] * d2[1]) / (l1 * l2) < lim:
+            out.append(k)
+    return out
+
+
+def _fill_plane_grid(face, verts3d, extra_verts, why=None):
+    """A one-loop plane with four corners whose opposite sides carry the same
+    span count (the uniform pass split its straight sides) as an n x m quad
+    grid -- the kernel's Coons analysis covers curved faces only. A plain
+    four-point quad is left to the n-gon fill."""
+    loops = face["loops"]
+    if face["kind"] != "plane" or len(loops) != 1:
+        return _no(why, "not a one-loop plane")
+    loop = loops[0]
+    M = len(loop)
+    if M <= 4:
+        return _no(why, "already a single quad")
+    su, sv = face["su"], face["sv"]
+    P = [(p[1] * su, p[2] * sv) for p in loop]
+    cs = _outline_corners(P)
+    if len(cs) != 4:
+        return _no(why, "not four corners (%d)" % len(cs))
+    side = [(cs[(k + 1) % 4] - cs[k]) % M for k in range(4)]
+    n, m = side[0], side[1]
+    if side[2] != n or side[3] != m:
+        return _no(why, "opposite sides differ (%s)" % side)
+    base = len(verts3d)
+
+    def pos3(vid):
+        return Vector(verts3d[vid] if vid < base else extra_verts[vid - base])
+
+    to3 = _plane_frame(P, loop, pos3)
+    if to3 is None:
+        return _no(why, "the outline is degenerate (no plane frame)")
+    r0 = cs[0]
+
+    def at(k):
+        p = loop[(r0 + k) % M]
+        return (p[0], p[1] * su, p[2] * sv)
+
+    first = base + len(extra_verts)
+    inner = {}
+
+    def G(i, j):
+        if j == 0:
+            return at(i)
+        if i == n:
+            return at(n + j)
+        if j == m:
+            return at(n + m + (n - i))
+        if i == 0:
+            return at(2 * n + m + (m - j))
+        if (i, j) not in inner:
+            s_, t_ = i / n, j / m
+            A, B, C, D = G(i, 0), G(n, j), G(i, m), G(0, j)
+            c00, c10, c11, c01 = G(0, 0), G(n, 0), G(n, m), G(0, m)
+            U = ((1 - t_) * A[1] + t_ * C[1] + (1 - s_) * D[1] + s_ * B[1]
+                 - ((1 - s_) * (1 - t_) * c00[1] + s_ * (1 - t_) * c10[1]
+                    + s_ * t_ * c11[1] + (1 - s_) * t_ * c01[1]))
+            V = ((1 - t_) * A[2] + t_ * C[2] + (1 - s_) * D[2] + s_ * B[2]
+                 - ((1 - s_) * (1 - t_) * c00[2] + s_ * (1 - t_) * c10[2]
+                    + s_ * t_ * c11[2] + (1 - s_) * t_ * c01[2]))
+            inner[(i, j)] = (base + len(extra_verts), U, V)
+            extra_verts.append(to3(U, V))
+        return inner[(i, j)]
+
+    n_extra = len(extra_verts)
+    area = _signed_area(P)
+    polys = []
+    for i in range(n):
+        for j in range(m):
+            q = [G(i, j), G(i + 1, j), G(i + 1, j + 1), G(i, j + 1)]
+            if len({c[0] for c in q}) != 4 or _signed_area([(c[1], c[2]) for c in q]) * area <= 0.0:
+                del extra_verts[n_extra:]
+                return _no(why, "a grid cell flips (the outline is too skewed)")
+            polys.append(q)
+    return _orient_poly(face, area, polys)
+
+
 def _fill_coons(face, base, extra_verts, why=None, pole_quads=False):
     """K4: a four-sided curved face as an n x m quad grid. The kernel found
     the four sides, made opposite sides carry the same span count, blended the
@@ -920,6 +1034,7 @@ def _fill_holed_plane(face, verts3d, extra_verts, n_cad, stats, max_steiner=2000
         d = min(step, 0.45 * clear2 ** 0.5)
         ring = [(R[q][0] + d * dirs[q][0], R[q][1] + d * dirs[q][1]) for q in range(k)]
         ok = d >= 0.25 * step
+        fail = "the gap to the next loop leaves %.4g, under a quarter of the step %.4g" % (d, step)
         if ok:
             for q in range(k):
                 for r in range(q + 2, k):
@@ -927,11 +1042,13 @@ def _fill_holed_plane(face, verts3d, extra_verts, n_cad, stats, max_steiner=2000
                         continue
                     if _segments_cross(ring[q], ring[(q + 1) % k], ring[r], ring[(r + 1) % k]):
                         ok = False
+                        fail = "the ring would cross itself"
                         break
                 if not ok:
                     break
         if ok and hi == 0:
             ok = all(_inside(x, y, [R]) for x, y in ring)
+            fail = "the ring leaves the outline"
         if ok:
             # every ring quad must keep the loop's winding and a real area: at a
             # convex corner of the OUTER loop the offsets of the two sides meet
@@ -942,12 +1059,14 @@ def _fill_holed_plane(face, verts3d, extra_verts, n_cad, stats, max_steiner=2000
                 qa = _signed_area([R[q], R[q2], ring[q2], ring[q]])
                 if qa * s0 <= 0.0 or abs(qa) < 0.05 * step * step:
                     ok = False
+                    fail = "a ring quad flips or collapses (a sharp corner)"
                     break
                 # the offsets of a corner's two neighbours must not meet either
                 for dq in (1, 2):
                     o = ring[(q + dq) % k]
                     if (o[0] - ring[q][0]) ** 2 + (o[1] - ring[q][1]) ** 2 < (0.25 * step) ** 2:
                         ok = False
+                        fail = "two ring points meet at a corner"
                         break
                 if not ok:
                     break
@@ -956,8 +1075,8 @@ def _fill_holed_plane(face, verts3d, extra_verts, n_cad, stats, max_steiner=2000
                 region_loops.append(H); region_xy.append(R)
             stats["hole_rings_skipped"] = stats.get("hole_rings_skipped", 0) + 1
             if why is not None:
-                why.append("note: hole %d got no quad ring (gap %.4g < a quarter of its step %.4g, "
-                           "or the ring would cross itself)" % (hi, d, step))
+                why.append("note: %s got no quad ring: %s"
+                           % ("hole %d" % hi if hi else "the outer outline", fail))
             continue
         rv = []
         for U, V in ring:
@@ -1086,9 +1205,11 @@ def build_quad_mesh_uv(data):
             ("ruled", lambda w: _fill_ruled(face, len(verts3d), extra, why=w)),
             ("grid", lambda w: _fill_coons(face, len(verts3d), extra, why=w,
                                            pole_quads=bool(data.get("pole_quads")))),
-            ("ngon", lambda w: _fill_ngon(face, why=w, uniform=uniform)),
             ("tri3", lambda w: _fill_tri_plane(face, verts3d, extra, why=w) if uniform
              else _no(w, "three-patch split is a uniform-density layout")),
+            ("pgrid", lambda w: _fill_plane_grid(face, verts3d, extra, why=w) if uniform
+             else _no(w, "plane grid is a uniform-density layout")),
+            ("ngon", lambda w: _fill_ngon(face, why=w, uniform=uniform)),
             ("holed", lambda w: _fill_holed_plane(face, verts3d, extra, n_cad, stats, why=w,
                                                  plain=uniform)),
         )
@@ -1108,7 +1229,7 @@ def build_quad_mesh_uv(data):
             if not out:
                 stats["failed"] += 1
                 stats["errors"].append("Face %d (%s): empty triangulation" % (face["i"], face["kind"]))
-        stats[{"ruled": "ruled", "grid": "coons", "ngon": "ngon", "holed": "holed", "tri3": "tri3",
+        stats[{"ruled": "ruled", "grid": "coons", "ngon": "ngon", "holed": "holed", "tri3": "tri3", "pgrid": "coons",
                "triangles": "cdt"}[kernel]] += 1
         sizes = [len(q) for q in out]
         stats["face_log"].append({

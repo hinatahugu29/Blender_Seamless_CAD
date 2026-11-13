@@ -2931,6 +2931,35 @@ def t_quad_bake_step_roundtrip():
         bm1.free()
 
 
+def t_quad_bake_plane_grid():
+    """平面の 4 辺の面で、Uniform が直線の辺を割った(対辺が同じ分割数)ものは
+    1 枚の n 角形ではなく n x m の quad 格子になる。対辺が違えば断る。"""
+    from CAD_8_1_5_1.operators.quad_bake import _fill_plane_grid
+    # 2 x 1 の長方形: (0,0) (1,0) (2,0) (2,1) (1,1) (0,1)
+    xy = [(0, 0), (1, 0), (2, 0), (2, 1), (1, 1), (0, 1)]
+    verts = [(x, y, 0.0) for x, y in xy]
+    face = {"i": 1, "kind": "plane", "rev": False, "su": 1.0, "sv": 1.0,
+            "loops": [[[k, float(x), float(y)] for k, (x, y) in enumerate(xy)]]}
+    extra = []
+    why = []
+    out = _fill_plane_grid(face, verts, extra, why=why)
+    assert out and len(out) == 2 and all(len(q) == 4 for q in out), (out, why)
+    # 3 x 2 にすると内部点が 2 個できる
+    xy = [(0, 0), (1, 0), (2, 0), (3, 0), (3, 1), (3, 2), (2, 2), (1, 2), (0, 2), (0, 1)]
+    verts = [(x, y, 0.0) for x, y in xy]
+    face["loops"] = [[[k, float(x), float(y)] for k, (x, y) in enumerate(xy)]]
+    extra = []
+    out = _fill_plane_grid(face, verts, extra)
+    assert out and len(out) == 6 and len(extra) == 2, (out, extra)
+    assert sorted(extra) == [(1.0, 1.0, 0.0), (2.0, 1.0, 0.0)], extra
+    # 対辺の分割数が違う: 断る
+    xy = [(0, 0), (1, 0), (2, 0), (2, 1), (0, 1)]
+    verts = [(x, y, 0.0) for x, y in xy]
+    face["loops"] = [[[k, float(x), float(y)] for k, (x, y) in enumerate(xy)]]
+    extra = []
+    assert _fill_plane_grid(face, verts, extra) is None and not extra
+
+
 def t_quad_bake_changed_faces():
     """Quad Bake 2-2: 同じ部品をもう一度 Bake すると、前回から変わった CAD 面を数え、
     変わった面のポリゴンに quad_changed の印がつく。何も変えなければ 0。
@@ -4146,6 +4175,7 @@ def main():
     check("quad bake: three-sided planes", t_quad_bake_three_sided_planes)
     check("quad bake: STEP round trip", t_quad_bake_step_roundtrip)
     check("quad bake: changed faces", t_quad_bake_changed_faces)
+    check("quad bake: plane grid", t_quad_bake_plane_grid)
     check("quad bake: UV, seams and sharp edges", t_quad_bake_uv_seams_and_sharp)
     check("quad bake: join triangles", t_quad_bake_join_triangles)
     check("vendored blossom is optimal", t_vendored_blossom_is_optimal)
