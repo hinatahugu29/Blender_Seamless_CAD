@@ -747,6 +747,24 @@ std::string quad_topology_json(void* stack_ptr, double tol, bool uniform, const 
                 if (ei > 0) locked[ei] = 1;
             }
         }
+        // a near-flat wall's rims (and its rulings) must stay equal: when one
+        // of a pair is held by another face, the other is held too
+        for (int pass = 0; pass < 8; ++pass) {
+            bool grew = false;
+            for (int fi = 1; fi <= fm.Extent(); ++fi) {
+                if (!flat_ruled[fi]) continue;
+                const RuledFace& r = ruled[fi];
+                std::vector<int> rl = rulings_of(r);
+                int pr[2][2] = {{r.rim_a[0], r.rim_b[0]}, {rl[0], rl[1]}};
+                for (auto& q : pr) {
+                    if ((locked[q[0]] || locked[q[1]]) && !(locked[q[0]] && locked[q[1]])) {
+                        locked[q[0]] = locked[q[1]] = 1;
+                        grew = true;
+                    }
+                }
+            }
+            if (!grew) break;
+        }
         // Every edge already cut (curves, rulings, a holed plate's sides) is a
         // source of pitch; repeat so the pitch spreads face to face (the box
         // around a bored top: top edges -> vertical edges -> bottom edges).
@@ -1004,10 +1022,26 @@ std::string quad_topology_json(void* stack_ptr, double tol, bool uniform, const 
         out += ",\"su\":"; jnum(out, su);
         out += ",\"sv\":"; jnum(out, sv);
         if (lattice[fi]) out += ",\"lattice\":true";
-        if (st == GeomAbs_Cylinder && loops.size() > 1) {
-            // a holed cylinder wall is laid like a holed plane in its unrolled
-            // (u R, v) frame, which is an isometry; Python maps back with this
-            // frame: P(u, v) = O + R (cos u X + sin u Y) + v Z
+        if (st == GeomAbs_Cone) {
+            // a cone wall that no row / grid layout fits (a notch cut into it)
+            // is laid as a lattice in its (u, v) parameters; Python maps back:
+            // P(u, v) = O + (R + v sin a) (cos u X + sin u Y) + v cos a Z
+            try {
+                gp_Cone co = sa.Cone();
+                const gp_Ax3& ax = co.Position();
+                gp_Pnt o = ax.Location();
+                gp_Dir X = ax.XDirection(), Y = ax.YDirection(), Z = ax.Direction();
+                out += ",\"cone\":[";
+                double c[14] = {o.X(), o.Y(), o.Z(), X.X(), X.Y(), X.Z(), Y.X(), Y.Y(), Y.Z(),
+                                Z.X(), Z.Y(), Z.Z(), co.RefRadius(), co.SemiAngle()};
+                for (int q = 0; q < 14; ++q) { if (q) out += ","; jnum(out, c[q]); }
+                out += "]";
+            } catch (...) {}
+        }
+        if (st == GeomAbs_Cylinder) {
+            // a holed (or notched) cylinder wall is laid like a holed plane in
+            // its unrolled (u R, v) frame, which is an isometry; Python maps
+            // back with this frame: P(u, v) = O + R (cos u X + sin u Y) + v Z
             try {
                 gp_Cylinder cy = sa.Cylinder();
                 const gp_Ax3& ax = cy.Position();

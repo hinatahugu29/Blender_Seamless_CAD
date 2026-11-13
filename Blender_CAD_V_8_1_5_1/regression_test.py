@@ -2734,6 +2734,34 @@ def t_quad_bake_uniform_cone_rows():
         bpy.data.meshes.remove(me)
 
 
+def t_quad_bake_notched_cylinder_wall():
+    """Quad Bake: 上の縁に切り欠きのある円柱の側面(輪郭は 1 本だが壁の行には
+    ならない)は、Uniform で展開した格子として埋まり、三角形分割に落ちない。
+    点は円柱の上に乗り、水密は保つ。"""
+    import math as _m
+    col, props = _fresh_part()
+    bpy.ops.seamless.add_primitive(type='CYLINDER')
+    bpy.ops.seamless.add_primitive(type='BOX')
+    props = utils_props()
+    props.primitives[0].size = (1.0, 1.0, 2.0)
+    props.primitives[1].operation = 'SUB'
+    props.primitives[1].size = (0.8, 0.6, 0.8)
+    props.primitives[1].location = (1.0, 0.0, 0.9)
+    bm, rep, _ = _quad_bake_mesh(col, uniform=True)
+    try:
+        _assert_quad_bake_sound(bm, rep, "notched tube")
+        walls = [f for f in rep["face_log"] if f["kind"] == "cylinder"]
+        assert walls and all(f["kernel"] != "triangles" for f in walls),             f"a notched wall fell back to triangles: {[(f['kind'], f['kernel']) for f in rep['face_log']]}"
+        r_out = 0.0
+        for v in bm.verts:
+            r = _m.hypot(v.co.x, v.co.y)
+            if abs(r - 1.0) < 0.05:
+                r_out = max(r_out, abs(r - 1.0))
+        assert r_out < 1e-6, f"wall points left the cylinder by {r_out}"
+    finally:
+        bm.free()
+
+
 def t_quad_bake_holed_cylinder_wall():
     """Quad Bake 1-2: 横穴のあいた円柱の側面は、展開した (uR, v) で穴あき平面と同じく
     穴の quad の輪+格子で埋まり、点は円柱の上に乗る。水密は保つ。"""
@@ -4176,6 +4204,7 @@ def main():
     check("quad bake: STEP round trip", t_quad_bake_step_roundtrip)
     check("quad bake: changed faces", t_quad_bake_changed_faces)
     check("quad bake: plane grid", t_quad_bake_plane_grid)
+    check("quad bake: notched cylinder wall", t_quad_bake_notched_cylinder_wall)
     check("quad bake: UV, seams and sharp edges", t_quad_bake_uv_seams_and_sharp)
     check("quad bake: join triangles", t_quad_bake_join_triangles)
     check("vendored blossom is optimal", t_vendored_blossom_is_optimal)

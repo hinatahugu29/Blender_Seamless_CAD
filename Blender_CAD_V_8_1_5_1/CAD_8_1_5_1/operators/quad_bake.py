@@ -845,9 +845,13 @@ def _fill_holed_plane(face, verts3d, extra_verts, n_cad, stats, max_steiner=2000
     placed exactly from three boundary points. Returns None when the face is
     not a holed plane or the plane frame is degenerate."""
     loops = face["loops"]
-    cyl = face.get("cyl")
-    if face["kind"] != "plane" and not (face["kind"] == "cylinder" and cyl and len(loops) >= 2):
-        return _no(why, "not a plane (or a holed cylinder wall)")
+    cyl = face.get("cyl") if face["kind"] == "cylinder" else None
+    cone = face.get("cone") if face["kind"] == "cone" else None
+    # a curved wall comes here holed, or (uniform density) notched: a single
+    # outline that no row / grid layout took
+    curved_ok = len(loops) >= 2 or plain
+    if face["kind"] != "plane" and not ((cyl or cone) and curved_ok):
+        return _no(why, "not a plane (or a holed / notched cylinder or cone wall)")
     if len(loops) < 2 and not plain:
         return _no(why, "the plane has no holes")
     su, sv = face["su"], face["sv"]
@@ -893,6 +897,15 @@ def _fill_holed_plane(face, verts3d, extra_verts, n_cad, stats, max_steiner=2000
         def to3(U, V):
             u, v = U / su, V / sv
             return tuple(cO + rad * (math.cos(u) * cX + math.sin(u) * cY) + v * cZ)
+    elif cone:
+        kO = Vector(cone[0:3]); kX = Vector(cone[3:6]); kY = Vector(cone[6:9]); kZ = Vector(cone[9:12])
+        kR, ka = cone[12], cone[13]
+        sa_, ca_ = math.sin(ka), math.cos(ka)
+
+        def to3(U, V):
+            u, v = U / su, V / sv
+            r_ = kR + v * sa_
+            return tuple(kO + r_ * (math.cos(u) * kX + math.sin(u) * kY) + v * ca_ * kZ)
 
     xy = [[(p[1] * su, p[2] * sv) for p in L] for L in loops]
     seg_all = []
@@ -922,6 +935,11 @@ def _fill_holed_plane(face, verts3d, extra_verts, n_cad, stats, max_steiner=2000
         h_lat = mean_step(xy[0])
     if cyl and h_lat > 0.0:
         h_lat = min(h_lat, (8.0 * cyl[12] * max(float(face.get("tol", 0.01)), 1e-6)) ** 0.5)
+    if cone and h_lat > 0.0:
+        # the chord law at the cone's widest radius on this face
+        r_max = max(abs(cone[12] + p[2] * math.sin(cone[13])) for p in loops[0])
+        if r_max > 1e-9:
+            h_lat = min(h_lat, (8.0 * r_max * max(float(face.get("tol", 0.01)), 1e-6)) ** 0.5)
     if h_lat > 0.0:
         bx = [x for x, _ in xy[0]]
         by_ = [y for _, y in xy[0]]
