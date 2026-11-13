@@ -2889,6 +2889,46 @@ def t_quad_bake_three_sided_planes():
             bm.free()
 
 
+def t_quad_bake_step_roundtrip():
+    """Quad Bake 3-3: STEP で書き出して読み戻した形状も、元と同じ面構成・同じ埋め方で
+    水密に張れる(他の CAD から来た形状の代表として、自分の STEP を使う)。"""
+    import os
+    import tempfile
+    from CAD_8_1_5_1 import core_bridge
+    col, props = _fresh_part()
+    bpy.ops.seamless.add_primitive(type='BOX')
+    bpy.ops.seamless.add_primitive(type='CYLINDER')
+    bpy.ops.seamless.add_primitive(type='CYLINDER')
+    props = utils_props()
+    props.primitives[0].size = (2.0, 1.0, 0.5)
+    props.primitives[1].operation = 'SUB'
+    props.primitives[1].size = (0.2, 0.2, 1.0)
+    props.primitives[1].location = (-0.5, 0.0, 0.0)
+    props.primitives[2].size = (0.3, 0.3, 0.6)
+    props.primitives[2].location = (0.5, 0.0, 0.4)
+    core_bridge._modifier_interactive_until.clear()
+    bm0, rep0, _ = _quad_bake_mesh(col, uniform=True)
+    try:
+        _assert_quad_bake_sound(bm0, rep0, "source")
+        n0 = len(bm0.faces)
+    finally:
+        bm0.free()
+    path = os.path.join(tempfile.gettempdir(), "seamless_quad_roundtrip.stp")
+    assert core_bridge.export_stack_to_step(int(col.seamless_cad_stack_ptr), path, 1.0)
+    col2, props2 = _fresh_part()
+    assert 'FINISHED' in bpy.ops.seamless.import_step(filepath=path, import_scale=1.0)
+    os.remove(path)
+    bm1, rep1, _ = _quad_bake_mesh(col2, uniform=True)
+    try:
+        _assert_quad_bake_sound(bm1, rep1, "STEP round trip")
+        k0 = sorted((f["kind"], f["kernel"]) for f in rep0["face_log"])
+        k1 = sorted((f["kind"], f["kernel"]) for f in rep1["face_log"])
+        assert k0 == k1, f"faces laid differently after STEP: {k0} vs {k1}"
+        assert abs(len(bm1.faces) - n0) <= 0.05 * n0, f"{len(bm1.faces)} vs {n0} polygons"
+    finally:
+        bm1.free()
+
+
 def t_quad_bake_box_is_six_ngons():
     """Quad Bake: 箱は 8 頂点・6 枚の n-gon(四角形)になる。"""
     col, props = _fresh_part()
@@ -4021,6 +4061,7 @@ def main():
     check("quad bake: graded rings", t_quad_bake_graded_rings)
     check("quad bake: phase 2 options", t_quad_bake_phase2_options)
     check("quad bake: three-sided planes", t_quad_bake_three_sided_planes)
+    check("quad bake: STEP round trip", t_quad_bake_step_roundtrip)
     check("quad bake: UV, seams and sharp edges", t_quad_bake_uv_seams_and_sharp)
     check("quad bake: join triangles", t_quad_bake_join_triangles)
     check("vendored blossom is optimal", t_vendored_blossom_is_optimal)
