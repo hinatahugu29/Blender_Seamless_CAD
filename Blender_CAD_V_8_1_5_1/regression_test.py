@@ -2865,6 +2865,30 @@ def t_quad_bake_phase2_options():
         bpy.data.meshes.remove(me)
 
 
+def t_quad_bake_three_sided_planes():
+    """Quad Bake 3-1: 球を 3 平面で切った 1/8 球。4 分の 1 円の平面(直線 2 本と円弧 1 本)は
+    Uniform では中心で 3 つの quad パッチに分かれ、全部 quad になる。水密を保つ。"""
+    col, props = _fresh_part()
+    bpy.ops.seamless.add_primitive(type='SPHERE')
+    for ax in ('X', 'Y', 'Z'):
+        bpy.ops.seamless.add_primitive(type='SPLIT')
+        pr = utils_props().primitives[-1]
+        pr.pattern_axis = ax
+        pr.split_keep = 'POSITIVE'
+        pr.location = (0.0, 0.0, 0.0)
+    from CAD_8_1_5_1 import core_bridge
+    core_bridge._modifier_interactive_until.clear()
+    for tol in (0.01, 0.002):
+        bm, rep, _ = _quad_bake_mesh(col, tol=tol, uniform=True)
+        try:
+            _assert_quad_bake_sound(bm, rep, f"octant tol={tol}")
+            tri3 = [f for f in rep["face_log"] if f["kernel"] == "tri3"]
+            assert len(tri3) == 3, f"quarter discs not split in three: {[(f['kind'], f['kernel']) for f in rep['face_log']]}"
+            assert all(f["tris"] == 0 for f in tri3), tri3
+        finally:
+            bm.free()
+
+
 def t_quad_bake_box_is_six_ngons():
     """Quad Bake: 箱は 8 頂点・6 枚の n-gon(四角形)になる。"""
     col, props = _fresh_part()
@@ -3996,6 +4020,7 @@ def main():
     check("quad bake: holed cylinder wall", t_quad_bake_holed_cylinder_wall)
     check("quad bake: graded rings", t_quad_bake_graded_rings)
     check("quad bake: phase 2 options", t_quad_bake_phase2_options)
+    check("quad bake: three-sided planes", t_quad_bake_three_sided_planes)
     check("quad bake: UV, seams and sharp edges", t_quad_bake_uv_seams_and_sharp)
     check("quad bake: join triangles", t_quad_bake_join_triangles)
     check("vendored blossom is optimal", t_vendored_blossom_is_optimal)

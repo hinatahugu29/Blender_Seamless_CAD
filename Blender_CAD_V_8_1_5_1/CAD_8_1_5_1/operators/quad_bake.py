@@ -280,6 +280,164 @@ def _fill_cone_rows(face, loop, rs, na, nb, nr, rows, base, extra_verts, why):
     return _orient_poly(face, _signed_area([(p[1], p[2]) for p in loop]), polys)
 
 
+def _fill_tri_plane(face, verts3d, extra_verts, why=None):
+    """3-1: a three-sided plane as three quad patches around a centre.
+
+    Sides of n0, n1, n2 spans (n0 + n1 + n2 even) are split so the patches
+    match: the spoke from side i to the centre has x_i spans with
+    x0 = (n1 + n2 - n0) / 2 and so on, side i = x_(i+2) + x_(i+1) ... each
+    patch is an n x m Coons grid in the plane's (u, v); the plane is affine,
+    so 3D points come from the same frame as the holed-plane fill."""
+    loops = face["loops"]
+    if face["kind"] != "plane" or len(loops) != 1:
+        return _no(why, "not a one-loop plane")
+    loop = loops[0]
+    su, sv = face["su"], face["sv"]
+    M = len(loop)
+    if M < 6:
+        return _no(why, "too few points for three patches")
+    P = [(p[1] * su, p[2] * sv) for p in loop]
+    # corners: turning by more than 30 degrees
+    corners = []
+    for k in range(M):
+        ax, ay = P[k - 1]; bx, by = P[k]; cx, cy = P[(k + 1) % M]
+        d1 = (bx - ax, by - ay); d2 = (cx - bx, cy - by)
+        l1 = (d1[0] ** 2 + d1[1] ** 2) ** 0.5; l2 = (d2[0] ** 2 + d2[1] ** 2) ** 0.5
+        if l1 < 1e-12 or l2 < 1e-12:
+            continue
+        c = (d1[0] * d2[0] + d1[1] * d2[1]) / (l1 * l2)
+        if c < math.cos(math.radians(30.0)):
+            corners.append(k)
+    if len(corners) != 3:
+        return _no(why, "not three corners (%d)" % len(corners))
+    c0, c1, c2 = corners
+    n = [c1 - c0, c2 - c1, M - c2 + c0]
+    if sum(n) % 2 or any(x < 1 for x in n):
+        return _no(why, "odd span total %d" % sum(n))
+    x = [(n[1] + n[2] - n[0]) // 2, (n[0] + n[2] - n[1]) // 2, (n[0] + n[1] - n[2]) // 2]
+    # x[i] = spoke towards side i; side i = (part next to its start) + (part next to its end)
+    # side0 (c0->c1) = x[2] + x[1]; side1 (c1->c2) = x[0] + x[2]; side2 (c2->c0) = x[1] + x[0]
+    if any(v < 1 for v in x):
+        return _no(why, "a side is longer than the other two together")
+
+    base = len(verts3d)
+
+    def pos3(vid):
+        return Vector(verts3d[vid] if vid < base else extra_verts[vid - base])
+
+    p0 = (P[0][0], P[0][1], pos3(loop[0][0]))
+    best = None
+    for i in range(1, M):
+        for j in range(i + 1, M):
+            area = abs((P[i][0] - p0[0]) * (P[j][1] - p0[1]) - (P[j][0] - p0[0]) * (P[i][1] - p0[1]))
+            if best is None or area > best[0]:
+                best = (area, i, j)
+    if best is None or best[0] < 1e-18:
+        return _no(why, "the outline is degenerate (no plane frame)")
+    _, i, j = best
+    du1, dv1 = P[i][0] - p0[0], P[i][1] - p0[1]
+    du2, dv2 = P[j][0] - p0[0], P[j][1] - p0[1]
+    det = du1 * dv2 - du2 * dv1
+    d1, d2 = pos3(loop[i][0]) - p0[2], pos3(loop[j][0]) - p0[2]
+    fa = (d1 * dv2 - d2 * dv1) / det
+    fb = (d2 * du1 - d1 * du2) / det
+
+    def to3(U, V):
+        return tuple(p0[2] + fa * (U - p0[0]) + fb * (V - p0[1]))
+
+    def L(k):                                  # loop point k as (vid, U, V)
+        p = loop[k % M]
+        return (p[0], p[1] * su, p[2] * sv)
+
+    # split points on each side
+    s0 = c0 + x[2]                             # on side 0
+    s1 = c1 + x[0]                             # on side 1
+    s2 = (c2 + x[1]) % M                       # on side 2
+    S = [L(s0), L(s1), L(s2)]
+    C = (sum(p[1] for p in S) / 3.0, sum(p[2] for p in S) / 3.0)
+    new_v = {}
+
+    def vert(U, V):
+        key = (round(U, 12), round(V, 12))
+        if key not in new_v:
+            new_v[key] = base + len(extra_verts)
+            extra_verts.append(to3(U, V))
+        return (new_v[key], U, V)
+
+    cvert = vert(*C)
+
+    def spoke(sp, cnt):
+        """points from split point sp to the centre, cnt spans, ends included"""
+        out = [sp]
+        for t in range(1, cnt):
+            f = t / cnt
+            out.append(vert(sp[1] + f * (C[0] - sp[1]), sp[2] + f * (C[1] - sp[2])))
+        out.append(cvert)
+        return out
+
+    sp = [spoke(S[0], x[0]), spoke(S[1], x[1]), spoke(S[2], x[2])]
+
+    def run(a, b):                             # loop points a..b (forward)
+        out = []
+        k = a
+        while True:
+            out.append(L(k))
+            if k % M == b % M:
+                break
+            k += 1
+        return out
+
+    # patch at corner c1: side0 tail (s0->c1, x[1] spans), side1 head (c1->s1, x[0]),
+    # spoke1 (s1->C, x[1]), spoke0 reversed (C->s0, x[0])
+    patches = [
+        (run(s0, c1), run(c1, s1), sp[1], list(reversed(sp[0]))),
+        (run(s1, c2), run(c2, s2), sp[2], list(reversed(sp[1]))),
+        (run(s2, c0 + M if c0 < s2 else c0), run(c0, s0), sp[0], list(reversed(sp[2]))),
+    ]
+    polys = []
+    for A, B, Cs, D in patches:
+        na, nb = len(A) - 1, len(B) - 1
+        if len(Cs) - 1 != na or len(D) - 1 != nb:
+            return _no(why, "patch sides do not match (%d/%d, %d/%d)" % (na, len(Cs) - 1, nb, len(D) - 1))
+        # boundary of the patch grid G(i, j), i along A, j along B:
+        # G(i,0)=A[i]; G(na,j)=B[j]; G(i,nb)=Cs reversed (Cs runs s->C, i.e. from (na,nb) to (0,nb));
+        # G(0,j)=D reversed (D runs C->s_prev, i.e. from (0,nb) to (0,0))
+        top = list(reversed(Cs))               # i = 0..na at j = nb
+        left = list(reversed(D))               # j = 0..nb at i = 0
+
+        def G(i, j):
+            if j == 0:
+                return A[i]
+            if i == na:
+                return B[j]
+            if j == nb:
+                return top[i]
+            if i == 0:
+                return left[j]
+            s_, t_ = i / na, j / nb
+            U = ((1 - t_) * A[i][1] + t_ * top[i][1] + (1 - s_) * left[j][1] + s_ * B[j][1]
+                 - ((1 - s_) * (1 - t_) * A[0][1] + s_ * (1 - t_) * A[na][1]
+                    + (1 - s_) * t_ * top[0][1] + s_ * t_ * top[na][1]))
+            V = ((1 - t_) * A[i][2] + t_ * top[i][2] + (1 - s_) * left[j][2] + s_ * B[j][2]
+                 - ((1 - s_) * (1 - t_) * A[0][2] + s_ * (1 - t_) * A[na][2]
+                    + (1 - s_) * t_ * top[0][2] + s_ * t_ * top[na][2]))
+            return vert(U, V)
+
+        grid = [[G(i, j) for j in range(nb + 1)] for i in range(na + 1)]
+        for i in range(na):
+            for j in range(nb):
+                q = [grid[i][j], grid[i + 1][j], grid[i + 1][j + 1], grid[i][j + 1]]
+                if len({c[0] for c in q}) != 4:
+                    return _no(why, "a patch cell collapses")
+                polys.append([(c[0], c[1], c[2]) for c in q])
+    area = _signed_area(P)
+    for q in polys:
+        a2 = _signed_area([(c[1], c[2]) for c in q])
+        if a2 * area <= 0.0:
+            return _no(why, "a patch cell flips")
+    return _orient_poly(face, area, polys)
+
+
 def _fill_coons(face, base, extra_verts, why=None, pole_quads=False):
     """K4: a four-sided curved face as an n x m quad grid. The kernel found
     the four sides, made opposite sides carry the same span count, blended the
@@ -909,7 +1067,7 @@ def build_quad_mesh_uv(data):
     polys = []
     uvs = []
     poly_face = []
-    stats = {"faces": 0, "ngon": 0, "cdt": 0, "failed": 0,
+    stats = {"faces": 0, "ngon": 0, "cdt": 0, "failed": 0, "tri3": 0,
              "ruled": 0, "coons": 0, "holed": 0, "hole_rings": 0, "hole_rings_skipped": 0, "cdt_new_verts": 0, "degenerate_dropped": 0, "ears_flipped": 0,
              "edge_fail": int(data.get("n_edge_fail", 0)), "errors": [], "face_log": []}
     for face in data.get("faces", []):
@@ -929,6 +1087,8 @@ def build_quad_mesh_uv(data):
             ("grid", lambda w: _fill_coons(face, len(verts3d), extra, why=w,
                                            pole_quads=bool(data.get("pole_quads")))),
             ("ngon", lambda w: _fill_ngon(face, why=w, uniform=uniform)),
+            ("tri3", lambda w: _fill_tri_plane(face, verts3d, extra, why=w) if uniform
+             else _no(w, "three-patch split is a uniform-density layout")),
             ("holed", lambda w: _fill_holed_plane(face, verts3d, extra, n_cad, stats, why=w,
                                                  plain=uniform)),
         )
@@ -948,7 +1108,7 @@ def build_quad_mesh_uv(data):
             if not out:
                 stats["failed"] += 1
                 stats["errors"].append("Face %d (%s): empty triangulation" % (face["i"], face["kind"]))
-        stats[{"ruled": "ruled", "grid": "coons", "ngon": "ngon", "holed": "holed",
+        stats[{"ruled": "ruled", "grid": "coons", "ngon": "ngon", "holed": "holed", "tri3": "tri3",
                "triangles": "cdt"}[kernel]] += 1
         sizes = [len(q) for q in out]
         stats["face_log"].append({

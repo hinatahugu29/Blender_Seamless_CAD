@@ -733,6 +733,33 @@ std::string quad_topology_json(void* stack_ptr, double tol, bool uniform, const 
             }
             if (!moved) break;
         }
+        // 3-1: a three-edge plane (a quarter disc, a corner chamfer) is laid
+        // as three quad patches around a centre, which needs an EVEN total
+        // span count; raise its longest free straight edge by one if odd.
+        for (int fi = 1; fi <= fm.Extent(); ++fi) {
+            try {
+                TopoDS_Face ff = TopoDS::Face(fm.FindKey(fi));
+                if (BRepAdaptor_Surface(ff, Standard_False).GetType() != GeomAbs_Plane) continue;
+                int nw = 0;
+                for (TopExp_Explorer wx(ff, TopAbs_WIRE); wx.More(); wx.Next()) ++nw;
+                if (nw != 1) continue;
+                std::vector<int> es3;
+                for (TopExp_Explorer ex(ff, TopAbs_EDGE); ex.More(); ex.Next()) {
+                    int ei = em.FindIndex(ex.Current());
+                    if (ei > 0 && !degen[ei]) es3.push_back(ei);
+                }
+                if (es3.size() != 3) continue;
+                int sum = nspan[es3[0]] + nspan[es3[1]] + nspan[es3[2]];
+                if (sum % 2 == 0) continue;
+                int best = -1;
+                for (int ei : es3) {
+                    if (locked[ei]) continue;
+                    if (BRepAdaptor_Curve(TopoDS::Edge(em.FindKey(ei))).GetType() != GeomAbs_Line) continue;
+                    if (best < 0 || elen[ei] > elen[best]) best = ei;
+                }
+                if (best > 0) nspan[best] += 1;
+            } catch (...) {}
+        }
         // a plane whose straight edges ended up cut (by itself or a neighbour)
         // is laid as a lattice; an all-curve outline (a cylinder cap) stays an n-gon
         for (int fi = 1; fi <= fm.Extent(); ++fi) {
