@@ -2734,6 +2734,34 @@ def t_quad_bake_uniform_cone_rows():
         bpy.data.meshes.remove(me)
 
 
+def t_quad_bake_holed_cylinder_wall():
+    """Quad Bake 1-2: 横穴のあいた円柱の側面は、展開した (uR, v) で穴あき平面と同じく
+    穴の quad の輪+格子で埋まり、点は円柱の上に乗る。水密は保つ。"""
+    import math as _m
+    col, props = _fresh_part()
+    bpy.ops.seamless.add_primitive(type='CYLINDER')
+    bpy.ops.seamless.add_primitive(type='CYLINDER')
+    props = utils_props()
+    props.primitives[0].size = (1.0, 1.0, 2.0)
+    props.primitives[1].operation = 'SUB'
+    props.primitives[1].size = (0.25, 0.25, 3.0)
+    props.primitives[1].rotation = (1.5708, 0.0, 0.0)
+    bm, rep, _ = _quad_bake_mesh(col)
+    try:
+        _assert_quad_bake_sound(bm, rep, "cross-bored tube")
+        wall = [f for f in rep["face_log"] if f["kind"] == "cylinder" and f["kernel"] == "holed"]
+        assert wall, f"holed wall not laid as a holed lattice: {[(f['kind'], f['kernel']) for f in rep['face_log']]}"
+        r_out = 0.0
+        for v in bm.verts:
+            r = _m.hypot(v.co.x, v.co.y)
+            if abs(abs(v.co.z) - 1.0) > 1e-6 and r > 0.9:
+                r_out = max(r_out, abs(r - 1.0))
+        assert r_out < 1e-6, f"wall points left the cylinder by {r_out}"
+        assert rep["hole_rings"] >= 2, f"the bores got no quad ring: {rep['hole_rings']}"
+    finally:
+        bm.free()
+
+
 def t_quad_bake_box_is_six_ngons():
     """Quad Bake: 箱は 8 頂点・6 枚の n-gon(四角形)になる。"""
     col, props = _fresh_part()
@@ -3862,6 +3890,7 @@ def main():
     check("quad bake: uniform spreads to box sides", t_quad_bake_uniform_spreads_to_box_sides)
     check("quad bake: uniform cuts grid sides", t_quad_bake_uniform_cuts_grid_sides)
     check("quad bake: uniform cone rows", t_quad_bake_uniform_cone_rows)
+    check("quad bake: holed cylinder wall", t_quad_bake_holed_cylinder_wall)
     check("quad bake: UV, seams and sharp edges", t_quad_bake_uv_seams_and_sharp)
     check("quad bake: join triangles", t_quad_bake_join_triangles)
     check("vendored blossom is optimal", t_vendored_blossom_is_optimal)

@@ -25,6 +25,7 @@ texel density.
 Pure Python + mathutils: no bpy here, so the fill is testable headless.
 """
 
+import math
 from mathutils import Vector
 from mathutils.geometry import delaunay_2d_cdt
 from mathutils.kdtree import KDTree
@@ -526,8 +527,9 @@ def _fill_holed_plane(face, verts3d, extra_verts, n_cad, stats, max_steiner=2000
     placed exactly from three boundary points. Returns None when the face is
     not a holed plane or the plane frame is degenerate."""
     loops = face["loops"]
-    if face["kind"] != "plane":
-        return _no(why, "not a plane")
+    cyl = face.get("cyl")
+    if face["kind"] != "plane" and not (face["kind"] == "cylinder" and cyl and len(loops) >= 2):
+        return _no(why, "not a plane (or a holed cylinder wall)")
     if len(loops) < 2 and not plain:
         return _no(why, "the plane has no holes")
     su, sv = face["su"], face["sv"]
@@ -564,6 +566,15 @@ def _fill_holed_plane(face, verts3d, extra_verts, n_cad, stats, max_steiner=2000
 
     def to3(U, V):
         return tuple(p0[2] + a * (U - p0[0]) + b * (V - p0[1]))
+
+    if cyl:
+        # unrolled cylinder: (U, V) = (u su, v sv); map through the surface
+        cO = Vector(cyl[0:3]); cX = Vector(cyl[3:6]); cY = Vector(cyl[6:9]); cZ = Vector(cyl[9:12])
+        rad = cyl[12]
+
+        def to3(U, V):
+            u, v = U / su, V / sv
+            return tuple(cO + rad * (math.cos(u) * cX + math.sin(u) * cY) + v * cZ)
 
     xy = [[(p[1] * su, p[2] * sv) for p in L] for L in loops]
     seg_all = []
@@ -675,6 +686,10 @@ def _fill_holed_plane(face, verts3d, extra_verts, n_cad, stats, max_steiner=2000
     # interior lattice at the holes' step, kept half a step off every boundary
     # (no holes: the outline's own mean step)
     h = sum(steps) / len(steps) if steps else 0.0
+    if cyl and h > 0.0:
+        # across the wall a lattice cell is a chord of the cylinder: keep the
+        # chord law (sagitta h^2 / 8R <= tol)
+        h = min(h, (8.0 * cyl[12] * max(float(face.get("tol", 0.01)), 1e-6)) ** 0.5)
     if h <= 0.0 and plain:
         R0 = xy[0]
         h = sum(((R0[(q + 1) % len(R0)][0] - R0[q][0]) ** 2 + (R0[(q + 1) % len(R0)][1] - R0[q][1]) ** 2) ** 0.5
@@ -764,6 +779,7 @@ def build_quad_mesh_uv(data):
              "ruled": 0, "coons": 0, "holed": 0, "hole_rings": 0, "hole_rings_skipped": 0, "cdt_new_verts": 0, "degenerate_dropped": 0, "ears_flipped": 0,
              "edge_fail": int(data.get("n_edge_fail", 0)), "errors": [], "face_log": []}
     for face in data.get("faces", []):
+        face.setdefault("tol", data.get("tol", 0.01))
         stats["faces"] += 1
         if face.get("error"):
             stats["failed"] += 1

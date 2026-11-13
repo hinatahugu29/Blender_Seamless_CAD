@@ -448,7 +448,8 @@ std::string quad_topology_json(void* stack_ptr, double tol, bool uniform) {
         for (int fi = 1; fi <= fm.Extent(); ++fi) {
             TopoDS_Face ff = TopoDS::Face(fm.FindKey(fi).Oriented(TopAbs_FORWARD));
             try {
-                if (BRepAdaptor_Surface(ff, Standard_False).GetType() != GeomAbs_Plane) continue;
+                { GeomAbs_SurfaceType t_ = BRepAdaptor_Surface(ff, Standard_False).GetType();
+                  if (t_ != GeomAbs_Plane && t_ != GeomAbs_Cylinder) continue; }   // a bored tube wall too
                 TopoDS_Wire outer = outer_wire(ff);
                 if (outer.IsNull()) continue;
                 double hl = 0.0; int hn = 0;
@@ -870,6 +871,22 @@ std::string quad_topology_json(void* stack_ptr, double tol, bool uniform) {
         out += ",\"su\":"; jnum(out, su);
         out += ",\"sv\":"; jnum(out, sv);
         if (lattice[fi]) out += ",\"lattice\":true";
+        if (st == GeomAbs_Cylinder && loops.size() > 1) {
+            // a holed cylinder wall is laid like a holed plane in its unrolled
+            // (u R, v) frame, which is an isometry; Python maps back with this
+            // frame: P(u, v) = O + R (cos u X + sin u Y) + v Z
+            try {
+                gp_Cylinder cy = sa.Cylinder();
+                const gp_Ax3& ax = cy.Position();
+                gp_Pnt o = ax.Location();
+                gp_Dir X = ax.XDirection(), Y = ax.YDirection(), Z = ax.Direction();
+                out += ",\"cyl\":[";
+                double c[13] = {o.X(), o.Y(), o.Z(), X.X(), X.Y(), X.Z(), Y.X(), Y.Y(), Y.Z(),
+                                Z.X(), Z.Y(), Z.Z(), cy.Radius()};
+                for (int q = 0; q < 13; ++q) { if (q) out += ","; jnum(out, c[q]); }
+                out += "]";
+            } catch (...) {}
+        }
         out += ",\"c\":["; jnum(out, c.X()); out += ","; jnum(out, c.Y()); out += ","; jnum(out, c.Z()); out += "]";
         if (why.empty() && coons[fi].ok && loops.size() == 1) {
             const CoonsFace& cf = coons[fi];
