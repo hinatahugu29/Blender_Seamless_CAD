@@ -2613,6 +2613,13 @@ def t_quad_bake_uniform_spreads_to_box_sides():
             vertical.append(len(r) - 2)
     assert len(vertical) == 4, f"expected the 4 box corners, got {vertical}"
     assert min(vertical) > 1, f"vertical box edges were not cut: {vertical}"
+    # 外周の quad の輪は箱の凸の角でつぶれる(隣の 2 点が同じ位置に来る)。
+    # そのときは輪を入れない。入れると tol 0.01 で継ぎ目が開いた
+    bm, rep, _ = _quad_bake_mesh(col, uniform=True)
+    try:
+        _assert_quad_bake_sound(bm, rep, "bored box, uniform")
+    finally:
+        bm.free()
     me, rep = _quad_bake_blender_mesh(col, uniform=True)
     try:
         quads = sum(1 for p in me.polygons if len(p.vertices) == 4)
@@ -2623,6 +2630,11 @@ def t_quad_bake_uniform_spreads_to_box_sides():
 
     col, props = _fresh_part()
     bpy.ops.seamless.add_primitive(type='CYLINDER')
+    bm, rep, _ = _quad_bake_mesh(col, uniform=True)
+    try:
+        _assert_quad_bake_sound(bm, rep, "cylinder, uniform")
+    finally:
+        bm.free()
     me, rep = _quad_bake_blender_mesh(col, uniform=True)
     try:
         assert max(len(p.vertices) for p in me.polygons) <= 8, "cap stayed one n-gon"

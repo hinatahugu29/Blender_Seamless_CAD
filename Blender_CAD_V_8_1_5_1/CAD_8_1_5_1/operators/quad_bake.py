@@ -557,6 +557,25 @@ def _fill_holed_plane(face, verts3d, extra_verts, n_cad, stats, max_steiner=2000
                     break
         if ok and hi == 0:
             ok = all(_inside(x, y, [R]) for x, y in ring)
+        if ok:
+            # every ring quad must keep the loop's winding and a real area: at a
+            # convex corner of the OUTER loop the offsets of the two sides meet
+            # in one point and the ring collapses (a box face) -- no ring then
+            s0 = _signed_area(R) * (1.0 if hi == 0 else -1.0)   # a hole's ring lies outside its loop
+            for q in range(k):
+                q2 = (q + 1) % k
+                qa = _signed_area([R[q], R[q2], ring[q2], ring[q]])
+                if qa * s0 <= 0.0 or abs(qa) < 0.05 * step * step:
+                    ok = False
+                    break
+                # the offsets of a corner's two neighbours must not meet either
+                for dq in (1, 2):
+                    o = ring[(q + dq) % k]
+                    if (o[0] - ring[q][0]) ** 2 + (o[1] - ring[q][1]) ** 2 < (0.25 * step) ** 2:
+                        ok = False
+                        break
+                if not ok:
+                    break
         if not ok:
             if hi:
                 region_loops.append(H); region_xy.append(R)
