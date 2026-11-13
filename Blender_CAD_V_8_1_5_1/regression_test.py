@@ -2762,6 +2762,31 @@ def t_quad_bake_holed_cylinder_wall():
         bm.free()
 
 
+def t_quad_bake_graded_rings():
+    """Quad Bake 1-1: 大きな板の小さな穴。格子の点数予算で格子が粗くなるとき、
+    穴の輪から 2:1 で段階的に粗くして格子へつなぐ(粗い格子と細かい輪が
+    CDT で直接ぶつからない)。水密を保ち、結合後は quad が多数派。"""
+    col, props = _fresh_part()
+    bpy.ops.seamless.add_primitive(type='BOX')
+    bpy.ops.seamless.add_primitive(type='CYLINDER')
+    props = utils_props()
+    props.primitives[0].size = (40.0, 40.0, 0.2)
+    props.primitives[1].operation = 'SUB'
+    props.primitives[1].size = (0.4, 0.4, 1.0)
+    bm, rep, _ = _quad_bake_mesh(col, tol=0.002)
+    try:
+        _assert_quad_bake_sound(bm, rep, "big plate, small hole")
+        assert rep.get("graded_rings", 0) >= 2, f"no graded rings: {rep.get('graded_rings')}"
+    finally:
+        bm.free()
+    me, rep = _quad_bake_blender_mesh(col, tol=0.002)
+    try:
+        quads = sum(1 for p in me.polygons if len(p.vertices) == 4)
+        assert quads > 0.6 * len(me.polygons), f"{quads} quads of {len(me.polygons)}"
+    finally:
+        bpy.data.meshes.remove(me)
+
+
 def t_quad_bake_box_is_six_ngons():
     """Quad Bake: 箱は 8 頂点・6 枚の n-gon(四角形)になる。"""
     col, props = _fresh_part()
@@ -3891,6 +3916,7 @@ def main():
     check("quad bake: uniform cuts grid sides", t_quad_bake_uniform_cuts_grid_sides)
     check("quad bake: uniform cone rows", t_quad_bake_uniform_cone_rows)
     check("quad bake: holed cylinder wall", t_quad_bake_holed_cylinder_wall)
+    check("quad bake: graded rings", t_quad_bake_graded_rings)
     check("quad bake: UV, seams and sharp edges", t_quad_bake_uv_seams_and_sharp)
     check("quad bake: join triangles", t_quad_bake_join_triangles)
     check("vendored blossom is optimal", t_vendored_blossom_is_optimal)

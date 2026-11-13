@@ -586,6 +586,100 @@ def _fill_holed_plane(face, verts3d, extra_verts, n_cad, stats, max_steiner=2000
     region_loops = [outer]          # loops for the triangulation, as [vid, u, v]
     region_xy = [xy[0]]
     steps = []
+
+    def mean_step(R):
+        k_ = len(R)
+        return sum(((R[(q + 1) % k_][0] - R[q][0]) ** 2 + (R[(q + 1) % k_][1] - R[q][1]) ** 2) ** 0.5
+                   for q in range(k_)) / max(1, k_)
+
+    # the lattice step, decided BEFORE the rings so they can grade towards it:
+    # the holes' mean step (no holes: the outline's), capped by the chord law on
+    # a cylinder, then coarsened until the lattice fits the point budget. When
+    # the budget coarsens it, the rings below step up 2:1 to meet it (1-1).
+    h_lat = 0.0
+    hs = [mean_step(xy[i]) for i in range(1, len(loops)) if len(xy[i]) >= 3]
+    if hs:
+        h_lat = sum(hs) / len(hs)
+    elif plain:
+        h_lat = mean_step(xy[0])
+    if cyl and h_lat > 0.0:
+        h_lat = min(h_lat, (8.0 * cyl[12] * max(float(face.get("tol", 0.01)), 1e-6)) ** 0.5)
+    if h_lat > 0.0:
+        bx = [x for x, _ in xy[0]]
+        by_ = [y for _, y in xy[0]]
+        area_box = (max(bx) - min(bx)) * (max(by_) - min(by_))
+        while area_box / (h_lat * h_lat) > max_steiner:
+            h_lat *= 1.5
+
+    def grade(hi, R, H_vids, ring, rv, step, clear):
+        """Step the density up 2:1 ring by ring (every other point, offset by
+        the new step) until it reaches the lattice step. Each band is a quad
+        plus a triangle per pair of inner segments. Returns the last ring as
+        (xy, vids)."""
+        cur, cv, cstep, used = ring, rv, step, step
+        sign = 1.0 if _signed_area(R) > 0.0 else -1.0
+        if hi == 0:
+            sign = -sign
+        while 2.0 * cstep <= 1.05 * h_lat and len(cur) >= 8 and len(cur) % 2 == 0:
+            P = cur[0::2]
+            n2 = len(P)
+            nstep = 2.0 * cstep
+            if used + nstep > 0.45 * clear:
+                break
+            nd = []
+            for q in range(n2):
+                ax, ay = P[q - 1]; bx_, by2 = P[q]; cx, cy = P[(q + 1) % n2]
+                n1 = (sign * (by2 - ay), -sign * (bx_ - ax))
+                m2 = (sign * (cy - by2), -sign * (cx - bx_))
+                l1 = max((n1[0] ** 2 + n1[1] ** 2) ** 0.5, 1e-30)
+                l2 = max((m2[0] ** 2 + m2[1] ** 2) ** 0.5, 1e-30)
+                nx, ny = n1[0] / l1 + m2[0] / l2, n1[1] / l1 + m2[1] / l2
+                ln = max((nx * nx + ny * ny) ** 0.5, 1e-30)
+                nd.append((nx / ln, ny / ln))
+            new = [(P[q][0] + nstep * nd[q][0], P[q][1] + nstep * nd[q][1]) for q in range(n2)]
+            ok = True
+            for q in range(n2):
+                for r in range(q + 2, n2):
+                    if q == 0 and r == n2 - 1:
+                        continue
+                    if _segments_cross(new[q], new[(q + 1) % n2], new[r], new[(r + 1) % n2]):
+                        ok = False
+                        break
+                if not ok:
+                    break
+            if ok:
+                inside_outer = [_inside(x, y, [xy[0]]) for x, y in new]
+                ok = all(inside_outer) and not any(_inside(x, y, [R]) for x, y in new) if hi else all(inside_outer)
+            if ok:
+                s0 = _signed_area(R) * (1.0 if hi == 0 else -1.0)
+                for q in range(n2):
+                    a0, a1, a2 = cur[2 * q], cur[2 * q + 1], cur[(2 * q + 2) % len(cur)]
+                    b0, b1 = new[q], new[(q + 1) % n2]
+                    if (_signed_area([a1, a2, b1, b0]) * s0 <= 0.0
+                            or _signed_area([a0, a1, b0]) * s0 <= 0.0
+                            or (b1[0] - b0[0]) ** 2 + (b1[1] - b0[1]) ** 2 < (0.5 * nstep) ** 2):
+                        ok = False
+                        break
+            if not ok:
+                break
+            nv = []
+            for U, V in new:
+                nv.append(base + len(extra_verts))
+                extra_verts.append(to3(U, V))
+            for q in range(n2):
+                i0, i1, i2 = 2 * q, 2 * q + 1, (2 * q + 2) % len(cur)
+                j0, j1 = q, (q + 1) % n2
+                for poly in ([(cv[i0], cur[i0]), (cv[i1], cur[i1]), (nv[j0], new[j0])],
+                             [(cv[i1], cur[i1]), (cv[i2], cur[i2]), (nv[j1], new[j1]), (nv[j0], new[j0])]):
+                    c = [(vid, p[0], p[1]) for vid, p in poly]
+                    if _signed_area([(x[1], x[2]) for x in c]) < 0.0:
+                        c.reverse()
+                    if face["rev"]:
+                        c.reverse()
+                    polys.append(c)
+            stats["graded_rings"] = stats.get("graded_rings", 0) + 1
+            cur, cv, cstep, used = new, nv, nstep, used + nstep
+        return cur, cv
     # plain (uniform density): the OUTER outline gets an inward quad ring too
     for hi in ([0] if plain else []) + list(range(1, len(loops))):
         H = loops[hi]
@@ -674,6 +768,8 @@ def _fill_holed_plane(face, verts3d, extra_verts, n_cad, stats, max_steiner=2000
             if face["rev"]:
                 quad.reverse()
             polys.append(quad)
+        ring, rv = grade(hi, R, H, ring, rv, d, clear2 ** 0.5 if clear2 < 1e299 else 1e300)
+        k = len(ring)
         ring_loop = [[rv[q], ring[q][0] / su, ring[q][1] / sv] for q in range(k)]
         if hi == 0:
             region_loops[0] = ring_loop
@@ -685,15 +781,7 @@ def _fill_holed_plane(face, verts3d, extra_verts, n_cad, stats, max_steiner=2000
 
     # interior lattice at the holes' step, kept half a step off every boundary
     # (no holes: the outline's own mean step)
-    h = sum(steps) / len(steps) if steps else 0.0
-    if cyl and h > 0.0:
-        # across the wall a lattice cell is a chord of the cylinder: keep the
-        # chord law (sagitta h^2 / 8R <= tol)
-        h = min(h, (8.0 * cyl[12] * max(float(face.get("tol", 0.01)), 1e-6)) ** 0.5)
-    if h <= 0.0 and plain:
-        R0 = xy[0]
-        h = sum(((R0[(q + 1) % len(R0)][0] - R0[q][0]) ** 2 + (R0[(q + 1) % len(R0)][1] - R0[q][1]) ** 2) ** 0.5
-                for q in range(len(R0))) / max(1, len(R0))
+    h = h_lat
     steiner = []
     if h > 0.0:
         xs = [x for R in region_xy for x, _ in R]
