@@ -493,6 +493,12 @@ def _fill_plane_grid(face, verts3d, extra_verts, why=None):
     su, sv = face["su"], face["sv"]
     P = [(p[1] * su, p[2] * sv) for p in loop]
     cs = _outline_corners(P)
+    disk = False
+    if not cs and M % 2 == 0 and M >= 8:
+        # a smooth closed outline (a disk, an oval) with an even point count:
+        # four virtual corners about a quarter of the points apart, then the grid is relaxed to round them
+        cs = [0, M // 4, M // 2, M // 2 + M // 4]
+        disk = True
     if len(cs) != 4:
         return _no(why, "not four corners (%d)" % len(cs))
     side = [(cs[(k + 1) % 4] - cs[k]) % M for k in range(4)]
@@ -549,6 +555,29 @@ def _fill_plane_grid(face, verts3d, extra_verts, why=None):
                 del extra_verts[n_extra:]
                 return _no(why, "a grid cell flips (the outline is too skewed)")
             polys.append(q)
+    if disk and inner:
+        # Laplacian relax of the inner points (outline fixed): the four
+        # virtual corners stop being flat 180-degree cells
+        uv = {k: (v[1], v[2]) for k, v in inner.items()}
+
+        def cur(i, j):
+            return uv[(i, j)] if (i, j) in uv else G(i, j)[1:]
+        for _ in range(8):
+            nxt = {}
+            for (i, j) in uv:
+                ns = [cur(i + 1, j), cur(i - 1, j), cur(i, j + 1), cur(i, j - 1)]
+                nxt[(i, j)] = (sum(a[0] for a in ns) / 4.0, sum(a[1] for a in ns) / 4.0)
+            uv = nxt
+        remap = {}
+        for k, (vid, _, _) in inner.items():
+            U, V = uv[k]
+            extra_verts[vid - base] = to3(U, V)
+            remap[vid] = (vid, U, V)
+        polys = [[remap.get(c[0], c) for c in q] for q in polys]
+        for q in polys:
+            if _signed_area([(c[1], c[2]) for c in q]) * area <= 0.0:
+                del extra_verts[n_extra:]
+                return _no(why, "a relaxed disk cell flips")
     return _orient_poly(face, area, polys)
 
 

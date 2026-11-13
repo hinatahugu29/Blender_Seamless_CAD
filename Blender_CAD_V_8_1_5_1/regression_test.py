@@ -3619,9 +3619,9 @@ def t_quad_bake_reports_every_face():
     log = rep["face_log"]
     assert len(log) == rep["faces"] == 3, f"one entry per CAD face expected: {log}"
     kernels = sorted(f["kernel"] for f in log)
-    # Uniform Density (default on): a cap with many points is laid as ring + lattice
-    assert kernels == ["holed", "holed", "ruled"], kernels
-    cap = next(f for f in log if f["kernel"] == "holed")
+    # Uniform Density (default on): a round cap is laid as a relaxed quad grid
+    assert kernels == ["pgrid", "pgrid", "ruled"], kernels
+    cap = next(f for f in log if f["kernel"] == "pgrid")
     tried = dict(cap["tried"])
     assert "ruled" in tried and "grid" in tried, f"the cap should say why ruled / grid declined: {cap}"
     text = report_text(rep)
