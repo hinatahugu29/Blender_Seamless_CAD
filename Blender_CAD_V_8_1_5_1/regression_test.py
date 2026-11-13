@@ -2542,21 +2542,20 @@ def t_quad_bake_uniform_cylinder_rows():
         bm, rep, _ = _quad_bake_mesh(col, uniform=uni)
         try:
             _assert_quad_bake_sound(bm, rep, f"cylinder uniform={uni}")
-            walls = [f for f in bm.faces if len(f.verts) == 4]
-            n_tri = sum(1 for f in bm.faces if len(f.verts) == 3)
-            assert n_tri == 0, f"uniform={uni}: {n_tri} triangles on the wall"
+            wall = [f for f in rep["face_log"] if f["kernel"] == "ruled"]
+            assert len(wall) == 1 and wall[0]["tris"] == 0, f"uniform={uni}: wall {wall}"
             zs = sorted({round(v.co.z, 6) for v in bm.verts})
             if not uni:
                 assert len(zs) == 2, f"uniform off should keep one row, z levels {zs}"
             else:
                 rows = len(zs) - 1
-                ring = max(len(f.verts) for f in bm.faces)
+                ring = len([v for v in bm.verts if abs(v.co.z - zs[-1]) < 1e-6 and abs(v.co.xy.length - 0.5) < 1e-6])
                 pitch = 2 * _m.pi * 0.5 / ring
                 height = (zs[-1] - zs[0]) / rows
                 assert rows > 1, "uniform: the wall was not cut along its length"
                 assert 0.5 < height / pitch < 2.0, f"rows {rows}: row height {height} vs rim pitch {pitch}"
             vol = bm.calc_volume(signed=True)
-            ring = max(len(f.verts) for f in bm.faces)
+            ring = len([v for v in bm.verts if abs(v.co.z - zs[-1]) < 1e-6 and abs(v.co.xy.length - 0.5) < 1e-6])
             want = 0.5 * ring * 0.25 * _m.sin(2 * _m.pi / ring) * (zs[-1] - zs[0])   # inscribed prism
             assert abs(vol - want) < 1e-3, f"volume {vol} vs prism {want}"
         finally:
@@ -2590,6 +2589,47 @@ def t_quad_bake_uniform_dense_plane_is_lattice():
         bpy.data.meshes.remove(me)
     assert big[False] > 8, f"uniform off: the notched face should stay an n-gon ({big[False]})"
     assert big[True] <= 8, f"uniform on: a polygon with {big[True]} corners is left"
+
+
+def t_quad_bake_uniform_spreads_to_box_sides():
+    """Quad Bake Uniform Density: 天面に穴のある箱では、側面の縦の辺も刻まれ
+    (細い扇にならない)、円柱の天面は外周の quad の輪+格子になる。"""
+    col, props = _fresh_part()
+    bpy.ops.seamless.add_primitive(type='BOX')
+    bpy.ops.seamless.add_primitive(type='CYLINDER')
+    props = utils_props()
+    props.primitives[1].operation = 'SUB'
+    props.primitives[1].size = (0.3, 0.3, 0.3)
+    props.primitives[1].location = (0.0, 0.0, 0.5)
+    from CAD_8_1_5_1 import core_bridge
+    core_bridge.update_cad_preview_forced(bpy.context)
+    data = core_bridge.get_core().quad_topology(int(col.seamless_cad_stack_ptr), 0.01, True)
+    flat = data["verts"]
+    vertical = []
+    for r in data["edges"]:
+        a, b = r[1], r[-1]
+        pa, pb = flat[3 * a:3 * a + 3], flat[3 * b:3 * b + 3]
+        if abs(pa[0] - pb[0]) < 1e-6 and abs(pa[1] - pb[1]) < 1e-6 and abs(abs(pa[0]) - 0.5) < 1e-6:
+            vertical.append(len(r) - 2)
+    assert len(vertical) == 4, f"expected the 4 box corners, got {vertical}"
+    assert min(vertical) > 1, f"vertical box edges were not cut: {vertical}"
+    me, rep = _quad_bake_blender_mesh(col, uniform=True)
+    try:
+        quads = sum(1 for p in me.polygons if len(p.vertices) == 4)
+        assert quads > 0.7 * len(me.polygons), f"{quads} quads of {len(me.polygons)}"
+        assert max(len(p.vertices) for p in me.polygons) <= 8
+    finally:
+        bpy.data.meshes.remove(me)
+
+    col, props = _fresh_part()
+    bpy.ops.seamless.add_primitive(type='CYLINDER')
+    me, rep = _quad_bake_blender_mesh(col, uniform=True)
+    try:
+        assert max(len(p.vertices) for p in me.polygons) <= 8, "cap stayed one n-gon"
+        quads = sum(1 for p in me.polygons if len(p.vertices) == 4)
+        assert quads > 0.7 * len(me.polygons), f"{quads} quads of {len(me.polygons)}"
+    finally:
+        bpy.data.meshes.remove(me)
 
 
 def t_quad_bake_box_is_six_ngons():
@@ -3142,8 +3182,9 @@ def t_quad_bake_reports_every_face():
     log = rep["face_log"]
     assert len(log) == rep["faces"] == 3, f"one entry per CAD face expected: {log}"
     kernels = sorted(f["kernel"] for f in log)
-    assert kernels == ["ngon", "ngon", "ruled"], kernels
-    cap = next(f for f in log if f["kernel"] == "ngon")
+    # Uniform Density (default on): a cap with many points is laid as ring + lattice
+    assert kernels == ["holed", "holed", "ruled"], kernels
+    cap = next(f for f in log if f["kernel"] == "holed")
     tried = dict(cap["tried"])
     assert "ruled" in tried and "grid" in tried, f"the cap should say why ruled / grid declined: {cap}"
     text = report_text(rep)
@@ -3716,6 +3757,7 @@ def main():
     check("quad bake: radius classes share one ring", t_quad_bake_radius_classes_share_one_ring)
     check("quad bake: uniform cylinder rows", t_quad_bake_uniform_cylinder_rows)
     check("quad bake: uniform dense plane is a lattice", t_quad_bake_uniform_dense_plane_is_lattice)
+    check("quad bake: uniform spreads to box sides", t_quad_bake_uniform_spreads_to_box_sides)
     check("quad bake: UV, seams and sharp edges", t_quad_bake_uv_seams_and_sharp)
     check("quad bake: join triangles", t_quad_bake_join_triangles)
     check("vendored blossom is optimal", t_vendored_blossom_is_optimal)

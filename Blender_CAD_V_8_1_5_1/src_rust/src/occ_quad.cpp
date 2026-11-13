@@ -620,27 +620,34 @@ std::string quad_topology_json(void* stack_ptr, double tol, bool uniform) {
                 if (ei > 0) locked[ei] = 1;
             }
         }
-        for (int fi = 1; fi <= fm.Extent(); ++fi) {
-            TopoDS_Face ff = TopoDS::Face(fm.FindKey(fi).Oriented(TopAbs_FORWARD));
-            try {
-                if (BRepAdaptor_Surface(ff, Standard_False).GetType() != GeomAbs_Plane) continue;
-                double dl = 0.0; int dn = 0;
-                std::vector<int> lines;
-                for (TopExp_Explorer ex(ff, TopAbs_EDGE); ex.More(); ex.Next()) {
-                    int ei = em.FindIndex(ex.Current());
-                    if (ei < 1 || degen[ei]) continue;
-                    bool is_line = BRepAdaptor_Curve(TopoDS::Edge(ex.Current())).GetType() == GeomAbs_Line;
-                    if (is_line && !locked[ei]) { lines.push_back(ei); continue; }
-                    if (nspan[ei] > 1) { dl += elen[ei]; dn += nspan[ei]; }
-                }
-                if (dn == 0) continue;
-                double step = dl / dn;
-                if (!(step > 1e-9)) continue;
-                for (int ei : lines) {
-                    int want = std::max(1, std::min(64, (int)std::lround(elen[ei] / step)));
-                    if (want > nspan[ei]) nspan[ei] = want;
-                }
-            } catch (...) {}
+        // Every edge already cut (curves, rulings, a holed plate's sides) is a
+        // source of pitch; repeat so the pitch spreads face to face (the box
+        // around a bored top: top edges -> vertical edges -> bottom edges).
+        for (int round = 0; round < 16; ++round) {
+            bool moved = false;
+            for (int fi = 1; fi <= fm.Extent(); ++fi) {
+                TopoDS_Face ff = TopoDS::Face(fm.FindKey(fi).Oriented(TopAbs_FORWARD));
+                try {
+                    if (BRepAdaptor_Surface(ff, Standard_False).GetType() != GeomAbs_Plane) continue;
+                    double dl = 0.0; int dn = 0;
+                    std::vector<int> lines;
+                    for (TopExp_Explorer ex(ff, TopAbs_EDGE); ex.More(); ex.Next()) {
+                        int ei = em.FindIndex(ex.Current());
+                        if (ei < 1 || degen[ei]) continue;
+                        bool is_line = BRepAdaptor_Curve(TopoDS::Edge(ex.Current())).GetType() == GeomAbs_Line;
+                        if (is_line && !locked[ei]) lines.push_back(ei);
+                        if (nspan[ei] > 1) { dl += elen[ei]; dn += nspan[ei]; }
+                    }
+                    if (dn == 0) continue;
+                    double step = dl / dn;
+                    if (!(step > 1e-9)) continue;
+                    for (int ei : lines) {
+                        int want = std::max(1, std::min(64, (int)std::lround(elen[ei] / step)));
+                        if (want > nspan[ei]) { nspan[ei] = want; moved = true; }
+                    }
+                } catch (...) {}
+            }
+            if (!moved) break;
         }
         // a plane whose straight edges ended up cut (by itself or a neighbour)
         // is laid as a lattice; an all-curve outline (a cylinder cap) stays an n-gon

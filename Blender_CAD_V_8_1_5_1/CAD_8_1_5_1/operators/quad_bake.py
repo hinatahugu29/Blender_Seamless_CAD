@@ -85,7 +85,7 @@ def _fill_ngon(face, why=None, uniform=False):
     if len(loops) != 1:
         return _no(why, "the plane has holes")
     loop = loops[0]
-    if uniform and face.get("lattice") and len(loop) > NGON_MAX_UNIFORM:
+    if uniform and len(loop) > NGON_MAX_UNIFORM:
         return _no(why, "uniform density: the outline has %d points, laid as a lattice" % len(loop))
     poly = _dedup_cyclic([_corner(face, p) for p in loop])
     vids = [c[0] for c in poly]
@@ -509,17 +509,21 @@ def _fill_holed_plane(face, verts3d, extra_verts, n_cad, stats, max_steiner=2000
     region_loops = [outer]          # loops for the triangulation, as [vid, u, v]
     region_xy = [xy[0]]
     steps = []
-    for hi in range(1, len(loops)):
+    # plain (uniform density): the OUTER outline gets an inward quad ring too
+    for hi in ([0] if plain else []) + list(range(1, len(loops))):
         H = loops[hi]
         R = xy[hi]
         k = len(R)
         if k < 3:
-            region_loops.append(H); region_xy.append(R)
+            if hi:
+                region_loops.append(H); region_xy.append(R)
             continue
         seglen = [((R[(q + 1) % k][0] - R[q][0]) ** 2 + (R[(q + 1) % k][1] - R[q][1]) ** 2) ** 0.5 for q in range(k)]
         step = sum(seglen) / k
         steps.append(step)
         sign = 1.0 if _signed_area(R) > 0.0 else -1.0
+        if hi == 0:
+            sign = -sign                    # into the material = inward for the outer loop
         dirs = []
         for q in range(k):
             ax, ay = R[q - 1]; bx, by = R[q]; cx, cy = R[(q + 1) % k]
@@ -551,8 +555,11 @@ def _fill_holed_plane(face, verts3d, extra_verts, n_cad, stats, max_steiner=2000
                         break
                 if not ok:
                     break
+        if ok and hi == 0:
+            ok = all(_inside(x, y, [R]) for x, y in ring)
         if not ok:
-            region_loops.append(H); region_xy.append(R)
+            if hi:
+                region_loops.append(H); region_xy.append(R)
             stats["hole_rings_skipped"] = stats.get("hole_rings_skipped", 0) + 1
             if why is not None:
                 why.append("note: hole %d got no quad ring (gap %.4g < a quarter of its step %.4g, "
@@ -571,8 +578,13 @@ def _fill_holed_plane(face, verts3d, extra_verts, n_cad, stats, max_steiner=2000
             if face["rev"]:
                 quad.reverse()
             polys.append(quad)
-        region_loops.append([[rv[q], ring[q][0] / su, ring[q][1] / sv] for q in range(k)])
-        region_xy.append(ring)
+        ring_loop = [[rv[q], ring[q][0] / su, ring[q][1] / sv] for q in range(k)]
+        if hi == 0:
+            region_loops[0] = ring_loop
+            region_xy[0] = ring
+        else:
+            region_loops.append(ring_loop)
+            region_xy.append(ring)
         stats["hole_rings"] = stats.get("hole_rings", 0) + 1
 
     # interior lattice at the holes' step, kept half a step off every boundary
@@ -682,7 +694,7 @@ def build_quad_mesh_uv(data):
             ("grid", lambda w: _fill_coons(face, len(verts3d), extra, why=w)),
             ("ngon", lambda w: _fill_ngon(face, why=w, uniform=uniform)),
             ("holed", lambda w: _fill_holed_plane(face, verts3d, extra, n_cad, stats, why=w,
-                                                 plain=uniform and bool(face.get("lattice")))),
+                                                 plain=uniform)),
         )
         out = None
         notes = []
