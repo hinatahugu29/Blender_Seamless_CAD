@@ -1036,7 +1036,7 @@ def generate_mesh(stack_ptr, deflection, angular_deflection):
     }
     return send_and_receive(req_dict)
 
-def quad_topology(stack_ptr, tol, uniform=False):
+def quad_topology(stack_ptr, tol, uniform=False, spans=None):
     """Quad Bake P0: the shape's topology with shared edge samples as a dict
     (see src_rust/src/occ_quad.cpp for the schema), or None."""
     req_dict = {
@@ -1044,6 +1044,7 @@ def quad_topology(stack_ptr, tol, uniform=False):
         "stack_ptr": stack_ptr,
         "tol": float(tol),
         "uniform": bool(uniform),
+        "spans": [float(x) for x in (spans or [])],   # 2-1: flat (x, y, z, n) * k
     }
     return send_and_receive(req_dict)
 

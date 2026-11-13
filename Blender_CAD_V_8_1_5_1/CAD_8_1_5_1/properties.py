@@ -830,6 +830,26 @@ class SeamlessProperties(bpy.types.PropertyGroup):
         ],
         default='TRIS',
     )
+    quad_bake_subd: bpy.props.BoolProperty(
+        name="Subdivision Ready",
+        description="Crease the sharp edges and add a Subdivision Surface modifier to the baked mesh",
+        default=False,
+    )
+    quad_bake_pair: bpy.props.BoolProperty(
+        name="Low / High Pair",
+        description="Also bake a dense copy (a quarter of the tolerance) with the same UV layout, for normal baking",
+        default=False,
+    )
+    quad_bake_pole_quads: bpy.props.BoolProperty(
+        name="Quad Poles",
+        description="Pair the triangle fans at the poles of spheres into quads (kites)",
+        default=False,
+    )
+    quad_span_overrides: bpy.props.StringProperty(
+        name="Quad Span Overrides",
+        description="Per-edge span counts set from a baked mesh: x,y,z,n;...",
+        default="",
+    )
     quad_bake_uniform: bpy.props.BoolProperty(
         name="Uniform Density",
         description="Cut cylinder walls into rows at their rim pitch and lay dense planes as a quad lattice "

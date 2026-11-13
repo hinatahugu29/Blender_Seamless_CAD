@@ -2,7 +2,7 @@ from .primitives import SEAMLESS_OT_AddPrimitive, SEAMLESS_OT_AddDynamicLoftHole
 from .part import SEAMLESS_OT_StartCAD, SEAMLESS_OT_AddPart, SEAMLESS_OT_RemovePart, SEAMLESS_OT_GetVersion, SEAMLESS_OT_MeasurePart, SEAMLESS_OT_MeasureSelected
 from .management import SEAMLESS_OT_RemovePrimitive, SEAMLESS_OT_SetActivePrimitive, SEAMLESS_OT_DuplicatePrimitive, SEAMLESS_OT_PickActiveAsTarget, SEAMLESS_OT_PickTargetModal, SEAMLESS_OT_ImportStep, SEAMLESS_OT_ImportSvg, SEAMLESS_OT_ExportStep, SEAMLESS_OT_ExportStl, SEAMLESS_OT_ExportIges, SEAMLESS_OT_SeparateByBase, SEAMLESS_OT_SetRollbackIndex, SEAMLESS_OT_GroupSelection, SEAMLESS_OT_ToggleFilletEdgeDefault, SEAMLESS_OT_EditSketch, SEAMLESS_OT_ForceRecompute
 from .transform import SEAMLESS_OT_InteractivePlacement, SEAMLESS_OT_InteractiveTransform
-from .bake import SEAMLESS_OT_BakeMesh, SEAMLESS_OT_CopyQuadBakeReport
+from .bake import SEAMLESS_OT_BakeMesh, SEAMLESS_OT_CopyQuadBakeReport, SEAMLESS_OT_QuadBakeSetSpans, SEAMLESS_OT_QuadBakeClearSpans
 from .ops_visual_snap import CAD_OT_visual_snap
 from .ops_offset_pick import SEAMLESS_OT_InteractiveOffsetPick
 from .parameters import SEAMLESS_OT_AddParameter, SEAMLESS_OT_RemoveParameter, SEAMLESS_OT_AddBinding, SEAMLESS_OT_RemoveBinding
@@ -44,6 +44,8 @@ __all__ = [
     'SEAMLESS_OT_InteractiveTransform',
     'SEAMLESS_OT_BakeMesh',
     'SEAMLESS_OT_CopyQuadBakeReport',
+    'SEAMLESS_OT_QuadBakeSetSpans',
+    'SEAMLESS_OT_QuadBakeClearSpans',
     'CAD_OT_visual_snap',
     'SEAMLESS_OT_InteractiveOffsetPick',
 ]

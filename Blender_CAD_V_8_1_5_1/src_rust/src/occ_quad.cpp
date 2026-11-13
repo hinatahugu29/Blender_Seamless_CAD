@@ -240,7 +240,10 @@ struct RuledFace {
 RuledFace analyse_ruled(const TopoDS_Face& ff, const TopTools_IndexedMapOfShape& em) {
     RuledFace r;
     BRepAdaptor_Surface sa(ff, Standard_False);
-    if (sa.GetType() != GeomAbs_Cylinder && sa.GetType() != GeomAbs_Cone) return r;
+    // 3-2: a surface of extrusion is ruled the same way (its rulings are the
+    // extrusion direction, u = const in the pcurve), treated like a cylinder
+    if (sa.GetType() != GeomAbs_Cylinder && sa.GetType() != GeomAbs_Cone
+        && sa.GetType() != GeomAbs_SurfaceOfExtrusion) return r;
     int nw = 0;
     for (TopExp_Explorer wx(ff, TopAbs_WIRE); wx.More(); wx.Next()) ++nw;
     if (nw != 1) return r;
@@ -359,7 +362,7 @@ CoonsFace analyse_coons(const TopoDS_Face& ff, const TopTools_IndexedMapOfShape&
 
 }  // namespace
 
-std::string quad_topology_json(void* stack_ptr, double tol, bool uniform) {
+std::string quad_topology_json(void* stack_ptr, double tol, bool uniform, const double* spans, int n_spans) {
     CADStack* stack = static_cast<CADStack*>(stack_ptr);
     if (!stack || stack->current_shape.IsNull()) return std::string();
     if (!(tol > 0.0)) tol = 0.01;
@@ -418,6 +421,46 @@ std::string quad_topology_json(void* stack_ptr, double tol, bool uniform) {
                 nspan[arcs[q].i] = std::min(kMaxSpans, n);
             }
             k = m;
+        }
+    }
+
+    // ── 2-1: user span overrides ─────────────────────────────────────────────
+    // Each override is (x, y, z, n): the centre of the bounding box of a CAD
+    // edge, as recorded from a baked mesh, and the span count the user wants.
+    // It goes to the nearest edge (by the same bounding-box centre) within a
+    // quarter of that edge's length. The constraints below may still RAISE it
+    // (the other rim of a wall, the opposite side of a grid) -- never lower.
+    int n_overrides_applied = 0;
+    if (spans && n_spans > 0) {
+        std::vector<gp_Pnt> ectr(em.Extent() + 1);
+        for (int i = 1; i <= em.Extent(); ++i) {
+            if (degen[i]) continue;
+            try {
+                BRepAdaptor_Curve c(TopoDS::Edge(em.FindKey(i)));
+                double f = c.FirstParameter(), l = c.LastParameter();
+                double lo[3] = {1e300, 1e300, 1e300}, hi[3] = {-1e300, -1e300, -1e300};
+                for (int k = 0; k <= 64; ++k) {
+                    gp_Pnt p = c.Value(f + (l - f) * k / 64.0);
+                    double q[3] = {p.X(), p.Y(), p.Z()};
+                    for (int a = 0; a < 3; ++a) { lo[a] = std::min(lo[a], q[a]); hi[a] = std::max(hi[a], q[a]); }
+                }
+                ectr[i] = gp_Pnt(0.5 * (lo[0] + hi[0]), 0.5 * (lo[1] + hi[1]), 0.5 * (lo[2] + hi[2]));
+            } catch (...) {}
+        }
+        for (int o = 0; o < n_spans; ++o) {
+            gp_Pnt want(spans[4 * o], spans[4 * o + 1], spans[4 * o + 2]);
+            int n = std::max(1, std::min(256, (int)std::lround(spans[4 * o + 3])));
+            int best = -1;
+            double bd = 1e300;
+            for (int i = 1; i <= em.Extent(); ++i) {
+                if (degen[i]) continue;
+                double d = ectr[i].Distance(want);
+                if (d < bd) { bd = d; best = i; }
+            }
+            if (best > 0 && bd <= 0.25 * std::max(elen[best], 1e-9) + 1e-7) {
+                nspan[best] = n;
+                ++n_overrides_applied;
+            }
         }
     }
 
@@ -760,6 +803,7 @@ std::string quad_topology_json(void* stack_ptr, double tol, bool uniform) {
     out += "{\"version\":1,\"tol\":";
     jnum(out, tol);
     out += uniform ? ",\"uniform\":true" : ",\"uniform\":false";
+    out += ",\"overrides_applied\":" + std::to_string(n_overrides_applied);
     out += ",\"faces\":[";
 
     // ── faces ─────────────────────────────────────────────────────────────
@@ -1106,9 +1150,9 @@ std::string quad_topology_json(void* stack_ptr, double tol, bool uniform) {
     return out;
 }
 
-void quad_topology(void* stack_ptr, double tol, int uniform, void* str_vec, PushStringFn ps) {
+void quad_topology(void* stack_ptr, double tol, int uniform, const double* spans, int n_spans, void* str_vec, PushStringFn ps) {
     try {
-        std::string s = quad_topology_json(stack_ptr, tol, uniform != 0);
+        std::string s = quad_topology_json(stack_ptr, tol, uniform != 0, spans, n_spans);
         if (!s.empty()) ps(str_vec, s.c_str());
     } catch (...) {}
 }

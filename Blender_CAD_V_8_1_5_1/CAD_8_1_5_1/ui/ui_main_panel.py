@@ -116,6 +116,16 @@ class SEAMLESS_PT_QualityBakePanel(bpy.types.Panel):
             sub.prop(props, "quad_bake_tol", text="Quad Tol")
             box_q.prop(props, "quad_bake_uniform", toggle=True)
             row = box_q.row(align=True)
+            row.prop(props, "quad_bake_subd", toggle=True)
+            row.prop(props, "quad_bake_pair", toggle=True)
+            row.prop(props, "quad_bake_pole_quads", toggle=True)
+            row = box_q.row(align=True)
+            row.operator("seamless.quad_bake_set_spans", text="Set Edge Spans", icon='EDGESEL')
+            n_ov = len([x for x in props.quad_span_overrides.split(";") if x.strip()])
+            sub = row.row(align=True)
+            sub.enabled = n_ov > 0
+            sub.operator("seamless.quad_bake_clear_spans", text="Clear (%d)" % n_ov, icon='X')
+            row = box_q.row(align=True)
             row.prop(props, "quad_bake_join_tris", text="Join Tris", toggle=True)
             row.prop(props, "quad_bake_sharp_mode", text="")
             if props.quad_bake_sharp_mode == 'ANGLE':

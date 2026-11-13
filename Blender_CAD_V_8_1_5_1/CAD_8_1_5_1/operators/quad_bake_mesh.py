@@ -172,12 +172,13 @@ def mesh_quality(bm, cad_pairs, rep):
     if len(L) >= 20 and L[-(len(L) // 20) - 1] > 0.0:
         ratio = L[len(L) // 20] / L[-(len(L) // 20) - 1]
     n = max(1, len(bm.faces))
+    open_edges = sum(1 for e in bm.edges if len(e.link_faces) == 1)   # 3-4
     return {"quad_pct": round(100.0 * rep["quads"] / n, 1), "poles": poles,
-            "edge_p5_p95": round(ratio, 3)}
+            "edge_p5_p95": round(ratio, 3), "open_edges": open_edges}
 
 
 def make_quad_bake_mesh(name, data, join_tris=True, sharp_angle_deg=30.0, join_shape_deg=60.0,
-                        sharp_mode='CAD'):
+                        sharp_mode='CAD', crease=False):
     """Build and return (mesh, report) from a quad_topology dict, or
     (None, report) when nothing could be filled."""
     verts, polys, poly_face, poly_uvs, rep = build_quad_mesh_uv(data)
@@ -201,6 +202,17 @@ def make_quad_bake_mesh(name, data, join_tris=True, sharp_angle_deg=30.0, join_s
     bm = bmesh.new()
     bm.from_mesh(me)
     bm.normal_update()
+    # 2-1: which CAD edge each mesh edge lies on (-1: inside a face)
+    edge_of = {}
+    for k, rec in enumerate(data.get("edges", [])):
+        vids = rec[1:]
+        for a, b in zip(vids, vids[1:]):
+            if a != b:
+                edge_of[frozenset((a, b))] = k
+    cad_lay = bm.edges.layers.int.new("cad_edge")
+    for e in bm.edges:
+        e[cad_lay] = edge_of.get(frozenset((e.verts[0].index, e.verts[1].index)), -1)
+    sharp_edges = []
     limit = math.radians(sharp_angle_deg)
     for e in bm.edges:
         key = frozenset((e.verts[0].index, e.verts[1].index))
@@ -219,6 +231,7 @@ def make_quad_bake_mesh(name, data, join_tris=True, sharp_angle_deg=30.0, join_s
         if sharp:
             e.smooth = False
             n_sharp += 1
+            sharp_edges.append(e)
     rep["sharp"] = n_sharp
     for f in bm.faces:
         f.smooth = True
@@ -229,7 +242,14 @@ def make_quad_bake_mesh(name, data, join_tris=True, sharp_angle_deg=30.0, join_s
     rep["tris"] = sizes.count(3)
     rep["ngons"] = len(sizes) - rep["quads"] - rep["tris"]
     rep["quality"] = mesh_quality(bm, cad_pairs, rep)
+    sharp_keys = {frozenset((e.verts[0].index, e.verts[1].index)) for e in sharp_edges if e.is_valid}
     bm.to_mesh(me)
     bm.free()
     me.update()
+    if crease and sharp_keys:
+        # 2-3: subdivision keeps the CAD creases sharp
+        attr = me.attributes.get("crease_edge") or me.attributes.new("crease_edge", 'FLOAT', 'EDGE')
+        vals = [1.0 if frozenset(e.vertices) in sharp_keys else 0.0 for e in me.edges]
+        attr.data.foreach_set("value", vals)
+        rep["creased"] = int(sum(vals))
     return me, rep

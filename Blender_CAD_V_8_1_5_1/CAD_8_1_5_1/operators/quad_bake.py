@@ -280,7 +280,7 @@ def _fill_cone_rows(face, loop, rs, na, nb, nr, rows, base, extra_verts, why):
     return _orient_poly(face, _signed_area([(p[1], p[2]) for p in loop]), polys)
 
 
-def _fill_coons(face, base, extra_verts, why=None):
+def _fill_coons(face, base, extra_verts, why=None, pole_quads=False):
     """K4: a four-sided curved face as an n x m quad grid. The kernel found
     the four sides, made opposite sides carry the same span count, blended the
     boundary in UV (Coons) and evaluated the interior on the surface
@@ -330,7 +330,53 @@ def _fill_coons(face, base, extra_verts, why=None):
             if len(q) < 3 or len(set(vids)) != len(vids):
                 continue
             polys.append(q)
+    if pole_quads:
+        polys = _pair_pole_fans(polys)
     return _orient_poly(face, _signed_area([(p[1], p[2]) for p in loop]), polys)
+
+
+def _pair_pole_fans(polys):
+    """1-5: the triangles around a pole (one vertex shared by a whole fan) are
+    paired with their neighbour into a kite quad (pole, a, b, c). A fan with an
+    odd count keeps one triangle."""
+    fans = {}
+    for k, q in enumerate(polys):
+        if len(q) == 3:
+            for c in q:
+                fans.setdefault(c[0], []).append(k)
+    used = set()
+    out_extra = []
+    for pole, ks in fans.items():
+        if len(ks) < 6:
+            continue
+        nxt = {}
+        tri_of = {}
+        for k in ks:
+            if k in used:
+                continue
+            q = polys[k]
+            r = [c[0] for c in q].index(pole)
+            q = q[r:] + q[:r]                  # (pole, a, b), winding kept
+            nxt[q[1][0]] = (q[2], k)
+            tri_of[k] = q
+        # walk the fan in order, pairing (a->b) with (b->c)
+        starts = [a for a in nxt if not any(b[0][0] == a for b in nxt.values())] or list(nxt)[:1]
+        a = starts[0]
+        seen = set()
+        while a in nxt and a not in seen:
+            seen.add(a)
+            b, k1 = nxt[a]
+            if b[0] not in nxt:
+                break
+            c, k2 = nxt[b[0]]
+            if k1 in used or k2 in used or k1 == k2:
+                break
+            t1 = tri_of[k1]
+            used.update((k1, k2))
+            out_extra.append([t1[0], t1[1], b, c])
+            seen.add(b[0])
+            a = c[0]
+    return [q for k, q in enumerate(polys) if k not in used] + out_extra
 
 
 def _orient(a, b, c):
@@ -880,7 +926,8 @@ def build_quad_mesh_uv(data):
         kernel = None
         ladder = (
             ("ruled", lambda w: _fill_ruled(face, len(verts3d), extra, why=w)),
-            ("grid", lambda w: _fill_coons(face, len(verts3d), extra, why=w)),
+            ("grid", lambda w: _fill_coons(face, len(verts3d), extra, why=w,
+                                           pole_quads=bool(data.get("pole_quads")))),
             ("ngon", lambda w: _fill_ngon(face, why=w, uniform=uniform)),
             ("holed", lambda w: _fill_holed_plane(face, verts3d, extra, n_cad, stats, why=w,
                                                  plain=uniform)),
@@ -968,6 +1015,12 @@ def report_text(rep, title="Quad Bake report"):
     if q:
         lines.append("quality: %.1f%% quads, %d poles (inner vertices with valence != 4), "
                      "edge length p5/p95 %.3f" % (q["quad_pct"], q["poles"], q["edge_p5_p95"]))
+        if q.get("open_edges"):
+            lines.append("open shape: %d boundary edges -- the part is a sheet, not a closed solid"
+                         % q["open_edges"])
+    if rep.get("overrides_given"):
+        lines.append("edge span overrides: %d of %d matched a CAD edge"
+                     % (rep.get("overrides_applied", 0), rep["overrides_given"]))
     lines.append("")
     for f in rep.get("face_log", []):
         line = ("F%-4d %-10s -> %-9s %4d polys (%d quads, %d tris)"

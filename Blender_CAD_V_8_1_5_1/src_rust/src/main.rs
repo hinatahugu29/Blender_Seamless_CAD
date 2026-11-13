@@ -418,7 +418,10 @@ fn handle_client(mut stream: TcpStream, workers: StackWorkers) {
             let stack_ptr = req["stack_ptr"].as_i64().unwrap_or(0) as isize;
             let tol       = req["tol"].as_f64().unwrap_or(0.01);
             let uniform   = req["uniform"].as_bool().unwrap_or(false);
-            match seamless_core::quad_topology(stack_ptr, tol, uniform) {
+            let spans: Vec<f64> = req["spans"].as_array()
+                .map(|a| a.iter().filter_map(|x| x.as_f64()).collect())
+                .unwrap_or_default();
+            match seamless_core::quad_topology(stack_ptr, tol, uniform, &spans) {
                 Ok(js) => {
                     stream.write_all(&[1u8]).unwrap();
                     let jb = js.into_bytes();

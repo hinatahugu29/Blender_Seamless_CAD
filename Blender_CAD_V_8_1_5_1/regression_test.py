@@ -2787,6 +2787,84 @@ def t_quad_bake_graded_rings():
         bpy.data.meshes.remove(me)
 
 
+def t_quad_bake_phase2_options():
+    """Quad Bake 2-1 / 2-3 / 2-4 / 1-5 / 3-4:
+    2-1 辺の位置で指定した分割数がその辺に入る(対の辺も上がる)。
+    2-3 Subdivision Ready でシャープの辺に crease が入る。
+    2-4 Low / High の 2 体ができ、High の方が細かい。
+    1-5 Quad Poles で球の極の三角形が kite の quad にまとまる。
+    3-4 開いた形状(GEAR)はレポートで open になる。"""
+    import json
+    from CAD_8_1_5_1 import core_bridge
+    from CAD_8_1_5_1.operators.quad_bake_mesh import make_quad_bake_mesh
+    from CAD_8_1_5_1.operators.bake import parse_span_overrides
+    # 2-1
+    col, props = _fresh_part()
+    bpy.ops.seamless.add_primitive(type='CYLINDER')
+    core_bridge.update_cad_preview_forced(bpy.context)
+    ptr = int(col.seamless_cad_stack_ptr)
+    d0 = core_bridge.get_core().quad_topology(ptr, 0.01)
+    flat = d0["verts"]
+    rims = [r for r in d0["edges"] if r[1] == r[-1] and len(r) > 4]
+    rim = rims[0]
+    P = [flat[3 * v:3 * v + 3] for v in rim[1:]]
+    c = [0.5 * (min(p[a] for p in P) + max(p[a] for p in P)) for a in range(3)]
+    want = (len(rim) - 2) + 12
+    ov = parse_span_overrides("%f,%f,%f,%d" % (c[0], c[1], c[2], want))
+    d1 = core_bridge.get_core().quad_topology(ptr, 0.01, False, ov)
+    assert d1["overrides_applied"] == 1, d1.get("overrides_applied")
+    rims1 = [len(r) - 2 for r in d1["edges"] if r[1] == r[-1] and len(r) > 4]
+    assert all(n == want for n in rims1), f"override {want} not on both rims: {rims1}"
+    # 2-3
+    me, rep = make_quad_bake_mesh("QB_crease", d0, crease=True)
+    try:
+        assert rep.get("creased", 0) == rep["sharp"] > 0, (rep.get("creased"), rep["sharp"])
+        assert "cad_edge" in me.attributes, "cad_edge layer missing"
+    finally:
+        bpy.data.meshes.remove(me)
+    # 2-4
+    props = utils_props()
+    props.bake_topology = 'QUAD'
+    props.quad_bake_pair = True
+    before = set(bpy.data.objects.keys())
+    assert bpy.ops.seamless.bake_mesh() == {'FINISHED'}
+    new = sorted(n for n in set(bpy.data.objects.keys()) - before if bpy.data.objects[n].type == 'MESH')
+    lows = [n for n in new if "_low" in n]
+    highs = [n for n in new if "_high" in n]
+    assert lows and highs, new
+    assert len(bpy.data.objects[highs[0]].data.polygons) > len(bpy.data.objects[lows[0]].data.polygons)
+    props.quad_bake_pair = False
+    # 1-5
+    col, props = _fresh_part()
+    bpy.ops.seamless.add_primitive(type='SPHERE')
+    core_bridge.update_cad_preview_forced(bpy.context)
+    d = core_bridge.get_core().quad_topology(int(col.seamless_cad_stack_ptr), 0.01)
+    tris = {}
+    for flag in (False, True):
+        dd = json.loads(json.dumps(d))
+        dd["pole_quads"] = flag
+        me, rep = make_quad_bake_mesh("QB_pole", dd, join_tris=False)
+        try:
+            import bmesh
+            bm = bmesh.new(); bm.from_mesh(me)
+            assert not [e for e in bm.edges if not e.is_manifold], "pole quads opened the sphere"
+            bm.free()
+            tris[flag] = sum(1 for p in me.polygons if len(p.vertices) == 3)
+        finally:
+            bpy.data.meshes.remove(me)
+    assert tris[True] < tris[False] // 2 + 2, f"pole fans not paired: {tris}"
+    # 3-4
+    col, props = _fresh_part()
+    bpy.ops.seamless.add_primitive(type='GEAR')
+    core_bridge.update_cad_preview_forced(bpy.context)
+    d = core_bridge.get_core().quad_topology(int(col.seamless_cad_stack_ptr), 0.01)
+    me, rep = make_quad_bake_mesh("QB_open", d)
+    try:
+        assert rep["quality"]["open_edges"] > 0, rep["quality"]
+    finally:
+        bpy.data.meshes.remove(me)
+
+
 def t_quad_bake_box_is_six_ngons():
     """Quad Bake: 箱は 8 頂点・6 枚の n-gon(四角形)になる。"""
     col, props = _fresh_part()
@@ -3917,6 +3995,7 @@ def main():
     check("quad bake: uniform cone rows", t_quad_bake_uniform_cone_rows)
     check("quad bake: holed cylinder wall", t_quad_bake_holed_cylinder_wall)
     check("quad bake: graded rings", t_quad_bake_graded_rings)
+    check("quad bake: phase 2 options", t_quad_bake_phase2_options)
     check("quad bake: UV, seams and sharp edges", t_quad_bake_uv_seams_and_sharp)
     check("quad bake: join triangles", t_quad_bake_join_triangles)
     check("vendored blossom is optimal", t_vendored_blossom_is_optimal)

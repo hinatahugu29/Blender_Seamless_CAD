@@ -366,6 +366,8 @@ classes = (
     operators.SEAMLESS_OT_GroupSelection,
     operators.SEAMLESS_OT_BakeMesh,
     operators.SEAMLESS_OT_CopyQuadBakeReport,
+    operators.SEAMLESS_OT_QuadBakeSetSpans,
+    operators.SEAMLESS_OT_QuadBakeClearSpans,
     modal_selection.SEAMLESS_OT_SelectionModal,
     sketch.SEAMLESS_OT_StartSketch,
     sketch.SEAMLESS_OT_SketchAction,
