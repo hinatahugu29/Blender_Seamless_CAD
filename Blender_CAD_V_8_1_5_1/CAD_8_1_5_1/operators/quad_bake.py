@@ -866,6 +866,49 @@ def _fill_holed_plane(face, verts3d, extra_verts, n_cad, stats, max_steiner=2000
     def pos3(vid):
         return Vector(verts3d[vid] if vid < base else extra_verts[vid - base])
 
+    # a seam (an edge the outline walks both ways, e.g. a cylinder's seam
+    # ruling through a notch) belongs to this face alone, so it may be cut at
+    # the outline's typical step; left whole, the lattice fans into slivers
+    # along it. Both passes share the new points, keeping the seam closed.
+    dirs_ = set()
+    for L in loops:
+        for k_ in range(len(L)):
+            dirs_.add((L[k_][0], L[(k_ + 1) % len(L)][0]))
+    lens_ = sorted(((L[(k_ + 1) % len(L)][1] - L[k_][1]) ** 2 * su * su
+                    + (L[(k_ + 1) % len(L)][2] - L[k_][2]) ** 2 * sv * sv) ** 0.5
+                   for L in loops for k_ in range(len(L)))
+    typ = lens_[len(lens_) // 2] if lens_ else 0.0
+    cuts = {}
+    if typ > 0.0:
+        new_loops = []
+        for L in loops:
+            NL = []
+            for k_ in range(len(L)):
+                A_, B_ = L[k_], L[(k_ + 1) % len(L)]
+                NL.append(A_)
+                if (B_[0], A_[0]) not in dirs_ or A_[0] == B_[0]:
+                    continue
+                ln_ = ((B_[1] - A_[1]) ** 2 * su * su + (B_[2] - A_[2]) ** 2 * sv * sv) ** 0.5
+                n_ = int(round(ln_ / typ))
+                if n_ < 2:
+                    continue
+                key_ = (min(A_[0], B_[0]), max(A_[0], B_[0]))
+                if key_ not in cuts:
+                    pa, pb = pos3(key_[0]), pos3(key_[1])
+                    vids = []
+                    for t in range(1, n_):
+                        vids.append(base + len(extra_verts))
+                        extra_verts.append(tuple(pa.lerp(pb, t / n_)))
+                    cuts[key_] = vids
+                vids = cuts[key_] if A_[0] == key_[0] else cuts[key_][::-1]
+                for t, vid in enumerate(vids, 1):
+                    f_ = t / n_
+                    NL.append([vid, A_[1] + (B_[1] - A_[1]) * f_, A_[2] + (B_[2] - A_[2]) * f_])
+            new_loops.append(NL)
+        if cuts:
+            loops = new_loops
+            stats["seam_cuts"] = stats.get("seam_cuts", 0) + len(cuts)
+
     # affine frame UV -> 3D from the outer loop: origin + U*a + V*b
     outer = loops[0]
     P = [(p[1] * su, p[2] * sv, pos3(p[0])) for p in outer]
