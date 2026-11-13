@@ -2969,6 +2969,41 @@ def t_quad_bake_changed_faces():
     o3.data.attributes["quad_changed"].data.foreach_get("value", flags)
     assert 0 < sum(flags) < len(flags), "changed polygons not marked"
 
+    # Keep Unchanged Faces: a hand edit on an unchanged face survives the rebake.
+    # Uniform off here: with it on, moving the boss re-spaces the box edges
+    # (the pitch spreads face to face), and then nothing may be kept -- a copy
+    # would not weld. That refusal is the rule, not a failure.
+    props = utils_props()
+    props.quad_bake_uniform = False
+    o3, r3 = bake()
+    import bmesh
+    me3 = o3.data
+    bm = bmesh.new(); bm.from_mesh(me3)
+    lay = bm.faces.layers.int.get("cad_face")
+    # pick a face that will not change below: the bottom of the box (lowest centre)
+    target = min({f[lay] for f in bm.faces}, key=lambda fi: min(
+        f.calc_center_median().z for f in bm.faces if f[lay] == fi))
+    victims = [f for f in bm.faces if f[lay] == target]
+    bmesh.ops.poke(bm, faces=victims[:1])          # the "hand edit": one poked face
+    bm.to_mesh(me3); bm.free()
+    n_edit = sum(1 for p in me3.polygons if p.vertices and True)
+    props = utils_props()
+    props.quad_bake_keep = True
+    props.primitives[1].location = (0.3, 0.0, 0.6)   # move the boss again
+    core_bridge._modifier_interactive_until.clear()
+    core_bridge.update_cad_preview_forced(bpy.context)
+    o4, r4 = bake()
+    props.quad_bake_keep = False
+    props.quad_bake_uniform = True
+    assert target in r4.get("kept_faces", []), f"bottom face {target} not kept: {r4.get('kept_faces')} changed {r4.get('changed_faces')} prev-sigs? {o3.data.get('quad_bake_sigs') is not None}"
+    import bmesh as _b
+    bm = _b.new(); bm.from_mesh(o4.data)
+    assert not [e for e in bm.edges if not e.is_manifold], "kept faces did not weld"
+    lay = bm.faces.layers.int.get("cad_face")
+    tris_on_target = sum(1 for f in bm.faces if f[lay] == target and len(f.verts) == 3)
+    bm.free()
+    assert tris_on_target >= 3, "the hand edit (poked face) was not carried over"
+
 
 def t_quad_bake_box_is_six_ngons():
     """Quad Bake: 箱は 8 頂点・6 枚の n-gon(四角形)になる。"""

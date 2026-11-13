@@ -175,6 +175,10 @@ class SEAMLESS_OT_BakeMesh(bpy.types.Operator):
                     lay.data.foreach_get("value", fidx)
                     attr = mesh.attributes.new("quad_changed", 'BOOLEAN', 'FACE')
                     attr.data.foreach_set("value", [fi in ch for fi in fidx])
+            if prev is not None and getattr(props, "quad_bake_keep", False):
+                from .quad_bake_mesh import keep_unchanged_faces
+                rep["kept_faces"] = keep_unchanged_faces(
+                    mesh, prev, json.loads(prev["quad_bake_sigs"]), sigs, set(rep.get("changed_faces", [])))
             mesh["quad_bake_sigs"] = json.dumps({str(k): v for k, v in sigs.items()})
             mesh["quad_bake_time"] = time.time()
             rep["overrides_applied"] = int(data.get("overrides_applied", 0))

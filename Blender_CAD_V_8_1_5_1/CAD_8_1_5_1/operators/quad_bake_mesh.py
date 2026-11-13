@@ -177,6 +177,87 @@ def mesh_quality(bm, cad_pairs, rep):
             "edge_p5_p95": round(ratio, 3), "open_edges": open_edges}
 
 
+def keep_unchanged_faces(mesh, prev, old_sigs, new_sigs, changed, eps=1e-6):
+    """2-2: replace the polygons of every unchanged CAD face of `mesh` with
+    that face's polygons from the previous bake `prev` (hand edits included).
+
+    A face is swapped only when the old polygons' outline vertices (those on
+    the face's boundary edges) land exactly on the new outline vertices --
+    otherwise a neighbour's edge spacing moved and the copy would not weld.
+    Interior vertices come along as new vertices; UVs, smooth flags and the
+    cad_face attribute are carried. Returns the list of kept face indices."""
+    sig_to_old = {}
+    for k, v in old_sigs.items():
+        sig_to_old.setdefault(v, int(k))
+    nb = bmesh.new(); nb.from_mesh(mesh)
+    ob = bmesh.new(); ob.from_mesh(prev)
+    n_lay = nb.faces.layers.int.get("cad_face")
+    o_lay = ob.faces.layers.int.get("cad_face")
+    n_uv = nb.loops.layers.uv.get("UVMap")
+    o_uv = ob.loops.layers.uv.get("UVMap")
+    if n_lay is None or o_lay is None:
+        nb.free(); ob.free()
+        return []
+    n_faces, o_faces = {}, {}
+    for f in nb.faces:
+        n_faces.setdefault(f[n_lay], []).append(f)
+    for f in ob.faces:
+        o_faces.setdefault(f[o_lay], []).append(f)
+
+    def outline(faces):
+        fs = set(faces)
+        out = set()
+        for f in faces:
+            for e in f.edges:
+                if sum(1 for g in e.link_faces if g in fs) == 1:
+                    out.update(e.verts)
+        return out
+
+    def key(co):
+        return (round(co.x / eps), round(co.y / eps), round(co.z / eps))
+
+    kept = []
+    for fi, sig in new_sigs.items():
+        if fi in changed or sig not in sig_to_old:
+            continue
+        old_list = o_faces.get(sig_to_old[sig])
+        new_list = n_faces.get(fi)
+        if not old_list or not new_list:
+            continue
+        o_out, n_out = outline(old_list), outline(new_list)
+        n_by_key = {key(v.co): v for v in n_out}
+        if len(o_out) != len(n_out) or any(key(v.co) not in n_by_key for v in o_out):
+            continue
+        # drop the fresh polygons and their interior vertices
+        inner = {v for f in new_list for v in f.verts} - n_out
+        for f in new_list:
+            nb.faces.remove(f)
+        for v in inner:
+            if v.is_valid and not v.link_faces:
+                nb.verts.remove(v)
+        vmap = {v: n_by_key[key(v.co)] for v in o_out}
+        for f in old_list:
+            vs = []
+            for v in f.verts:
+                if v not in vmap:
+                    vmap[v] = nb.verts.new(v.co)
+                vs.append(vmap[v])
+            try:
+                g = nb.faces.new(vs)
+            except ValueError:
+                continue
+            g[n_lay] = fi
+            g.smooth = f.smooth
+            if n_uv is not None and o_uv is not None:
+                for lo, ln in zip(f.loops, g.loops):
+                    ln[n_uv].uv = lo[o_uv].uv
+        kept.append(fi)
+    nb.to_mesh(mesh)
+    nb.free(); ob.free()
+    mesh.update()
+    return sorted(kept)
+
+
 def make_quad_bake_mesh(name, data, join_tris=True, sharp_angle_deg=30.0, join_shape_deg=60.0,
                         sharp_mode='CAD', crease=False):
     """Build and return (mesh, report) from a quad_topology dict, or

@@ -1210,6 +1210,9 @@ def report_text(rep, title="Quad Bake report"):
                      % (len(rep["changed_faces"]), rep["faces"])
                      + (" (%s)" % ", ".join("F%d" % i for i in rep["changed_faces"][:20])
                         if rep["changed_faces"] else ""))
+    if "kept_faces" in rep:
+        lines.append("kept from the previous bake (unchanged, outline matched): %d faces"
+                     % len(rep["kept_faces"]))
     if rep.get("overrides_given"):
         lines.append("edge span overrides: %d of %d matched a CAD edge"
                      % (rep.get("overrides_applied", 0), rep["overrides_given"]))

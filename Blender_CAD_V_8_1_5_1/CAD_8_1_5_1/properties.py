@@ -840,6 +840,13 @@ class SeamlessProperties(bpy.types.PropertyGroup):
         description="Also bake a dense copy (a quarter of the tolerance) with the same UV layout, for normal baking",
         default=False,
     )
+    quad_bake_keep: bpy.props.BoolProperty(
+        name="Keep Unchanged Faces",
+        description="On a rebake, copy the polygons of CAD faces that did not change from the previous "
+                    "bake of this part, hand edits included (only where the face's outline lands on the "
+                    "same vertices)",
+        default=False,
+    )
     quad_bake_pole_quads: bpy.props.BoolProperty(
         name="Quad Poles",
         description="Pair the triangle fans at the poles of spheres into quads (kites)",

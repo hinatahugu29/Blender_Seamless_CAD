@@ -119,6 +119,7 @@ class SEAMLESS_PT_QualityBakePanel(bpy.types.Panel):
             row.prop(props, "quad_bake_subd", toggle=True)
             row.prop(props, "quad_bake_pair", toggle=True)
             row.prop(props, "quad_bake_pole_quads", toggle=True)
+            box_q.prop(props, "quad_bake_keep", toggle=True)
             row = box_q.row(align=True)
             row.operator("seamless.quad_bake_set_spans", text="Set Edge Spans", icon='EDGESEL')
             n_ov = len([x for x in props.quad_span_overrides.split(";") if x.strip()])
