@@ -153,6 +153,30 @@ class SEAMLESS_OT_BakeMesh(bpy.types.Operator):
                 mod = obj.modifiers.new("Subdivision", 'SUBSURF')
                 mod.levels = 2
                 mod.render_levels = 2
+            # 2-2: which CAD faces changed since the previous bake of this part
+            import time
+            from .quad_bake import face_signatures, compare_signatures
+            sigs = face_signatures(data)
+            prev = None
+            if col is not None:
+                for m in bpy.data.meshes:
+                    if (m is mesh or m.users == 0 or m.get("quad_bake_part") != col.name
+                            or not m.get("quad_bake_sigs")):
+                        continue
+                    if prev is None or m.get("quad_bake_time", 0.0) > prev.get("quad_bake_time", 0.0):
+                        prev = m
+            if prev is not None:
+                changed = compare_signatures(json.loads(prev["quad_bake_sigs"]), sigs)
+                rep["changed_faces"] = changed
+                ch = set(changed)
+                lay = mesh.attributes.get("cad_face")
+                if lay is not None:
+                    fidx = [0] * len(mesh.polygons)
+                    lay.data.foreach_get("value", fidx)
+                    attr = mesh.attributes.new("quad_changed", 'BOOLEAN', 'FACE')
+                    attr.data.foreach_set("value", [fi in ch for fi in fidx])
+            mesh["quad_bake_sigs"] = json.dumps({str(k): v for k, v in sigs.items()})
+            mesh["quad_bake_time"] = time.time()
             rep["overrides_applied"] = int(data.get("overrides_applied", 0))
             rep["overrides_given"] = len(overrides) // 4
             mesh["quad_bake_report"] = json.dumps(rep)

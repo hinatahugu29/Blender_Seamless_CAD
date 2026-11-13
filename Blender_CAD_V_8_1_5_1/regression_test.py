@@ -2929,6 +2929,47 @@ def t_quad_bake_step_roundtrip():
         bm1.free()
 
 
+def t_quad_bake_changed_faces():
+    """Quad Bake 2-2: 同じ部品をもう一度 Bake すると、前回から変わった CAD 面を数え、
+    変わった面のポリゴンに quad_changed の印がつく。何も変えなければ 0。
+    tol を変えただけでは変わったことにならない。"""
+    import json
+    from CAD_8_1_5_1 import core_bridge
+    col, props = _fresh_part()
+    bpy.ops.seamless.add_primitive(type='BOX')
+    bpy.ops.seamless.add_primitive(type='CYLINDER')
+    props = utils_props()
+    props.primitives[1].size = (0.3, 0.3, 0.5)
+    props.primitives[1].location = (0.0, 0.0, 0.6)
+    props.bake_topology = 'QUAD'
+    core_bridge._modifier_interactive_until.clear()
+    core_bridge.update_cad_preview_forced(bpy.context)
+
+    def bake():
+        before = set(bpy.data.objects.keys())
+        assert bpy.ops.seamless.bake_mesh() == {'FINISHED'}
+        o = [bpy.data.objects[n] for n in set(bpy.data.objects.keys()) - before
+             if bpy.data.objects[n].type == 'MESH'][0]
+        return o, json.loads(o.data["quad_bake_report"])
+
+    _o1, r1 = bake()
+    assert "changed_faces" not in r1
+    props.quad_bake_preset = 'HIGH'
+    _o2, r2 = bake()
+    assert r2["changed_faces"] == [], f"only the tolerance changed: {r2['changed_faces']}"
+    props.quad_bake_preset = 'MID'
+    props = utils_props()
+    props.primitives[1].location = (0.2, 0.0, 0.6)       # move the boss
+    core_bridge._modifier_interactive_until.clear()
+    core_bridge.update_cad_preview_forced(bpy.context)
+    o3, r3 = bake()
+    ch = r3["changed_faces"]
+    assert 0 < len(ch) < r3["faces"], f"moving the boss should change some faces, not all: {ch}"
+    flags = [0] * len(o3.data.polygons)
+    o3.data.attributes["quad_changed"].data.foreach_get("value", flags)
+    assert 0 < sum(flags) < len(flags), "changed polygons not marked"
+
+
 def t_quad_bake_box_is_six_ngons():
     """Quad Bake: 箱は 8 頂点・6 枚の n-gon(四角形)になる。"""
     col, props = _fresh_part()
@@ -4062,6 +4103,7 @@ def main():
     check("quad bake: phase 2 options", t_quad_bake_phase2_options)
     check("quad bake: three-sided planes", t_quad_bake_three_sided_planes)
     check("quad bake: STEP round trip", t_quad_bake_step_roundtrip)
+    check("quad bake: changed faces", t_quad_bake_changed_faces)
     check("quad bake: UV, seams and sharp edges", t_quad_bake_uv_seams_and_sharp)
     check("quad bake: join triangles", t_quad_bake_join_triangles)
     check("vendored blossom is optimal", t_vendored_blossom_is_optimal)

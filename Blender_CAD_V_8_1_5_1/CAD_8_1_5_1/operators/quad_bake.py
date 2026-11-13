@@ -1160,6 +1160,33 @@ def cad_edge_creases(data):
     return out
 
 
+def face_signatures(data):
+    """2-2: one signature per CAD face that does not depend on the tolerance:
+    the surface kind, the face centre and the CAD vertices on its outline
+    (rounded to 1e-6). Equal signatures across two bakes = the face did not
+    move or change. Returns {face index: signature}."""
+    flat = data.get("verts", [])
+    n_cad = int(data.get("n_cad_verts", 0))
+    out = {}
+    for f in data.get("faces", []):
+        cad = set()
+        for L in f.get("loops", []):
+            for p in L:
+                v = p[0]
+                if v < n_cad:
+                    cad.add(tuple(round(flat[3 * v + a], 6) for a in range(3)))
+        c = tuple(round(x, 6) for x in f.get("c", (0, 0, 0)))
+        out[f["i"]] = "%s|%s|%s" % (f["kind"], c, sorted(cad))
+    return out
+
+
+def compare_signatures(old, new):
+    """Faces of `new` whose signature is not among `old` (by value, since face
+    indices may shift when the history changes)."""
+    old_set = set(old.values()) if isinstance(old, dict) else set(old)
+    return sorted(i for i, s in new.items() if s not in old_set)
+
+
 def report_text(rep, title="Quad Bake report"):
     """The per-face report as plain text (what the Copy button puts on the
     clipboard): a summary line, then one block per CAD face — the kernel that
@@ -1178,6 +1205,11 @@ def report_text(rep, title="Quad Bake report"):
         if q.get("open_edges"):
             lines.append("open shape: %d boundary edges -- the part is a sheet, not a closed solid"
                          % q["open_edges"])
+    if "changed_faces" in rep:
+        lines.append("since the previous bake of this part: %d of %d faces changed"
+                     % (len(rep["changed_faces"]), rep["faces"])
+                     + (" (%s)" % ", ".join("F%d" % i for i in rep["changed_faces"][:20])
+                        if rep["changed_faces"] else ""))
     if rep.get("overrides_given"):
         lines.append("edge span overrides: %d of %d matched a CAD edge"
                      % (rep.get("overrides_applied", 0), rep["overrides_given"]))
