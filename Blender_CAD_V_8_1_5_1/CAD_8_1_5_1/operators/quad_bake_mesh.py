@@ -292,6 +292,80 @@ def migrate_triangles(bm, shape_deg=60.0, max_path=12, only=None):
     return done
 
 
+def split_pair_triangles(bm, planes, max_path=10):
+    """Two triangles left on one flat CAD face, joined by a straight strip of
+    quads (each crossed through opposite sides): every crossed edge gets its
+    midpoint and every quad of the strip is cut in two along the midpoints,
+    so both triangles gain a fourth corner and the strip stays quads. The
+    new corners sit at 180 degrees until relax_planes (which runs after this)
+    moves them. Never crosses a seam. Returns the number of pairs removed."""
+    cad = bm.faces.layers.int.get("cad_face")
+    if cad is None or not planes:
+        return 0
+    done = 0
+    for _round in range(4):
+        moved = False
+        tris = sorted((f for f in bm.faces if len(f.verts) == 3 and f[cad] in planes),
+                      key=lambda f: f.index)
+        for t0 in tris:
+            if not t0.is_valid or len(t0.verts) != 3:
+                continue
+            c0 = t0[cad]
+            best = None
+            for e0 in t0.edges:
+                # walk straight across quads from this side of the triangle
+                chain = [e0]
+                f = t0
+                e = e0
+                for _d in range(max_path):
+                    if e.seam or len(e.link_faces) != 2:
+                        break
+                    g = e.link_faces[0] if e.link_faces[1] is f else e.link_faces[1]
+                    if g[cad] != c0 or g is t0:
+                        break
+                    if len(g.verts) == 3:
+                        if best is None or len(chain) < len(best[1]):
+                            best = (g, list(chain))
+                        break
+                    if len(g.verts) != 4:
+                        break
+                    opp = [x for x in g.edges if x is not e and not (set(x.verts) & set(e.verts))]
+                    if len(opp) != 1:
+                        break
+                    f, e = g, opp[0]
+                    chain.append(e)
+            if best is None:
+                continue
+            goal, chain = best
+            # quads of the strip, in order, between consecutive crossed edges
+            strip = []
+            f = t0
+            for e in chain[:-1]:
+                g = e.link_faces[0] if e.link_faces[1] is f else e.link_faces[1]
+                strip.append(g)
+                f = g
+            mids = []
+            for e in chain:
+                v0 = e.verts[0]
+                _ne, nv = bmesh.utils.edge_split(e, v0, 0.5)
+                mids.append(nv)
+            ok = True
+            for k, q in enumerate(strip):
+                try:
+                    res = bmesh.utils.face_split(q, mids[k], mids[k + 1])
+                except (ValueError, RuntimeError):
+                    res = None
+                if not res or res[0] is None:
+                    ok = False
+            done += 1
+            moved = True
+            if not ok:
+                break
+        if not moved:
+            break
+    return done
+
+
 def relax_planes(bm, planes, iters=10):
     """Laplacian relax of the inner vertices of flat CAD faces (every linked
     polygon on one plane face, no seam / open edge at the vertex): the
@@ -561,6 +635,7 @@ def make_quad_bake_mesh(name, data, join_tris=True, sharp_angle_deg=30.0, join_s
         rep["migrated"] = migrate_triangles(bm, shape_deg=join_shape_deg)
         rep["migrated"] += migrate_triangles(bm, shape_deg=join_shape_deg + MIGRATE_SLACK_DEG,
                                              only=None)
+        rep["split_pairs"] = split_pair_triangles(bm, planes)
         relax_planes(bm, planes)
     sizes = [len(f.verts) for f in bm.faces]
     rep["quads"] = sizes.count(4)

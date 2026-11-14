@@ -1464,17 +1464,43 @@ def _fill_holed_plane(face, verts3d, extra_verts, n_cad, stats, max_steiner=2000
             for U, V in new:
                 nv.append(base + len(extra_verts))
                 extra_verts.append(to3(U, V))
-            for q in range(n2):
-                i0, i1, i2 = 2 * q, 2 * q + 1, (2 * q + 2) % len(cur)
+            def emit(poly):
+                c = [(vid, p[0], p[1]) for vid, p in poly]
+                if _signed_area([(x[1], x[2]) for x in c]) < 0.0:
+                    c.reverse()
+                if face["rev"]:
+                    c.reverse()
+                polys.append(c)
+
+            L_ = len(cur)
+            q = 0
+            while q < n2:
+                if q + 1 < n2:
+                    # two coarse segments over four fine ones: six quads round
+                    # three inner points instead of two quads and two triangles
+                    f = [(cv[(2 * q + t) % L_], cur[(2 * q + t) % L_]) for t in range(5)]
+                    c3 = [(nv[(q + t) % n2], new[(q + t) % n2]) for t in range(3)]
+                    def mid(P_, Q_):
+                        return (0.5 * (P_[0] + Q_[0]), 0.5 * (P_[1] + Q_[1]))
+                    ip = [mid(f[1][1], mid(c3[0][1], c3[1][1])), mid(f[2][1], c3[1][1]),
+                          mid(f[3][1], mid(c3[1][1], c3[2][1]))]
+                    ivid = [base + len(extra_verts) + t for t in range(3)]
+                    A_, E_, B_ = [(ivid[t], ip[t]) for t in range(3)]
+                    tmpl = [[f[0], f[1], A_, c3[0]], [f[1], f[2], E_, A_], [f[2], f[3], B_, E_],
+                            [f[3], f[4], c3[2], B_], [A_, E_, c3[1], c3[0]], [E_, B_, c3[2], c3[1]]]
+                    sg = [_signed_area([x[1] for x in t_]) for t_ in tmpl]
+                    if all(v > 0.0 for v in sg) or all(v < 0.0 for v in sg):
+                        for U, V in ip:
+                            extra_verts.append(to3(U, V))
+                        for t_ in tmpl:
+                            emit(t_)
+                        q += 2
+                        continue
+                i0, i1, i2 = 2 * q, 2 * q + 1, (2 * q + 2) % L_
                 j0, j1 = q, (q + 1) % n2
-                for poly in ([(cv[i0], cur[i0]), (cv[i1], cur[i1]), (nv[j0], new[j0])],
-                             [(cv[i1], cur[i1]), (cv[i2], cur[i2]), (nv[j1], new[j1]), (nv[j0], new[j0])]):
-                    c = [(vid, p[0], p[1]) for vid, p in poly]
-                    if _signed_area([(x[1], x[2]) for x in c]) < 0.0:
-                        c.reverse()
-                    if face["rev"]:
-                        c.reverse()
-                    polys.append(c)
+                emit([(cv[i0], cur[i0]), (cv[i1], cur[i1]), (nv[j0], new[j0])])
+                emit([(cv[i1], cur[i1]), (cv[i2], cur[i2]), (nv[j1], new[j1]), (nv[j0], new[j0])])
+                q += 1
             stats["graded_rings"] = stats.get("graded_rings", 0) + 1
             cur, cv, cstep, used = new, nv, nstep, used + nstep
         return cur, cv
