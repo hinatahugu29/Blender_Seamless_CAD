@@ -318,7 +318,10 @@ def _surface_projectors(data):
     return out
 
 
-def split_pair_triangles(bm, planes, max_path=10, curved=None, mids_out=None):
+SPLIT_MIN_ANGLE = math.radians(25.0)
+
+
+def split_pair_triangles(bm, planes, max_path=40, curved=None, mids_out=None):
     """Two triangles left on one flat CAD face, joined by a straight strip of
     quads (each crossed through opposite sides): every crossed edge gets its
     midpoint and every quad of the strip is cut in two along the midpoints,
@@ -348,12 +351,14 @@ def split_pair_triangles(bm, planes, max_path=10, curved=None, mids_out=None):
                 chain = [e0]
                 f = t0
                 e = e0
+                seen_f = {t0}
                 for _d in range(max_path):
                     if e.seam or len(e.link_faces) != 2:
                         break
                     g = e.link_faces[0] if e.link_faces[1] is f else e.link_faces[1]
-                    if g[cad] != c0 or g is t0:
+                    if g[cad] != c0 or g in seen_f:
                         break
+                    seen_f.add(g)
                     if len(g.verts) == 3:
                         # two triangles side by side would only make a doublet
                         if len(chain) > 1 and (best is None or len(chain) < len(best[1])):
@@ -376,6 +381,10 @@ def split_pair_triangles(bm, planes, max_path=10, curved=None, mids_out=None):
                 g = e.link_faces[0] if e.link_faces[1] is f else e.link_faces[1]
                 strip.append(g)
                 f = g
+            # a skewed quad in the strip would leave a skewed half: keep the
+            # triangles then
+            if any(min(lo.calc_angle() for lo in q.loops) < SPLIT_MIN_ANGLE for q in strip):
+                continue
             mids = []
             for e in chain:
                 v0 = e.verts[0]
