@@ -478,6 +478,122 @@ def _outline_corners(P, deg=30.0):
     return out
 
 
+def _fill_plane_taper(face, verts3d, extra_verts, loop, P, cs, side, why=None):
+    """A four-cornered plane whose one pair of opposite sides is even and the
+    other differs by an even count (a strip between a wall and a fillet:
+    11 spans along one side, 3 along the other). Laid row by row; where a row
+    loses two spans, one inner point and three quads take them up (a 3-to-1
+    transition), so the face stays all quads. Odd differences cannot be all
+    quads and are left to the lattice."""
+    M = len(loop)
+    for rot in (0, 1):
+        a, mL, b, mR = side[rot], side[rot + 1], side[(rot + 2) % 4], side[(rot + 3) % 4]
+        if mL == mR and a != b and (a - b) % 2 == 0:
+            break
+    else:
+        return _no(why, "opposite sides differ (%s)" % side)
+    m = mL
+    if m < 1 or min(a, b) < 1:
+        return _no(why, "opposite sides differ (%s)" % side)
+    su, sv = face["su"], face["sv"]
+    base = len(verts3d)
+
+    def pos3(vid):
+        return Vector(verts3d[vid] if vid < base else extra_verts[vid - base])
+
+    to3 = _plane_frame(P, loop, pos3)
+    if to3 is None:
+        return _no(why, "the outline is degenerate (no plane frame)")
+    r0 = cs[rot]
+
+    def at(k):
+        p_ = loop[(r0 + k) % M]
+        return (p_[0], p_[1] * su, p_[2] * sv)
+
+    bottom = [at(i) for i in range(a + 1)]                       # a spans
+    right = [at(a + j) for j in range(m + 1)]                    # m spans, bottom -> top
+    top = [at(a + m + b - i) for i in range(b + 1)]              # b spans, left -> right
+    left = [at((a + m + b + m - j) % M) for j in range(m + 1)]   # m spans, bottom -> top
+
+    def along(pts, f):
+        """the point at fraction f of arc length along a polyline"""
+        L = [0.0]
+        for q in range(1, len(pts)):
+            L.append(L[-1] + math.hypot(pts[q][1] - pts[q - 1][1], pts[q][2] - pts[q - 1][2]))
+        t = f * L[-1]
+        for q in range(1, len(pts)):
+            if t <= L[q] or q == len(pts) - 1:
+                seg = max(L[q] - L[q - 1], 1e-30)
+                u = min(1.0, max(0.0, (t - L[q - 1]) / seg))
+                return (pts[q - 1][1] + (pts[q][1] - pts[q - 1][1]) * u,
+                        pts[q - 1][2] + (pts[q][2] - pts[q - 1][2]) * u)
+        return (pts[-1][1], pts[-1][2])
+
+    red = (a - b) // 2          # signed number of 2-span steps from bottom to top
+    counts = [a - 2 * int(round(red * j / m)) for j in range(m + 1)]
+    n_extra = len(extra_verts)
+    rows = [bottom]
+    for j in range(1, m):
+        c = counts[j]
+        t = j / m
+        L_, R_ = left[j], right[j]
+        row = [L_]
+        for i in range(1, c):
+            s_ = i / c
+            B_, T_ = along(bottom, s_), along(top, s_)
+            c00, c10, c11, c01 = bottom[0], bottom[-1], top[-1], top[0]
+            U = ((1 - t) * B_[0] + t * T_[0] + (1 - s_) * L_[1] + s_ * R_[1]
+                 - ((1 - s_) * (1 - t) * c00[1] + s_ * (1 - t) * c10[1] + s_ * t * c11[1] + (1 - s_) * t * c01[1]))
+            V = ((1 - t) * B_[1] + t * T_[1] + (1 - s_) * L_[2] + s_ * R_[2]
+                 - ((1 - s_) * (1 - t) * c00[2] + s_ * (1 - t) * c10[2] + s_ * t * c11[2] + (1 - s_) * t * c01[2]))
+            row.append((base + len(extra_verts), U, V))
+            extra_verts.append(to3(U, V))
+        row.append(R_)
+        rows.append(row)
+    rows.append(top)
+
+    def mid(pts):
+        U = sum(p_[1] for p_ in pts) / len(pts)
+        V = sum(p_[2] for p_ in pts) / len(pts)
+        v = (base + len(extra_verts), U, V)
+        extra_verts.append(to3(U, V))
+        return v
+
+    polys = []
+    for j in range(m):
+        lo, hi_ = rows[j], rows[j + 1]
+        if len(lo) < len(hi_):
+            lo, hi_, flip = hi_, lo, True
+        else:
+            flip = False
+        r = (len(lo) - len(hi_)) // 2       # transitions in this strip
+        nh = len(hi_) - 1
+        # spread the transitions over the top spans
+        at_k = set(int((q + 0.5) * nh / r) for q in range(r)) if r else set()
+        i = 0
+        for k in range(nh):
+            if k in at_k:
+                p0, p1, p2, p3 = lo[i], lo[i + 1], lo[i + 2], lo[i + 3]
+                q0, q1 = hi_[k], hi_[k + 1]
+                c_ = mid([p0, p1, p2, p3, q0, q1])
+                quads = [[p0, p1, c_, q0], [p1, p2, p3, c_], [c_, p3, q1, q0]]
+                i += 3
+            else:
+                quads = [[lo[i], lo[i + 1], hi_[k + 1], hi_[k]]]
+                i += 1
+            for q in quads:
+                polys.append(q[::-1] if flip else q)
+        if i != len(lo) - 1:
+            del extra_verts[n_extra:]
+            return _no(why, "taper rows do not close (%s)" % side)
+    area = _signed_area(P)
+    for q in polys:
+        if len({c[0] for c in q}) != 4 or _signed_area([(c[1], c[2]) for c in q]) * area <= 0.0:
+            del extra_verts[n_extra:]
+            return _no(why, "a taper cell flips (%s)" % side)
+    return _orient_poly(face, area, polys)
+
+
 def _fill_plane_grid(face, verts3d, extra_verts, why=None):
     """A one-loop plane with four corners whose opposite sides carry the same
     span count (the uniform pass split its straight sides) as an n x m quad
@@ -504,6 +620,8 @@ def _fill_plane_grid(face, verts3d, extra_verts, why=None):
     side = [(cs[(k + 1) % 4] - cs[k]) % M for k in range(4)]
     n, m = side[0], side[1]
     if side[2] != n or side[3] != m:
+        if not disk:
+            return _fill_plane_taper(face, verts3d, extra_verts, loop, P, cs, side, why)
         return _no(why, "opposite sides differ (%s)" % side)
     base = len(verts3d)
 
