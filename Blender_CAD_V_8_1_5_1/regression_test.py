@@ -2850,6 +2850,13 @@ def t_quad_bake_phase2_options():
         assert "cad_edge" in me.attributes, "cad_edge layer missing"
     finally:
         bpy.data.meshes.remove(me)
+    # the switch off means no creases, whatever the last CAD edge's bend was
+    # (a loop variable once shadowed the flag)
+    me, rep = make_quad_bake_mesh("QB_nocrease", d0, crease=False)
+    try:
+        assert "creased" not in rep and "crease_edge" not in me.attributes, rep.get("creased")
+    finally:
+        bpy.data.meshes.remove(me)
     # 2-4
     props = utils_props()
     props.bake_topology = 'QUAD'
