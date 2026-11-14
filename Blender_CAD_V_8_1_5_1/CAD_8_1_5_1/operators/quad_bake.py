@@ -610,6 +610,26 @@ DISK_SQUARE = 0.6
 DISK_RELAX = 40
 
 
+TAPER_MIN_DEG = 12.0
+
+
+def _min_corner_deg(polys):
+    """The smallest corner angle (degrees) over the polygons, in their
+    (u, v) coordinates."""
+    worst = 180.0
+    for q in polys:
+        k = len(q)
+        for t in range(k):
+            a, b, c = q[t - 1], q[t], q[(t + 1) % k]
+            v1 = (a[1] - b[1], a[2] - b[2]); v2 = (c[1] - b[1], c[2] - b[2])
+            l1 = math.hypot(*v1); l2 = math.hypot(*v2)
+            if l1 < 1e-15 or l2 < 1e-15:
+                return 0.0
+            cs_ = max(-1.0, min(1.0, (v1[0] * v2[0] + v1[1] * v2[1]) / (l1 * l2)))
+            worst = min(worst, math.degrees(math.acos(cs_)))
+    return worst
+
+
 def _fill_plane_grid(face, verts3d, extra_verts, why=None, grid_out=None):
     """A one-loop plane with four corners whose opposite sides carry the same
     span count (the uniform pass split its straight sides) as an n x m quad
@@ -637,7 +657,12 @@ def _fill_plane_grid(face, verts3d, extra_verts, why=None, grid_out=None):
     n, m = side[0], side[1]
     if side[2] != n or side[3] != m:
         if not disk:
-            return _fill_plane_taper(face, verts3d, extra_verts, loop, P, cs, side, why)
+            n_ex = len(extra_verts)
+            tp = _fill_plane_taper(face, verts3d, extra_verts, loop, P, cs, side, why)
+            if tp and _min_corner_deg(tp) < TAPER_MIN_DEG:
+                del extra_verts[n_ex:]
+                return _no(why, "the taper layout folds a cell (under %g degrees)" % TAPER_MIN_DEG)
+            return tp
         return _no(why, "opposite sides differ (%s)" % side)
     base = len(verts3d)
 
