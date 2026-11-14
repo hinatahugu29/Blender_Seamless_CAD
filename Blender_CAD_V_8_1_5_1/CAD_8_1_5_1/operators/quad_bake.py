@@ -610,7 +610,7 @@ DISK_SQUARE = 0.6
 DISK_RELAX = 40
 
 
-TAPER_MIN_DEG = 12.0
+TAPER_MIN_DEG = 20.0
 
 
 def _min_corner_deg(polys):

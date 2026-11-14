@@ -875,9 +875,12 @@ std::string quad_topology_json(void* stack_ptr, double tol, bool uniform, const 
                     const std::vector<int>& A = cf.sides[pr];
                     const std::vector<int>& B = cf.sides[pr + 2];
                     if (A.size() < 2 && B.size() < 2) continue;   // handled by 3)
+                    // the pitch of the other pair, from edges cut for their own
+                    // sake: a short arc held at the 2-span floor reads as a tiny
+                    // pitch, which made a coarser tolerance give a DENSER grid
                     double L = 0.0; int n = 0;
                     for (int sd : {1 - pr, 3 - pr})
-                        for (int ei : cf.sides[sd]) if (!degen[ei]) { L += elen[ei]; n += nspan[ei]; }
+                        for (int ei : cf.sides[sd]) if (!degen[ei] && nspan[ei] > 2) { L += elen[ei]; n += nspan[ei]; }
                     if (n < 1 || !(L > 1e-12)) continue;
                     double step = L / n;
                     std::vector<std::pair<int, int>> undo;
@@ -921,11 +924,16 @@ std::string quad_topology_json(void* stack_ptr, double tol, bool uniform, const 
             if (rulings_of(r).size() != 2) continue;
             // a cylinder's rims are circles: they keep their snapped ring count
             // (and their radius class); any other single-edge rim may be raised
+            // -- but only when it is nearly straight: a fillet whose rims came
+            // back from a boolean as B-splines is still round, and treating it
+            // as flat let a plate's hole pitch flood its rulings (a coarser
+            // tolerance then gave a denser mesh)
             bool circ = false;
             for (int ei : {r.rim_a[0], r.rim_b[0]}) {
                 try {
                     if (BRepAdaptor_Curve(TopoDS::Edge(em.FindKey(ei))).GetType() == GeomAbs_Circle) circ = true;
                 } catch (...) { circ = true; }
+                if (!near_line[ei]) circ = true;
             }
             if (!circ) flat_ruled[fi] = 1;
         }

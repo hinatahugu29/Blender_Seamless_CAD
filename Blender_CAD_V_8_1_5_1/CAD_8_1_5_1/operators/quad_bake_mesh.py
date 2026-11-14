@@ -872,9 +872,10 @@ def make_quad_bake_mesh(name, data, join_tris=True, sharp_angle_deg=30.0, join_s
         if key not in cad_pairs:
             continue
         e.seam = True
-        crease = creases.get(key, -1.0) if creases is not None else -1.0
-        if crease >= 0.0:
-            sharp = crease > CAD_CREASE_DEG
+        # (not `crease`: that name is the caller's subdivision switch)
+        bend = creases.get(key, -1.0) if creases is not None else -1.0
+        if bend >= 0.0:
+            sharp = bend > CAD_CREASE_DEG
         elif len(e.link_faces) == 2:
             a, b = e.link_faces
             sharp = (a.normal.length > 0 and b.normal.length > 0
