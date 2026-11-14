@@ -566,6 +566,12 @@ def make_quad_bake_mesh(name, data, join_tris=True, sharp_angle_deg=30.0, join_s
     rep["quads"] = sizes.count(4)
     rep["tris"] = sizes.count(3)
     rep["ngons"] = len(sizes) - rep["quads"] - rep["tris"]
+    # points no face uses (a round plate's grid points inside a hole's
+    # block, a folded temporary midpoint) leave the mesh
+    loose = [v for v in bm.verts if not v.link_faces]
+    if loose:
+        bmesh.ops.delete(bm, geom=loose, context='VERTS')
+        bm.verts.index_update()
     rep["quality"] = mesh_quality(bm, cad_pairs, rep)
     sharp_keys = {frozenset((e.verts[0].index, e.verts[1].index)) for e in sharp_edges if e.is_valid}
     bm.to_mesh(me)

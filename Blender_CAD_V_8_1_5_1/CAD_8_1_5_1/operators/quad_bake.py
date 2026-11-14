@@ -610,7 +610,7 @@ DISK_SQUARE = 0.6
 DISK_RELAX = 40
 
 
-def _fill_plane_grid(face, verts3d, extra_verts, why=None):
+def _fill_plane_grid(face, verts3d, extra_verts, why=None, grid_out=None):
     """A one-loop plane with four corners whose opposite sides carry the same
     span count (the uniform pass split its straight sides) as an n x m quad
     grid -- the kernel's Coons analysis covers curved faces only. A plain
@@ -671,7 +671,8 @@ def _fill_plane_grid(face, verts3d, extra_verts, why=None):
         C = []
         for k in corner_k:
             _, x, y = at(k)
-            C.append((cx + DISK_SQUARE * (x - cx), cy + DISK_SQUARE * (y - cy)))
+            sqf = grid_out.get("square", DISK_SQUARE) if grid_out is not None else DISK_SQUARE
+            C.append((cx + sqf * (x - cx), cy + sqf * (y - cy)))
         lens = [n, m, n, m]
         sq = []
         for sd in range(4):
@@ -759,7 +760,186 @@ def _fill_plane_grid(face, verts3d, extra_verts, why=None):
             if _signed_area([(c[1], c[2]) for c in q]) * area <= 0.0:
                 del extra_verts[n_extra:]
                 return _no(why, "a disk cell flips")
+        if grid_out is not None:
+            # the structured layout for _fill_disk_holed: cell (i, j) of the
+            # inner grid is polys[cell0 + i * m + j], unoriented
+            allq = ring_polys + polys
+            grid_out.update(polys=allq, cell0=len(allq) - n * m, n=n, m=m, area=area)
+            return allq
     return _orient_poly(face, area, ring_polys + polys)
+
+
+DISK_HOLED_SQUARES = (0.6, 0.75, 0.9)
+
+
+def _fill_disk_holed(face, verts3d, extra_verts, why=None):
+    """A round plate with holes (uniform density): the round-face layout
+    (rings along the outline round a relaxed inner square grid), then for
+    every hole a k x k block of grid cells around it is taken out and its
+    4k-point edge is joined to the hole's 4k points by rings of quads -- all
+    quads when every hole's point count is a multiple of four and its block
+    fits in the inner grid. An odd outline gets one temporary midpoint, which
+    is folded back at the end (one triangle, which the parity forces)."""
+    loops = face["loops"]
+    if face["kind"] != "plane" or len(loops) < 2:
+        return _no(why, "not a plane with holes")
+    su, sv = face["su"], face["sv"]
+    xy0 = [(p[1] * su, p[2] * sv) for p in loops[0]]
+    if len(xy0) < 8 or _outline_corners(xy0):
+        return _no(why, "the outline is not round")
+    for L in loops[1:]:
+        if len(L) < 8 or len(L) % 4:
+            return _no(why, "a hole's point count is not a multiple of four (%d)" % len(L))
+    base = len(verts3d)
+    n0 = len(extra_verts)
+    L0 = [list(p) for p in loops[0]]
+
+    def pos3(vid):
+        return Vector(verts3d[vid] if vid < base else extra_verts[vid - base])
+
+    to3 = _plane_frame(xy0, loops[0], pos3)
+    if to3 is None:
+        return _no(why, "the outline is degenerate (no plane frame)")
+    fake = None
+    if len(L0) % 2:
+        kk = max(range(len(L0)), key=lambda q: (xy0[(q + 1) % len(L0)][0] - xy0[q][0]) ** 2
+                 + (xy0[(q + 1) % len(L0)][1] - xy0[q][1]) ** 2)
+        a_, b_ = L0[kk], L0[(kk + 1) % len(L0)]
+        fake = (base + len(extra_verts), a_[0])
+        extra_verts.append(tuple((pos3(a_[0]) + pos3(b_[0])) * 0.5))
+        L0.insert(kk + 1, [fake[0], 0.5 * (a_[1] + b_[1]), 0.5 * (a_[2] + b_[2])])
+    allq = None
+    why_last = "the round-face layout does not fit"
+    for sqf in DISK_HOLED_SQUARES:
+        g = {"square": sqf}
+        n1 = len(extra_verts)
+        allq = _fill_plane_grid(dict(face, loops=[L0]), verts3d, extra_verts, grid_out=g)
+        if allq and "cell0" in g:
+            res = _disk_cut_holes(face, loops, allq, g, base, extra_verts, to3, su, sv, xy0)
+            if isinstance(res, list):
+                allq = res
+                break
+            why_last = res
+        del extra_verts[n1:]
+        allq = None
+    if allq is None:
+        del extra_verts[n0:]
+        return _no(why, why_last)
+    polys = allq
+    area = g["area"]
+    if fake is not None:
+        out = []
+        for q in polys:
+            d = []
+            for c in q:
+                c = (fake[1],) + tuple(c[1:]) if c[0] == fake[0] else c
+                if not d or d[-1][0] != c[0]:
+                    d.append(c)
+            if len(d) > 1 and d[0][0] == d[-1][0]:
+                d.pop()
+            if len(d) >= 3:
+                out.append(d)
+        polys = out
+        extra_verts[fake[0] - base] = tuple(pos3(fake[1]))   # folded onto its neighbour
+    return _orient_poly(face, area, polys)
+
+
+def _disk_cut_holes(face, loops, allq, g, base, extra_verts, to3, su, sv, xy0):
+    """Cut each hole's block of cells out of the round-face layout and join
+    the block's edge to the hole by rings of quads. Returns the polygons, or
+    a reason string."""
+    n, m, c0, area = g["n"], g["m"], g["cell0"], g["area"]
+
+    def cell(i, j):
+        return allq[c0 + i * m + j]
+
+    def node(i, j):
+        if i < n and j < m:
+            return cell(i, j)[0]
+        if i == n and j < m:
+            return cell(i - 1, j)[1]
+        if i == n and j == m:
+            return cell(i - 1, j - 1)[2]
+        return cell(i, j - 1)[3]
+
+    step = sum(((q[1][1] - q[0][1]) ** 2 + (q[1][2] - q[0][2]) ** 2) ** 0.5
+               for q in allq[c0:]) / max(1, n * m)
+    removed = set()
+    extra_polys = []
+
+    def fail(msg):
+        return msg
+
+    for L in loops[1:]:
+        K = len(L)
+        k = K // 4
+        hx = [(p[1] * su, p[2] * sv) for p in L]
+        cx = sum(x for x, _ in hx) / K
+        cy = sum(y for _, y in hx) / K
+        hit = None
+        for i in range(n):
+            for j in range(m):
+                if _inside(cx, cy, [[(c[1], c[2]) for c in cell(i, j)]]):
+                    hit = (i, j)
+                    break
+            if hit:
+                break
+        if hit is None:
+            return fail("a hole's centre is not in the inner grid")
+        ci, cj = hit
+        if k % 2 == 0:
+            q4 = cell(ci, cj)
+            best = min(range(4), key=lambda t: (q4[t][1] - cx) ** 2 + (q4[t][2] - cy) ** 2)
+            ni, nj = [(ci, cj), (ci + 1, cj), (ci + 1, cj + 1), (ci, cj + 1)][best]
+            i0, j0 = ni - k // 2, nj - k // 2
+        else:
+            i0, j0 = ci - k // 2, cj - k // 2
+        if i0 < 0 or j0 < 0 or i0 + k > n or j0 + k > m:
+            return fail("a hole's block of cells runs off the inner grid")
+        blk = {(i, j) for i in range(i0, i0 + k) for j in range(j0, j0 + k)}
+        if blk & removed:
+            return fail("two holes' blocks of cells overlap")
+        removed |= blk
+        per = ([node(i, j0) for i in range(i0, i0 + k)] + [node(i0 + k, j) for j in range(j0, j0 + k)]
+               + [node(i, j0 + k) for i in range(i0 + k, i0, -1)] + [node(i0, j) for j in range(j0 + k, j0, -1)])
+        pxy = [(c[1], c[2]) for c in per]
+        if not all(_inside(x, y, [pxy]) for x, y in hx):
+            return fail("a hole sticks out of its block of cells")
+        H = [(p[0], p[1] * su, p[2] * sv) for p in L]
+        if (_signed_area(hx) > 0.0) != (_signed_area(pxy) > 0.0):
+            H = H[::-1]
+        shift = min(range(K), key=lambda sh: sum((per[t][1] - H[(t + sh) % K][1]) ** 2
+                                                 + (per[t][2] - H[(t + sh) % K][2]) ** 2 for t in range(K)))
+        H = [H[(t + shift) % K] for t in range(K)]
+        gap = sum(((per[t][1] - H[t][1]) ** 2 + (per[t][2] - H[t][2]) ** 2) ** 0.5 for t in range(K)) / K
+        nr = max(1, int(round(gap / max(step, 1e-30))))
+        rings = [per]
+        for r in range(1, nr):
+            t_ = r / nr
+            row = []
+            for t in range(K):
+                U = per[t][1] + (H[t][1] - per[t][1]) * t_
+                V = per[t][2] + (H[t][2] - per[t][2]) * t_
+                row.append((base + len(extra_verts), U, V))
+                extra_verts.append(to3(U, V))
+            rings.append(row)
+        rings.append(H)
+        for r in range(nr):
+            for t in range(K):
+                t2 = (t + 1) % K
+                q = [rings[r][t], rings[r][t2], rings[r + 1][t2], rings[r + 1][t]]
+                if _signed_area([(c[1], c[2]) for c in q]) * area < 0.0:
+                    q.reverse()
+                extra_polys.append(q)
+    polys = [q for idx, q in enumerate(allq)
+             if not (idx >= c0 and ((idx - c0) // m, (idx - c0) % m) in removed)] + extra_polys
+    # no hole-ring quad may fold over a neighbour: the areas must add up
+    tot = sum(abs(_signed_area([(c[1], c[2]) for c in q])) for q in polys)
+    want = abs(_signed_area(xy0)) - sum(abs(_signed_area([(p[1] * su, p[2] * sv) for p in L]))
+                                        for L in loops[1:])
+    if abs(tot - want) > 2e-3 * abs(want):
+        return fail("the hole rings fold (area %.4g of %.4g)" % (tot, want))
+    return polys
 
 
 def _fill_coons(face, base, extra_verts, why=None, pole_quads=False):
@@ -1520,6 +1700,8 @@ def build_quad_mesh_uv(data):
             ("pgrid", lambda w: _fill_plane_grid(face, verts3d, extra, why=w) if uniform
              else _no(w, "plane grid is a uniform-density layout")),
             ("ngon", lambda w: _fill_ngon(face, why=w, uniform=uniform)),
+            ("dholed", lambda w: _fill_disk_holed(face, verts3d, extra, why=w) if uniform
+             else _no(w, "the round plate layout is a uniform-density layout")),
             ("holed", lambda w: _fill_holed_plane(face, verts3d, extra, n_cad, stats, why=w,
                                                  plain=uniform)),
         )
@@ -1539,7 +1721,7 @@ def build_quad_mesh_uv(data):
             if not out:
                 stats["failed"] += 1
                 stats["errors"].append("Face %d (%s): empty triangulation" % (face["i"], face["kind"]))
-        stats[{"ruled": "ruled", "grid": "coons", "ngon": "ngon", "holed": "holed", "tri3": "tri3", "pgrid": "coons",
+        stats[{"ruled": "ruled", "grid": "coons", "ngon": "ngon", "holed": "holed", "dholed": "holed", "tri3": "tri3", "pgrid": "coons",
                "triangles": "cdt"}[kernel]] += 1
         sizes = [len(q) for q in out]
         stats["face_log"].append({
