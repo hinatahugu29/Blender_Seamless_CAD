@@ -353,7 +353,7 @@ SPLIT_TURNS = True
 SPLIT_TURN_PATH = 12
 
 
-def split_pair_triangles(bm, planes, max_path=40, curved=None, mids_out=None):
+def split_pair_triangles(bm, planes, max_path=40, curved=None, mids_out=None, records_out=None):
     """Two triangles left on one flat CAD face, joined by a straight strip of
     quads (each crossed through opposite sides): every crossed edge gets its
     midpoint and every quad of the strip is cut in two along the midpoints,
@@ -544,6 +544,8 @@ def split_pair_triangles(bm, planes, max_path=40, curved=None, mids_out=None):
                     if mids_out is not None:
                         mids_out[:] = [(v, c) for v, c in mids_out if v.is_valid]
                     continue
+            if records_out is not None and ok:
+                records_out.append((list(mids), list(new_edges)))
             done += 1
             moved = True
             if not ok:
@@ -598,7 +600,15 @@ def centroid_relax(verts, projs, iters=10):
     """The points the strip split added have valence 3, where a plain
     neighbour average pushes them out of the triangle they cut and leaves a
     dent; the mean of the adjacent faces' centres keeps every face convex.
-    On a cylinder / cone the point goes back onto the surface."""
+    On a cylinder / cone the point goes back onto the surface. A point
+    whose move folds a neighbouring quad (worse than before, under 10
+    degrees) goes back to where it was."""
+    lim = math.radians(10.0)
+
+    def worst(v):
+        return min((min(lo.calc_angle() for lo in f.loops) for f in v.link_faces if len(f.verts) == 4),
+                   default=math.pi)
+    start = {v: (v.co.copy(), worst(v)) for v, _c in verts if v.is_valid}
     for _ in range(iters):
         for v, c0 in verts:
             if not v.is_valid or any(e.seam or len(e.link_faces) != 2 for e in v.link_edges):
@@ -611,6 +621,11 @@ def centroid_relax(verts, projs, iters=10):
                 co += f.calc_center_median()
             co /= len(fs)
             v.co = projs[c0](co) if c0 in projs else co
+    for v, (co0, w0) in start.items():
+        if v.is_valid:
+            w1 = worst(v)
+            if w1 < lim and w1 < w0:
+                v.co = co0
 
 
 def relax_planes(bm, planes, iters=10):
@@ -664,41 +679,60 @@ def relax_planes(bm, planes, iters=10):
     nb_j = np.array(nb_j)
     deg = np.bincount(nb_i, minlength=nf).astype(float)[:, None]
     P = np.array([tuple(v.co) for v in inner] + [tuple(v.co) for v in fixed_v], dtype=float)
+    P0 = P.copy()
     for _ in range(iters):
         acc = np.zeros((nf, 3))
         np.add.at(acc, nb_i, P[nb_j])
         P[:nf] = acc / deg
+    # a CAD face where the averaging folds a cell (against a concave corner of
+    # its outline) that the fill had not folded keeps the fill's points
+    lim = math.radians(10.0)
+
+    def worst(c):
+        return min((min(lo.calc_angle() for lo in f.loops) for f in faces_of.get(c, ())
+                    if len(f.verts) == 4), default=math.pi)
+    faces_of = {}
+    for f in bm.faces:
+        if f[cad] in planes:
+            faces_of.setdefault(f[cad], []).append(f)
+    by_c = {}
+    for k, v in enumerate(inner):
+        by_c.setdefault(v.link_faces[0][cad], []).append(k)
+    before = {c: worst(c) for c in by_c}
     for k, v in enumerate(inner):
         v.co = P[k]
+    for c, ks in by_c.items():
+        after = worst(c)
+        if after < lim and after < before[c]:
+            for k in ks:
+                inner[k].co = P0[k]
     if uvl is not None:
-        # UV of an inner vertex from its neighbours (a fixed neighbour gives
-        # its UV in a face of the same CAD face), solved by the same sweeps
-        U = np.zeros((nf + len(fixed_v), 2))
-        for k, v in enumerate(inner):
-            U[k] = tuple(v.link_loops[0][uvl].uv) if v.link_loops else (0.0, 0.0)
-        ok = np.ones(nf + len(fixed_v), dtype=bool)
-        for (o, c), col in fixed.items():
-            uv = None
-            for lo in o.link_loops:
-                if lo.face[cad] == c:
-                    uv = tuple(lo[uvl].uv)
-                    break
-            if uv is None:
-                ok[col] = False
-            else:
-                U[col] = uv
-        keep = ok[nb_j]
-        ui, uj = nb_i[keep], nb_j[keep]
-        cnt = np.bincount(ui, minlength=nf).astype(float)[:, None]
-        has = cnt[:, 0] > 0
-        for _ in range(iters * 3):
-            acc = np.zeros((nf, 2))
-            np.add.at(acc, ui, U[uj])
-            U[:nf][has] = (acc[has] / cnt[has])
-        for k, v in enumerate(inner):
-            if has[k]:
+        # a flat face's UV is affine in position: fit it on the face's fixed
+        # points and give every inner point its exact UV
+        by_face = {}
+        for v in inner:
+            by_face.setdefault(v.link_faces[0][cad], []).append(v)
+        fixed_uv = {}
+        for f in bm.faces:
+            c = f[cad]
+            if c not in by_face:
+                continue
+            d_ = fixed_uv.setdefault(c, {})
+            for lo in f.loops:
+                if lo.vert not in idx and lo.vert not in d_:
+                    d_[lo.vert] = (tuple(lo.vert.co) + (1.0,), tuple(lo[uvl].uv))
+        for c, vs in by_face.items():
+            # every fixed point of the CAD face (a strip's neighbourhood alone
+            # can be nearly collinear and leave the fit undetermined)
+            X = [a for a, _ in fixed_uv.get(c, {}).values()]
+            Y = [b for _, b in fixed_uv.get(c, {}).values()]
+            if len(X) < 4:
+                continue
+            A = np.linalg.lstsq(np.array(X), np.array(Y), rcond=None)[0]
+            for v in vs:
+                uv = np.array(tuple(v.co) + (1.0,)) @ A
                 for lo in v.link_loops:
-                    lo[uvl].uv = U[k]
+                    lo[uvl].uv = uv
     return len(inner)
 
 
@@ -931,11 +965,14 @@ def make_quad_bake_mesh(name, data, join_tris=True, sharp_angle_deg=30.0, join_s
                                              only=None)
         projs = _surface_projectors(data)
         split_mids = []
-        rep["split_pairs"] = split_pair_triangles(bm, planes, curved=projs, mids_out=split_mids)
+        split_recs = []
+        rep["split_pairs"] = split_pair_triangles(bm, planes, curved=projs, mids_out=split_mids,
+                                                  records_out=split_recs)
         # the split moves triangles' neighbourhoods: a second walk may now
         # bring stranded ones onto a straight strip
         rep["migrated"] += migrate_triangles(bm, shape_deg=join_shape_deg + MIGRATE_SLACK_DEG, only=None)
-        rep["split_pairs"] += split_pair_triangles(bm, planes, curved=projs, mids_out=split_mids)
+        rep["split_pairs"] += split_pair_triangles(bm, planes, curved=projs, mids_out=split_mids,
+                                                   records_out=split_recs)
         relax_planes(bm, planes, iters=20)
         centroid_relax(split_mids, projs)
         rep["doublets"] = dissolve_doublets(bm)
