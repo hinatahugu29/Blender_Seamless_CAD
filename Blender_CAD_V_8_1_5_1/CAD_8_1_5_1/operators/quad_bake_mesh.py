@@ -292,20 +292,51 @@ def migrate_triangles(bm, shape_deg=60.0, max_path=12, only=None):
     return done
 
 
-def split_pair_triangles(bm, planes, max_path=10):
+def _surface_projectors(data):
+    """CAD face index -> a function that puts a point back on that face's
+    cylinder / cone (radially, at the same axial height)."""
+    from mathutils import Vector
+    out = {}
+    for f in data.get("faces", []):
+        prm = f.get("cyl") if f.get("kind") == "cylinder" else (
+            f.get("cone") if f.get("kind") == "cone" else None)
+        if not prm or len(prm) < 13:
+            continue
+        O = Vector(prm[0:3]); Z = Vector(prm[9:12]).normalized()
+        r0 = prm[12]
+        tn = math.tan(prm[13]) if f.get("kind") == "cone" and len(prm) > 13 else 0.0
+
+        def proj(co, O=O, Z=Z, r0=r0, tn=tn):
+            d = co - O
+            h = d.dot(Z)
+            rad = d - h * Z
+            L = rad.length
+            if L < 1e-12:
+                return co
+            return O + h * Z + rad * (abs(r0 + h * tn) / L)
+        out[f.get("i")] = proj
+    return out
+
+
+def split_pair_triangles(bm, planes, max_path=10, curved=None, mids_out=None):
     """Two triangles left on one flat CAD face, joined by a straight strip of
     quads (each crossed through opposite sides): every crossed edge gets its
     midpoint and every quad of the strip is cut in two along the midpoints,
     so both triangles gain a fourth corner and the strip stays quads. The
     new corners sit at 180 degrees until relax_planes (which runs after this)
-    moves them. Never crosses a seam. Returns the number of pairs removed."""
+    moves them. On a cylinder / cone (`curved`: face -> projector) the new
+    points go onto the surface and are relaxed here, alone. Never crosses a
+    seam. Returns the number of pairs removed."""
     cad = bm.faces.layers.int.get("cad_face")
-    if cad is None or not planes:
+    curved = curved or {}
+    if cad is None or not (planes or curved):
         return 0
+    allowed = set(planes or ()) | set(curved)
     done = 0
+    new_curved = []
     for _round in range(4):
         moved = False
-        tris = sorted((f for f in bm.faces if len(f.verts) == 3 and f[cad] in planes),
+        tris = sorted((f for f in bm.faces if len(f.verts) == 3 and f[cad] in allowed),
                       key=lambda f: f.index)
         for t0 in tris:
             if not t0.is_valid or len(t0.verts) != 3:
@@ -324,7 +355,8 @@ def split_pair_triangles(bm, planes, max_path=10):
                     if g[cad] != c0 or g is t0:
                         break
                     if len(g.verts) == 3:
-                        if best is None or len(chain) < len(best[1]):
+                        # two triangles side by side would only make a doublet
+                        if len(chain) > 1 and (best is None or len(chain) < len(best[1])):
                             best = (g, list(chain))
                         break
                     if len(g.verts) != 4:
@@ -349,6 +381,11 @@ def split_pair_triangles(bm, planes, max_path=10):
                 v0 = e.verts[0]
                 _ne, nv = bmesh.utils.edge_split(e, v0, 0.5)
                 mids.append(nv)
+                if mids_out is not None:
+                    mids_out.append((nv, c0))
+                if c0 in curved:
+                    nv.co = curved[c0](nv.co)
+                    new_curved.append((nv, c0))
             ok = True
             for k, q in enumerate(strip):
                 try:
@@ -363,7 +400,67 @@ def split_pair_triangles(bm, planes, max_path=10):
                 break
         if not moved:
             break
+    for _ in range(10):
+        for v, c0 in new_curved:
+            if not v.is_valid or any(e.seam or len(e.link_faces) != 2 for e in v.link_edges):
+                continue
+            nb = [e.other_vert(v) for e in v.link_edges]
+            co = nb[0].co.copy()
+            for o in nb[1:]:
+                co += o.co
+            v.co = curved[c0](co / len(nb))
     return done
+
+
+def dissolve_doublets(bm):
+    """An inner point held by just two quads of one CAD face (a doublet: both
+    quads fold flat at it) is dissolved; the two quads become one quad."""
+    cad = bm.faces.layers.int.get("cad_face")
+    n = 0
+    for _ in range(4):
+        dv = []
+        for v in bm.verts:
+            if len(v.link_edges) != 2 or len(v.link_faces) != 2:
+                continue
+            if any(e.seam or len(e.link_faces) != 2 for e in v.link_edges):
+                continue
+            f0, f1 = v.link_faces
+            if len(f0.verts) != 4 or len(f1.verts) != 4:
+                continue
+            if cad is not None and f0[cad] != f1[cad]:
+                continue
+            if set(f0.verts) == set(f1.verts):
+                continue
+            dv.append(v)
+        if not dv:
+            break
+        done = set()
+        for v in dv:
+            if not v.is_valid or any(f in done for f in v.link_faces):
+                continue
+            done.update(v.link_faces)
+            bmesh.ops.dissolve_verts(bm, verts=[v])
+            n += 1
+    return n
+
+
+def centroid_relax(verts, projs, iters=10):
+    """The points the strip split added have valence 3, where a plain
+    neighbour average pushes them out of the triangle they cut and leaves a
+    dent; the mean of the adjacent faces' centres keeps every face convex.
+    On a cylinder / cone the point goes back onto the surface."""
+    for _ in range(iters):
+        for v, c0 in verts:
+            if not v.is_valid or any(e.seam or len(e.link_faces) != 2 for e in v.link_edges):
+                continue
+            fs = v.link_faces
+            if not fs:
+                continue
+            co = fs[0].calc_center_median()
+            for f in fs[1:]:
+                co += f.calc_center_median()
+            co /= len(fs)
+            v.co = projs[c0](co) if c0 in projs else co
 
 
 def relax_planes(bm, planes, iters=10):
@@ -469,8 +566,30 @@ def mesh_quality(bm, cad_pairs, rep):
         ratio = L[len(L) // 20] / L[-(len(L) // 20) - 1]
     n = max(1, len(bm.faces))
     open_edges = sum(1 for e in bm.edges if len(e.link_faces) == 1)   # 3-4
+    # quad shape: corner angles (a square is 90 everywhere); "bad" quads
+    # have a corner under 30 or over 150 degrees
+    mins, maxs, bad = [], [], 0
+    for f in bm.faces:
+        if len(f.verts) != 4:
+            continue
+        angs = []
+        for lo in f.loops:
+            a = lo.calc_angle()
+            angs.append(math.degrees(a))
+        lo_, hi_ = min(angs), max(angs)
+        mins.append(lo_)
+        maxs.append(hi_)
+        if lo_ < 30.0 or hi_ > 150.0:
+            bad += 1
+    mins.sort()
+    maxs.sort()
+    k5 = len(mins) // 20
     return {"quad_pct": round(100.0 * rep["quads"] / n, 1), "poles": poles,
-            "edge_p5_p95": round(ratio, 3), "open_edges": open_edges}
+            "edge_p5_p95": round(ratio, 3), "open_edges": open_edges,
+            "bad_quads": bad,
+            "min_angle_p5": round(mins[k5], 1) if mins else 90.0,
+            "max_angle_p95": round(maxs[-k5 - 1], 1) if maxs else 90.0,
+            "min_angle": round(mins[0], 1) if mins else 90.0}
 
 
 def keep_unchanged_faces(mesh, prev, old_sigs, new_sigs, changed, eps=1e-6):
@@ -635,8 +754,12 @@ def make_quad_bake_mesh(name, data, join_tris=True, sharp_angle_deg=30.0, join_s
         rep["migrated"] = migrate_triangles(bm, shape_deg=join_shape_deg)
         rep["migrated"] += migrate_triangles(bm, shape_deg=join_shape_deg + MIGRATE_SLACK_DEG,
                                              only=None)
-        rep["split_pairs"] = split_pair_triangles(bm, planes)
+        projs = _surface_projectors(data)
+        split_mids = []
+        rep["split_pairs"] = split_pair_triangles(bm, planes, curved=projs, mids_out=split_mids)
         relax_planes(bm, planes)
+        centroid_relax(split_mids, projs)
+        rep["doublets"] = dissolve_doublets(bm)
     sizes = [len(f.verts) for f in bm.faces]
     rep["quads"] = sizes.count(4)
     rep["tris"] = sizes.count(3)

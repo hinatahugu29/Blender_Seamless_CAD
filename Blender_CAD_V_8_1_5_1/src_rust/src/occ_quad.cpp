@@ -837,6 +837,77 @@ std::string quad_topology_json(void* stack_ptr, double tol, bool uniform, const 
                 if (!moved) break;
             }
         }
+        // 3b) A grid side made of several edges (a notched cone: a long ruling
+        //    plus the notch's short curves) can carry its spans unevenly -- the
+        //    long straight ruling left at one span skews the whole grid and the
+        //    plane beside it fans into it. Each straight edge of a grid side
+        //    takes round(length / pitch of the other pair) spans, then the
+        //    shorter side of the pair is evened out on its longest straight
+        //    edge; a face that cannot be evened keeps its old counts.
+        // "straight" here also takes a nearly straight curve (sagitta under 2%
+        // of the chord): a plane meeting a cone off its axis leaves a slight
+        // hyperbola where the ruling would be
+        std::vector<char> near_line(em.Extent() + 1, 0);
+        for (int i = 1; i <= em.Extent(); ++i) {
+            if (degen[i]) continue;
+            if (is_line_e[i]) { near_line[i] = 1; continue; }
+            try {
+                BRepAdaptor_Curve c(TopoDS::Edge(em.FindKey(i)));
+                double f = c.FirstParameter(), l = c.LastParameter();
+                gp_Pnt p0 = c.Value(f), p1 = c.Value(l);
+                gp_Vec ch(p0, p1);
+                double cl = ch.Magnitude();
+                if (!(cl > 1e-9)) continue;
+                double dev = 0.0;
+                for (int k = 1; k < 16; ++k) {
+                    gp_Vec w(p0, c.Value(f + (l - f) * k / 16.0));
+                    dev = std::max(dev, w.Crossed(ch).Magnitude() / cl);
+                }
+                near_line[i] = dev < 0.02 * cl ? 1 : 0;
+            } catch (...) {}
+        }
+        for (int round = 0; round < 8; ++round) {
+            bool moved = false;
+            for (int fi = 1; fi <= fm.Extent(); ++fi) {
+                const CoonsFace& cf = coons[fi];
+                if (!cf.ok) continue;
+                for (int pr = 0; pr < 2; ++pr) {
+                    const std::vector<int>& A = cf.sides[pr];
+                    const std::vector<int>& B = cf.sides[pr + 2];
+                    if (A.size() < 2 && B.size() < 2) continue;   // handled by 3)
+                    double L = 0.0; int n = 0;
+                    for (int sd : {1 - pr, 3 - pr})
+                        for (int ei : cf.sides[sd]) if (!degen[ei]) { L += elen[ei]; n += nspan[ei]; }
+                    if (n < 1 || !(L > 1e-12)) continue;
+                    double step = L / n;
+                    std::vector<std::pair<int, int>> undo;
+                    auto raise = [&](int ei, int v) {
+                        if (nspan[ei] < v) { undo.push_back({ei, nspan[ei]}); nspan[ei] = v; }
+                    };
+                    for (const std::vector<int>* S : {&A, &B})
+                        for (int ei : *S)
+                            if (!degen[ei] && near_line[ei])
+                                raise(ei, std::min(64, (int)std::lround(elen[ei] / step)));
+                    if (undo.empty()) continue;
+                    auto total = [&](const std::vector<int>& S) {
+                        int t = 0; for (int ei : S) if (!degen[ei]) t += nspan[ei]; return t;
+                    };
+                    int ta = total(A), tb = total(B);
+                    const std::vector<int>& lo = ta < tb ? A : B;
+                    int need = std::abs(ta - tb), best = -1;
+                    for (int ei : lo)
+                        if (!degen[ei] && near_line[ei] && (best < 0 || elen[ei] > elen[best])) best = ei;
+                    if (best < 0 && lo.size() == 1 && !degen[lo[0]]) best = lo[0];   // a single-curve side follows
+                    if (need > 0 && best > 0 && nspan[best] + need <= kMaxSpans) raise(best, nspan[best] + need);
+                    if (total(A) != total(B)) {
+                        for (auto it = undo.rbegin(); it != undo.rend(); ++it) nspan[it->first] = it->second;
+                        continue;
+                    }
+                    moved = true;
+                }
+            }
+            if (!moved) break;
+        }
         // A ruled wall whose two rims are single non-circular edges is close to
         // flat in practice (a draft / slanted push-pull of a box side: a line,
         // or the slight hyperbola where a drafted cone met the cut). Left at its own

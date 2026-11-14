@@ -1841,6 +1841,10 @@ def report_text(rep, title="Quad Bake report"):
     if q:
         lines.append("quality: %.1f%% quads, %d poles (inner vertices with valence != 4), "
                      "edge length p5/p95 %.3f" % (q["quad_pct"], q["poles"], q["edge_p5_p95"]))
+        if "bad_quads" in q:
+            lines.append("quad shape: %d skewed quads (a corner under 30 or over 150 degrees), "
+                         "smallest corner %.1f, p5 smallest %.1f, p95 largest %.1f"
+                         % (q["bad_quads"], q["min_angle"], q["min_angle_p5"], q["max_angle_p95"]))
         if q.get("open_edges"):
             lines.append("open shape: %d boundary edges -- the part is a sheet, not a closed solid"
                          % q["open_edges"])
