@@ -942,6 +942,102 @@ def _disk_cut_holes(face, loops, allq, g, base, extra_verts, to3, su, sv, xy0):
     return polys
 
 
+COONS_WINSLOW_ITERS = 200
+
+
+def _winslow_coons(face, loop, n, m, rs, uvs, su, sv):
+    """Winslow smoothing of a Coons grid on a cylinder / cone, in the
+    face's scaled (u, v): the transfinite blend bends its rows into a notched
+    rim and squeezes the cells at the notch floor; the Winslow equations
+    (the inverse of a harmonic map) spread them and, unlike a plain
+    neighbour average, do not fold cells at a concave corner. Kept only when
+    no cell flips and the smallest corner angle in (u, v) does not drop.
+    Returns (uv, xyz) for the interior or None."""
+    prm = face.get("cyl") if face["kind"] == "cylinder" else (
+        face.get("cone") if face["kind"] == "cone" else None)
+    if not prm or n < 3 or m < 3:
+        return None
+    M = len(loop)
+    X = [[None] * (m + 1) for _ in range(n + 1)]
+
+    def bnd(k):
+        p = loop[(rs + k) % M]
+        return [p[1] * su, p[2] * sv]
+    for i in range(n + 1):
+        X[i][0] = bnd(i)
+        X[i][m] = bnd(n + m + (n - i))
+    for j in range(m + 1):
+        X[n][j] = bnd(n + j)
+        X[0][j] = bnd((2 * n + m + (m - j)) % M if j else 0)
+    for i in range(1, n):
+        for j in range(1, m):
+            k = (i - 1) * (m - 1) + (j - 1)
+            X[i][j] = [uvs[2 * k] * su, uvs[2 * k + 1] * sv]
+    # the u seam: a closed rim can jump by 2 pi su between neighbours
+    per = 2.0 * math.pi * su
+
+    def cells():
+        for i in range(n):
+            for j in range(m):
+                yield [X[i][j], X[i + 1][j], X[i + 1][j + 1], X[i][j + 1]]
+
+    def min_angle_and_sign():
+        worst, sg = 180.0, set()
+        for q in cells():
+            a = _signed_area(q)
+            sg.add(a > 0.0)
+            for t in range(4):
+                p0, p1, p2 = q[t - 1], q[t], q[(t + 1) % 4]
+                v1 = (p0[0] - p1[0], p0[1] - p1[1]); v2 = (p2[0] - p1[0], p2[1] - p1[1])
+                l1 = math.hypot(*v1); l2 = math.hypot(*v2)
+                if l1 < 1e-15 or l2 < 1e-15:
+                    return 0.0, False
+                c = max(-1.0, min(1.0, (v1[0] * v2[0] + v1[1] * v2[1]) / (l1 * l2)))
+                worst = min(worst, math.degrees(math.acos(c)))
+        return worst, len(sg) == 1
+    for q in cells():
+        for P in q[1:]:
+            if abs(P[0] - q[0][0]) > 0.5 * per:
+                return None
+    a0, ok0 = min_angle_and_sign()
+    if not ok0:
+        return None
+    old = [row[:] for row in X]
+    for _ in range(COONS_WINSLOW_ITERS):
+        for i in range(1, n):
+            for j in range(1, m):
+                xe = [(X[i + 1][j][c] - X[i - 1][j][c]) * 0.5 for c in (0, 1)]
+                xn = [(X[i][j + 1][c] - X[i][j - 1][c]) * 0.5 for c in (0, 1)]
+                al = xn[0] ** 2 + xn[1] ** 2
+                ga = xe[0] ** 2 + xe[1] ** 2
+                be = xe[0] * xn[0] + xe[1] * xn[1]
+                den = 2.0 * (al + ga)
+                if den < 1e-30:
+                    continue
+                X[i][j] = [(al * (X[i + 1][j][c] + X[i - 1][j][c]) + ga * (X[i][j + 1][c] + X[i][j - 1][c])
+                            - 0.5 * be * (X[i + 1][j + 1][c] - X[i + 1][j - 1][c]
+                                          - X[i - 1][j + 1][c] + X[i - 1][j - 1][c])) / den for c in (0, 1)]
+    a1, ok1 = min_angle_and_sign()
+    if not ok1 or a1 < a0:
+        return None
+    O = Vector(prm[0:3]); Xa = Vector(prm[3:6]); Ya = Vector(prm[6:9]); Za = Vector(prm[9:12]); R = prm[12]
+    if face["kind"] == "cone":
+        sa_, ca_ = math.sin(prm[13]), math.cos(prm[13])
+    out_uv, out_p = [], []
+    for i in range(1, n):
+        for j in range(1, m):
+            U, V = X[i][j]
+            u, v = U / su, V / sv
+            if face["kind"] == "cone":
+                r_ = R + v * sa_
+                P = O + r_ * (math.cos(u) * Xa + math.sin(u) * Ya) + v * ca_ * Za
+            else:
+                P = O + R * (math.cos(u) * Xa + math.sin(u) * Ya) + v * Za
+            out_uv += [u, v]
+            out_p += [P.x, P.y, P.z]
+    return out_uv, out_p
+
+
 def _fill_coons(face, base, extra_verts, why=None, pole_quads=False):
     """K4: a four-sided curved face as an n x m quad grid. The kernel found
     the four sides, made opposite sides carry the same span count, blended the
@@ -968,9 +1064,14 @@ def _fill_coons(face, base, extra_verts, why=None, pole_quads=False):
         return _corner(face, loop[(rs + k) % M])
 
     interior0 = base + len(extra_verts)
+    su, sv = face["su"], face["sv"]
+    uvs = list(uvs)
+    pts = list(pts)
+    sm = _winslow_coons(face, loop, n, m, rs, uvs, su, sv)
+    if sm is not None:
+        uvs, pts = sm
     for k in range(0, len(pts), 3):
         extra_verts.append((pts[k], pts[k + 1], pts[k + 2]))
-    su, sv = face["su"], face["sv"]
 
     def G(i, j):
         if j == 0:
