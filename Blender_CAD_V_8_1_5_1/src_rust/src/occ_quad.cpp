@@ -247,6 +247,7 @@ struct RuledFace {
     bool cone = false;      // a cone keeps each rim's own count (no equality)
     std::vector<int> rim_a, rim_b, order;
     int first_a = -1;
+    double notch_span = 0.0;
 };
 
 RuledFace analyse_ruled(const TopoDS_Face& ff, const TopTools_IndexedMapOfShape& em) {
@@ -298,6 +299,28 @@ RuledFace analyse_ruled(const TopoDS_Face& ff, const TopTools_IndexedMapOfShape&
     r.rim_b = run2;
     r.first_a = pos1;
     r.cone = (sa.GetType() == GeomAbs_Cone);
+    if (r.cone) {
+        // a cone's rows sit on fixed v lines: a rim notched by a cut (it
+        // leaves its v line) is not a ruled wall -- the rows would bridge the
+        // notch -- so it is left free for the holed fill and the pitch spread
+        double vlo = 1e300, vhi = -1e300;
+        for (const std::vector<int>* run : {&run1, &run2}) {
+            double rlo = 1e300, rhi = -1e300;
+            for (int ei : *run) {
+                double f, l;
+                Handle(Geom2d_Curve) pc = BRep_Tool::CurveOnSurface(TopoDS::Edge(em.FindKey(ei)), ff, f, l);
+                if (pc.IsNull()) return RuledFace();
+                for (int k = 0; k <= 4; ++k) {
+                    double v = pc->Value(f + (l - f) * k / 4.0).Y();
+                    rlo = std::min(rlo, v); rhi = std::max(rhi, v);
+                }
+            }
+            vlo = std::min(vlo, rlo); vhi = std::max(vhi, rhi);
+            r.notch_span = std::max(r.notch_span, rhi - rlo);
+        }
+        double h = std::fabs(vhi - vlo);
+        if (r.notch_span > 1e-3 * std::max(h, 1e-9)) return RuledFace();
+    }
     r.order = eids;
     r.ok = true;
     return r;
@@ -990,6 +1013,74 @@ std::string quad_topology_json(void* stack_ptr, double tol, bool uniform, const 
                 }
                 if (best > 0) nspan[best] += 1;
             } catch (...) {}
+        }
+        // Parity: a face meshed by the free fills (lattice / holed / n-gon)
+        // can only be all quads when its outline carries an EVEN number of
+        // spans (a seam walked both ways counts twice, so it never matters).
+        // Raising an edge by one flips the parity of both faces on it, so the
+        // odd faces are paired up along the cheapest chain of free edges
+        // (a T-join): each edge on the chain gets one more span, the faces in
+        // between see two flips and stay as they were.
+        {
+            const int NF = fm.Extent();
+            std::vector<char> fixed_face(NF + 1, 0);
+            for (int fi = 1; fi <= NF; ++fi) fixed_face[fi] = (ruled[fi].ok || coons[fi].ok) ? 1 : 0;
+            // edge -> the (distinct) faces on it, excluding seams
+            std::vector<std::vector<int>> efaces(em.Extent() + 1);
+            std::vector<int> fpar(NF + 1, 0);
+            for (int fi = 1; fi <= NF; ++fi) {
+                TopoDS_Face ff = TopoDS::Face(fm.FindKey(fi));
+                for (TopExp_Explorer ex(ff, TopAbs_EDGE); ex.More(); ex.Next()) {
+                    int ei = em.FindIndex(ex.Current());
+                    if (ei < 1 || degen[ei]) continue;
+                    fpar[fi] += nspan[ei];
+                    if (BRep_Tool::IsClosed(TopoDS::Edge(ex.Current()), ff)) continue;
+                    if (std::find(efaces[ei].begin(), efaces[ei].end(), fi) == efaces[ei].end())
+                        efaces[ei].push_back(fi);
+                }
+            }
+            auto free_edge = [&](int ei) {
+                return ei >= 1 && !degen[ei] && !locked[ei] && nspan[ei] < 64 && efaces[ei].size() == 2
+                       && !fixed_face[efaces[ei][0]] && !fixed_face[efaces[ei][1]];
+            };
+            std::vector<std::vector<std::pair<int, int>>> adj(NF + 1);   // (face, edge)
+            for (int ei = 1; ei <= em.Extent(); ++ei) {
+                if (!free_edge(ei)) continue;
+                adj[efaces[ei][0]].push_back({efaces[ei][1], ei});
+                adj[efaces[ei][1]].push_back({efaces[ei][0], ei});
+            }
+            auto odd = [&](int fi) { return !fixed_face[fi] && (fpar[fi] % 2) != 0; };
+            for (int src = 1; src <= NF; ++src) {
+                if (!odd(src)) continue;
+                // Dijkstra: one more span on a densely cut edge costs least
+                std::vector<double> dist(NF + 1, 1e300);
+                std::vector<int> via_e(NF + 1, -1), via_f(NF + 1, -1);
+                std::vector<char> done(NF + 1, 0);
+                dist[src] = 0.0;
+                int hit = -1;
+                for (;;) {
+                    int u = -1;
+                    for (int fi = 1; fi <= NF; ++fi)
+                        if (!done[fi] && dist[fi] < 1e299 && (u < 0 || dist[fi] < dist[u])) u = fi;
+                    if (u < 0) break;
+                    done[u] = 1;
+                    if (u != src && odd(u)) { hit = u; break; }
+                    for (auto& pe : adj[u]) {
+                        double c = 1.0 + 1.0 / std::max(1, nspan[pe.second]);
+                        if (dist[u] + c < dist[pe.first]) {
+                            dist[pe.first] = dist[u] + c;
+                            via_e[pe.first] = pe.second;
+                            via_f[pe.first] = u;
+                        }
+                    }
+                }
+                if (hit < 0) continue;      // no partner reachable: it keeps one triangle
+                for (int f = hit; f != src; f = via_f[f]) {
+                    int ei = via_e[f];
+                    nspan[ei] += 1;
+                    for (int g : efaces[ei]) fpar[g] += 1;
+                }
+            }
         }
         // a plane whose straight edges ended up cut (by itself or a neighbour)
         // is laid as a lattice; an all-curve outline (a cylinder cap) stays an n-gon
