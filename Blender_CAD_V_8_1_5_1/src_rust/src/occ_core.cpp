@@ -1321,6 +1321,20 @@ static std::mutex g_occ_mutex;
                         } else {
                             BRep_Builder bb; TopoDS_Compound comp_base; bb.MakeCompound(comp_base);
                             for (int idx : interacting_indices) {
+                                // FACE_LOFT: a loft profile taken from a zero-height
+                                // SURFACE / POLYGON / SLOT is a 1e-4 placeholder slab;
+                                // the loft replaces it, so leave the slab out of the
+                                // fuse instead of keeping a hair-thin sliver on the part
+                                if (p_type == "FACE_LOFT") {
+                                    GProp_GProps vg, sg;
+                                    BRepGProp::VolumeProperties(current_clusters[idx].raw, vg);
+                                    BRepGProp::SurfaceProperties(current_clusters[idx].raw, sg);
+                                    const double vol = std::abs(vg.Mass()), area = sg.Mass();
+                                    if (area > 1e-12 && vol > 0.0 && vol / (0.5 * area) < 2.5e-4) {
+                                        log_debug("[FACE_LOFT] dropping a placeholder slab cluster");
+                                        continue;
+                                    }
+                                }
                                 bb.Add(comp_base, current_clusters[idx].raw);
                             }
                             TopoDS_Shape merged = apply_boolean(comp_base, prim, p_op, &current_face_map, false);

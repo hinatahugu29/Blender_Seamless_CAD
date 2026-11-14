@@ -1,3 +1,9 @@
+#include <GeomLib_IsPlanarSurface.hxx>
+#include <GeomAbs_SurfaceType.hxx>
+#include <gp_Pln.hxx>
+#include <BRepGProp.hxx>
+#include <GProp_GProps.hxx>
+#include <BRepAdaptor_Surface.hxx>
 #include "occ_common.hpp"
 #include "occ_modifiers.hpp"
 #include <TopTools_IndexedDataMapOfShapeListOfShape.hxx>
@@ -2015,6 +2021,61 @@ TopoDS_Shape apply_face_loft(const TopoDS_Shape& result_shape, const std::string
             return TopoDS_Shape();
         }
         
+        // A zero-height SURFACE / POLYGON / SLOT becomes a 1e-4 thick
+        // placeholder slab (occ_core.cpp). When a loft profile is one face of
+        // such a slab, loft to the slab's far face instead, so the loft swallows
+        // the slab and the fuse leaves one clean cap -- otherwise a 1e-4 sliver
+        // (an extra cap, a hair-thin side wall) stays on the part.
+        {
+            auto plane_of = [](const TopoDS_Face& f, gp_Pln& pl) -> bool {
+                // a sketch SURFACE may be a planar B-spline, not a Geom_Plane
+                Handle(Geom_Surface) gs = BRep_Tool::Surface(f);
+                if (gs.IsNull()) return false;
+                GeomLib_IsPlanarSurface ip(gs, 1e-7);
+                if (!ip.IsPlanar()) return false;
+                pl = ip.Plan();
+                if (f.Orientation() == TopAbs_REVERSED) { gp_Ax1 ax = pl.Axis(); ax.Reverse(); pl.SetAxis(ax); }
+                return true;
+            };
+            auto centre_area = [](const TopoDS_Face& f, gp_Pnt& c) -> double {
+                GProp_GProps g; BRepGProp::SurfaceProperties(f, g); c = g.CentreOfMass(); return g.Mass();
+            };
+            std::vector<gp_Pnt> gc(groups.size());
+            for (size_t gi = 0; gi < groups.size(); ++gi) {
+                double sx = 0, sy = 0, sz = 0; int k = 0;
+                for (const auto& f : groups[gi]) { gp_Pnt c; centre_area(f, c); sx += c.X(); sy += c.Y(); sz += c.Z(); ++k; }
+                gc[gi] = gp_Pnt(sx / k, sy / k, sz / k);
+            }
+            for (size_t gi = 0; gi < groups.size(); ++gi) {
+                // (profile groups with several faces are left alone)
+                if (groups[gi].size() != 1) continue;
+                const TopoDS_Face f0 = groups[gi][0];
+                gp_Pln p0; if (!plane_of(f0, p0)) continue;
+                gp_Pnt c0; const double a0 = centre_area(f0, c0);
+                if (a0 <= 1e-12) continue;
+                const gp_Pnt other = gc[(gi + 1) % groups.size()];
+                TopoDS_Face best;
+                for (int fi = 1; fi <= fm.Extent(); ++fi) {
+                    const TopoDS_Face g = TopoDS::Face(fm(fi));
+                    if (g.IsSame(f0)) continue;
+                    gp_Pln pg; if (!plane_of(g, pg)) continue;
+                    if (!pg.Axis().Direction().IsParallel(p0.Axis().Direction(), 1e-6)) continue;
+                    const double d = p0.Distance(pg.Location());
+                    if (d < 1e-7 || d > 3e-4) continue;
+                    gp_Pnt cg; const double ag = centre_area(g, cg);
+                    if (std::abs(ag - a0) > 1e-3 * a0) continue;
+                    gp_Vec off(c0, cg);
+                    if ((off - gp_Vec(p0.Axis().Direction()) * off.Dot(gp_Vec(p0.Axis().Direction()))).Magnitude() > 1e-4) continue;
+                    if (cg.Distance(other) <= c0.Distance(other)) continue;
+                    best = g;
+                }
+                if (!best.IsNull()) {
+                    log_debug("[FACE_LOFT] profile is a placeholder slab face; lofting to its far face");
+                    groups[gi][0] = best;
+                }
+            }
+        }
+
         auto get_outer_wire = [](const std::vector<TopoDS_Face>& group) -> TopoDS_Wire {
             TopTools_IndexedMapOfShape all_edges;
             std::vector<int> edge_counts;
