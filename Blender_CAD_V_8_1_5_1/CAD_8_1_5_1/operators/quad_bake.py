@@ -193,10 +193,30 @@ def _fill_ruled_rows(face, loop, rs, na, nb, nr, base, extra_verts, why):
         return _fill_cone_rows(face, loop, rs, na, nb, nr, rows, base, extra_verts, why)
     if rows is None or na != nb or extra_verts is None:
         return _no(why, "rows along the wall need equal rims and the kernel's interior stations")
-    pts, uvs = rows["pts"], rows.get("uv", [])
+    pts, uvs = list(rows["pts"]), list(rows.get("uv", []))
     n_in = (nr - 1) * (na - 1)
     if len(pts) != 3 * n_in or len(uvs) != 2 * n_in:
         return _no(why, "row data does not match the outline")
+    # the wall grid is the Coons layout with (i, j) = (station, row), only
+    # stored row-major: when a rim bends away from its row (a fillet cut into
+    # the wall's edge) the plain row blend squeezes the cells at the bend, so
+    # the same Winslow smoothing as the Coons faces evens them out
+    if nr >= 3 and na >= 3:
+        cu = [0.0] * (2 * n_in)
+        for k in range(1, nr):
+            for i in range(1, na):
+                q = (k - 1) * (na - 1) + (i - 1)
+                c = (i - 1) * (nr - 1) + (k - 1)
+                cu[2 * c], cu[2 * c + 1] = uvs[2 * q], uvs[2 * q + 1]
+        sm = _winslow_coons(face, loop, na, nr, rs, cu, face["su"], face["sv"])
+        if sm is not None:
+            suv, spt = sm
+            for k in range(1, nr):
+                for i in range(1, na):
+                    q = (k - 1) * (na - 1) + (i - 1)
+                    c = (i - 1) * (nr - 1) + (k - 1)
+                    uvs[2 * q], uvs[2 * q + 1] = suv[2 * c], suv[2 * c + 1]
+                    pts[3 * q:3 * q + 3] = spt[3 * c:3 * c + 3]
     first = base + len(extra_verts)
     for k in range(0, len(pts), 3):
         extra_verts.append((pts[k], pts[k + 1], pts[k + 2]))
@@ -1026,7 +1046,7 @@ def _winslow_coons(face, loop, n, m, rs, uvs, su, sv, verts3d=None):
                 return None
     a0, ok0 = min_angle_and_sign()
     if not ok0:
-        return None
+        a0 = -1.0          # already folded: any untangled result is better
     # a closed face: sides i = 0 and i = n are the same seam (same vertex
     # ids, u apart by a full turn); its inner points then slide along the
     # seam (v only) with the rows instead of pinning them

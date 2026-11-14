@@ -993,7 +993,15 @@ std::string quad_topology_json(void* stack_ptr, double tol, bool uniform, const 
             for (int fi = 1; fi <= fm.Extent(); ++fi) {
                 TopoDS_Face ff = TopoDS::Face(fm.FindKey(fi).Oriented(TopAbs_FORWARD));
                 try {
-                    if (BRepAdaptor_Surface(ff, Standard_False).GetType() != GeomAbs_Plane) continue;
+                    {
+                        // a plane -- or a cylinder that no grid / wall layout
+                        // takes (it is laid by the free fills too): a long
+                        // straight ruling left at one span makes a fan of
+                        // slivers whose smooth shading reads as a dark lens
+                        GeomAbs_SurfaceType t_ = BRepAdaptor_Surface(ff, Standard_False).GetType();
+                        bool free_cyl = t_ == GeomAbs_Cylinder && !ruled[fi].ok && !coons[fi].ok;
+                        if (t_ != GeomAbs_Plane && !free_cyl) continue;
+                    }
                     double dl = 0.0; int dn = 0;
                     std::vector<int> lines;
                     for (TopExp_Explorer ex(ff, TopAbs_EDGE); ex.More(); ex.Next()) {
