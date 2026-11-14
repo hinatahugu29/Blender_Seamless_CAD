@@ -116,7 +116,7 @@ class SEAMLESS_PT_QualityBakePanel(bpy.types.Panel):
             sub.prop(props, "quad_bake_tol", text="Quad Tol")
             box_q.prop(props, "quad_bake_uniform", toggle=True)
             row = box_q.row(align=True)
-            row.prop(props, "quad_bake_subd", toggle=True)
+            row.prop(props, "quad_bake_subd", text="Subdiv", toggle=True)
             row.prop(props, "quad_bake_pair", toggle=True)
             row.prop(props, "quad_bake_pole_quads", toggle=True)
             box_q.prop(props, "quad_bake_keep", toggle=True)
