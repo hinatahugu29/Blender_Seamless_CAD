@@ -633,6 +633,34 @@ DISK_RELAX = 40
 TAPER_MIN_DEG = 20.0
 
 
+TRI3_SKEW_SHARE = 0.10
+
+
+def _tri3_unless_skewed(face, verts3d, extra_verts, why=None):
+    """The three-patch layout, declined when it skews (a long plate with one
+    rounded end: the spoke counts come out 60 / 9 / 4 and most cells lean);
+    the lattice and the strip split then lay it as straight rows."""
+    n0 = len(extra_verts)
+    polys = _fill_tri_plane(face, verts3d, extra_verts, why=why)
+    if not polys:
+        return polys
+    lim = math.radians(30.0)
+    bad = 0
+    for q in polys:
+        k = len(q)
+        for t in range(k):
+            a, b, c = q[t - 1], q[t], q[(t + 1) % k]
+            v1 = (a[1] - b[1], a[2] - b[2]); v2 = (c[1] - b[1], c[2] - b[2])
+            l = math.hypot(*v1) * math.hypot(*v2)
+            if l > 0.0 and math.acos(max(-1.0, min(1.0, (v1[0] * v2[0] + v1[1] * v2[1]) / l))) < lim:
+                bad += 1
+                break
+    if bad > TRI3_SKEW_SHARE * len(polys):
+        del extra_verts[n0:]
+        return _no(why, "the three patches skew (%d of %d cells under 30 degrees)" % (bad, len(polys)))
+    return polys
+
+
 def _min_corner_deg(polys):
     """The smallest corner angle (degrees) over the polygons, in their
     (u, v) coordinates."""
@@ -1947,7 +1975,7 @@ def build_quad_mesh_uv(data):
             ("ruled", lambda w: _fill_ruled(face, len(verts3d), extra, why=w)),
             ("grid", lambda w: _fill_coons(face, len(verts3d), extra, why=w,
                                            pole_quads=bool(data.get("pole_quads")), verts3d=verts3d)),
-            ("tri3", lambda w: _fill_tri_plane(face, verts3d, extra, why=w) if uniform
+            ("tri3", lambda w: _tri3_unless_skewed(face, verts3d, extra, why=w) if uniform
              else _no(w, "three-patch split is a uniform-density layout")),
             ("pgrid", lambda w: _fill_plane_grid(face, verts3d, extra, why=w) if uniform
              else _no(w, "plane grid is a uniform-density layout")),
