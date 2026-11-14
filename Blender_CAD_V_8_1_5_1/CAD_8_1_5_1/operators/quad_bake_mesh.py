@@ -319,6 +319,7 @@ def _surface_projectors(data):
 
 
 SPLIT_MIN_ANGLE = math.radians(25.0)
+SPLIT_UNDO_ANGLE = math.radians(12.0)
 
 
 def split_pair_triangles(bm, planes, max_path=40, curved=None, mids_out=None):
@@ -396,6 +397,7 @@ def split_pair_triangles(bm, planes, max_path=40, curved=None, mids_out=None):
                     nv.co = curved[c0](nv.co)
                     new_curved.append((nv, c0))
             ok = True
+            new_edges = []
             for k, q in enumerate(strip):
                 try:
                     res = bmesh.utils.face_split(q, mids[k], mids[k + 1])
@@ -403,6 +405,31 @@ def split_pair_triangles(bm, planes, max_path=40, curved=None, mids_out=None):
                     res = None
                 if not res or res[0] is None:
                     ok = False
+                else:
+                    new_edges.append(res[1].edge)
+            if ok and c0 in curved:
+                # on a curved face settle the new points now (they never see
+                # relax_planes) and take the split back when a quad folds
+                for _ in range(10):
+                    for v in mids:
+                        if any(e.seam or len(e.link_faces) != 2 for e in v.link_edges):
+                            continue
+                        fs = v.link_faces
+                        co = fs[0].calc_center_median()
+                        for f2 in fs[1:]:
+                            co += f2.calc_center_median()
+                        v.co = curved[c0](co / len(fs))
+                around = {f2 for v in mids for f2 in v.link_faces}
+                if any(min(lo.calc_angle() for lo in f2.loops) < SPLIT_UNDO_ANGLE for f2 in around):
+                    try:
+                        bmesh.ops.dissolve_edges(bm, edges=[e for e in new_edges if e.is_valid])
+                        bmesh.ops.dissolve_verts(bm, verts=[v for v in mids if v.is_valid])
+                    except (ValueError, RuntimeError):
+                        pass
+                    new_curved[:] = [(v, c) for v, c in new_curved if v.is_valid]
+                    if mids_out is not None:
+                        mids_out[:] = [(v, c) for v, c in mids_out if v.is_valid]
+                    continue
             done += 1
             moved = True
             if not ok:
