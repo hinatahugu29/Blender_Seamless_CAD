@@ -945,7 +945,7 @@ def _disk_cut_holes(face, loops, allq, g, base, extra_verts, to3, su, sv, xy0):
 COONS_WINSLOW_ITERS = 200
 
 
-def _winslow_coons(face, loop, n, m, rs, uvs, su, sv):
+def _winslow_coons(face, loop, n, m, rs, uvs, su, sv, verts3d=None):
     """Winslow smoothing of a Coons grid on a cylinder / cone, in the
     face's scaled (u, v): the transfinite blend bends its rows into a notched
     rim and squeezes the cells at the notch floor; the Winslow equations
@@ -1002,7 +1002,16 @@ def _winslow_coons(face, loop, n, m, rs, uvs, su, sv):
     a0, ok0 = min_angle_and_sign()
     if not ok0:
         return None
-    old = [row[:] for row in X]
+    # a closed face: sides i = 0 and i = n are the same seam (same vertex
+    # ids, u apart by a full turn); its inner points then slide along the
+    # seam (v only) with the rows instead of pinning them
+    def vid(k):
+        return loop[(rs + k) % M][0]
+    # (the seam runs along i: rows j = 0 and j = m)
+    seam = verts3d is not None and all(vid(i) == vid(n + m + (n - i)) for i in range(1, n))
+    shift = (X[1][m][0] - X[1][0][0]) if seam else 0.0
+    if seam and abs(abs(shift) - per) > 1e-3 * per:
+        seam = False
     for _ in range(COONS_WINSLOW_ITERS):
         for i in range(1, n):
             for j in range(1, m):
@@ -1017,12 +1026,45 @@ def _winslow_coons(face, loop, n, m, rs, uvs, su, sv):
                 X[i][j] = [(al * (X[i + 1][j][c] + X[i - 1][j][c]) + ga * (X[i][j + 1][c] + X[i][j - 1][c])
                             - 0.5 * be * (X[i + 1][j + 1][c] - X[i + 1][j - 1][c]
                                           - X[i - 1][j + 1][c] + X[i - 1][j - 1][c])) / den for c in (0, 1)]
+        if seam:
+            for i in range(1, n):
+                D_ = [X[i][m - 1][0] - shift, X[i][m - 1][1]]      # j - 1, across the seam
+                U_ = X[i][1]                                        # j + 1
+                DL = [X[i - 1][m - 1][0] - shift, X[i - 1][m - 1][1]]
+                DR = [X[i + 1][m - 1][0] - shift, X[i + 1][m - 1][1]]
+                xe = [(X[i + 1][0][c] - X[i - 1][0][c]) * 0.5 for c in (0, 1)]
+                xn = [(U_[c] - D_[c]) * 0.5 for c in (0, 1)]
+                al = xn[0] ** 2 + xn[1] ** 2
+                ga = xe[0] ** 2 + xe[1] ** 2
+                be = xe[0] * xn[0] + xe[1] * xn[1]
+                den = 2.0 * (al + ga)
+                if den < 1e-30:
+                    continue
+                Vn = (al * (X[i + 1][0][1] + X[i - 1][0][1]) + ga * (U_[1] + D_[1])
+                      - 0.5 * be * (X[i + 1][1][1] - DR[1] - X[i - 1][1][1] + DL[1])) / den
+                lo_, hi_ = sorted((X[i - 1][0][1], X[i + 1][0][1]))
+                Vn = min(max(Vn, lo_ + 0.1 * (hi_ - lo_)), hi_ - 0.1 * (hi_ - lo_))
+                X[i][0] = [X[i][0][0], Vn]
+                X[i][m] = [X[i][m][0], Vn]
     a1, ok1 = min_angle_and_sign()
     if not ok1 or a1 < a0:
         return None
     O = Vector(prm[0:3]); Xa = Vector(prm[3:6]); Ya = Vector(prm[6:9]); Za = Vector(prm[9:12]); R = prm[12]
     if face["kind"] == "cone":
         sa_, ca_ = math.sin(prm[13]), math.cos(prm[13])
+
+    def on_surf(U, V):
+        u, v = U / su, V / sv
+        if face["kind"] == "cone":
+            r_ = R + v * sa_
+            return O + r_ * (math.cos(u) * Xa + math.sin(u) * Ya) + v * ca_ * Za
+        return O + R * (math.cos(u) * Xa + math.sin(u) * Ya) + v * Za
+    if seam:
+        for i in range(1, n):
+            P = on_surf(*X[i][0])
+            verts3d[vid(i)] = (P.x, P.y, P.z)
+            loop[(rs + i) % M][2] = X[i][0][1] / sv
+            loop[(rs + n + m + (n - i)) % M][2] = X[i][0][1] / sv
     out_uv, out_p = [], []
     for i in range(1, n):
         for j in range(1, m):
@@ -1038,7 +1080,7 @@ def _winslow_coons(face, loop, n, m, rs, uvs, su, sv):
     return out_uv, out_p
 
 
-def _fill_coons(face, base, extra_verts, why=None, pole_quads=False):
+def _fill_coons(face, base, extra_verts, why=None, pole_quads=False, verts3d=None):
     """K4: a four-sided curved face as an n x m quad grid. The kernel found
     the four sides, made opposite sides carry the same span count, blended the
     boundary in UV (Coons) and evaluated the interior on the surface
@@ -1067,7 +1109,7 @@ def _fill_coons(face, base, extra_verts, why=None, pole_quads=False):
     su, sv = face["su"], face["sv"]
     uvs = list(uvs)
     pts = list(pts)
-    sm = _winslow_coons(face, loop, n, m, rs, uvs, su, sv)
+    sm = _winslow_coons(face, loop, n, m, rs, uvs, su, sv, verts3d)
     if sm is not None:
         uvs, pts = sm
     for k in range(0, len(pts), 3):
@@ -1821,7 +1863,7 @@ def build_quad_mesh_uv(data):
         ladder = (
             ("ruled", lambda w: _fill_ruled(face, len(verts3d), extra, why=w)),
             ("grid", lambda w: _fill_coons(face, len(verts3d), extra, why=w,
-                                           pole_quads=bool(data.get("pole_quads")))),
+                                           pole_quads=bool(data.get("pole_quads")), verts3d=verts3d)),
             ("tri3", lambda w: _fill_tri_plane(face, verts3d, extra, why=w) if uniform
              else _no(w, "three-patch split is a uniform-density layout")),
             ("pgrid", lambda w: _fill_plane_grid(face, verts3d, extra, why=w) if uniform
