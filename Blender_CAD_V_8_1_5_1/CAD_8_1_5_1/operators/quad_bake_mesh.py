@@ -326,7 +326,34 @@ def _surface_projectors(data):
     cylinder / cone (radially, at the same axial height)."""
     from mathutils import Vector
     out = {}
+    flat = data.get("verts", [])
     for f in data.get("faces", []):
+        if f.get("kind") == "sphere":
+            # no sphere parameters in the topology: fit one to the outline
+            # (|p|^2 = 2 c.p + k, least squares)
+            import numpy as np
+            ids = {p[0] for L in f.get("loops", []) for p in L}
+            P = np.array([flat[3 * i:3 * i + 3] for i in ids if 3 * i + 2 < len(flat)], dtype=float)
+            if len(P) < 6:
+                continue
+            A = np.hstack([2.0 * P, np.ones((len(P), 1))])
+            sol = np.linalg.lstsq(A, (P * P).sum(axis=1), rcond=None)[0]
+            ctr = sol[:3]
+            r2 = sol[3] + ctr.dot(ctr)
+            if not r2 > 0.0:
+                continue
+            rad = float(r2) ** 0.5
+            res = np.abs(np.linalg.norm(P - ctr, axis=1) - rad).max()
+            if res > 1e-3 * rad:
+                continue
+            C = Vector(tuple(ctr))
+
+            def proj_s(co, C=C, rad=rad):
+                d = co - C
+                L = d.length
+                return co if L < 1e-12 else C + d * (rad / L)
+            out[f.get("i")] = proj_s
+            continue
         prm = f.get("cyl") if f.get("kind") == "cylinder" else (
             f.get("cone") if f.get("kind") == "cone" else None)
         if not prm or len(prm) < 13:
