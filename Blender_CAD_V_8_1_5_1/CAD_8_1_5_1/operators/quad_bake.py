@@ -594,6 +594,10 @@ def _fill_plane_taper(face, verts3d, extra_verts, loop, P, cs, side, why=None):
     return _orient_poly(face, area, polys)
 
 
+DISK_SQUARE = 0.6
+DISK_RELAX = 40
+
+
 def _fill_plane_grid(face, verts3d, extra_verts, why=None):
     """A one-loop plane with four corners whose opposite sides carry the same
     span count (the uniform pass split its straight sides) as an n x m quad
@@ -641,10 +645,12 @@ def _fill_plane_grid(face, verts3d, extra_verts, why=None):
     area = _signed_area(P)
     ring_polys = []
     if disk:
-        # a round outline: a ring of quads one step wide around an inner
-        # four-sided loop (straight sides between the shrunk virtual corners),
-        # so no outline point sits at a flat 180-degree quad corner; the four
-        # inner corners become valence-3 poles instead
+        # a round outline: a polar-square layout -- an inner four-sided loop
+        # (straight sides between virtual corners pulled toward the centre)
+        # joined to the outline by several rings of quads, then everything
+        # inside the outline is relaxed together, so the inner square rounds
+        # off and no outline point sits at a flat 180-degree quad corner; the
+        # four inner corners become valence-3 poles
         cx = sum(x for x, _ in P) / M
         cy = sum(y for _, y in P) / M
         step = sum(((P[(k + 1) % M][0] - P[k][0]) ** 2 + (P[(k + 1) % M][1] - P[k][1]) ** 2) ** 0.5
@@ -653,25 +659,31 @@ def _fill_plane_grid(face, verts3d, extra_verts, why=None):
         C = []
         for k in corner_k:
             _, x, y = at(k)
-            r = ((x - cx) ** 2 + (y - cy) ** 2) ** 0.5
-            f = max(0.0, 1.0 - step / max(r, 1e-30))
-            C.append((cx + f * (x - cx), cy + f * (y - cy)))
+            C.append((cx + DISK_SQUARE * (x - cx), cy + DISK_SQUARE * (y - cy)))
         lens = [n, m, n, m]
-        inner_loop = []
+        sq = []
         for sd in range(4):
             a0, a1 = C[sd], C[(sd + 1) % 4]
             for t in range(lens[sd]):
                 f = t / lens[sd]
-                U, V = a0[0] + (a1[0] - a0[0]) * f, a0[1] + (a1[1] - a0[1]) * f
-                inner_loop.append((base + len(extra_verts), U, V))
+                sq.append((a0[0] + (a1[0] - a0[0]) * f, a0[1] + (a1[1] - a0[1]) * f))
+        gap = sum(((at(k)[1] - sq[k][0]) ** 2 + (at(k)[2] - sq[k][1]) ** 2) ** 0.5 for k in range(M)) / M
+        R = max(1, int(round(gap / max(step, 1e-30))))
+        rings = [[at(k) for k in range(M)]]
+        for r in range(1, R + 1):
+            t = r / R
+            row = []
+            for k in range(M):
+                _, x, y = at(k)
+                U, V = x + (sq[k][0] - x) * t, y + (sq[k][1] - y) * t
+                row.append((base + len(extra_verts), U, V))
                 extra_verts.append(to3(U, V))
-        for k in range(M):
-            k2 = (k + 1) % M
-            q = [at(k), at(k2), inner_loop[k2], inner_loop[k]]
-            if _signed_area([(c[1], c[2]) for c in q]) * area <= 0.0:
-                del extra_verts[n_extra:]
-                return _no(why, "a disk ring cell flips")
-            ring_polys.append(q)
+            rings.append(row)
+        for r in range(R):
+            for k in range(M):
+                k2 = (k + 1) % M
+                ring_polys.append([rings[r][k], rings[r][k2], rings[r + 1][k2], rings[r + 1][k]])
+        inner_loop = rings[R]
         at = lambda k: inner_loop[k % M]
 
     first = base + len(extra_verts)
@@ -708,29 +720,33 @@ def _fill_plane_grid(face, verts3d, extra_verts, why=None):
                 del extra_verts[n_extra:]
                 return _no(why, "a grid cell flips (the outline is too skewed)")
             polys.append(q)
-    if disk and inner:
-        # Laplacian relax of the inner points (outline fixed): the four
-        # virtual corners stop being flat 180-degree cells
-        uv = {k: (v[1], v[2]) for k, v in inner.items()}
-
-        def cur(i, j):
-            return uv[(i, j)] if (i, j) in uv else G(i, j)[1:]
-        for _ in range(8):
-            nxt = {}
-            for (i, j) in uv:
-                ns = [cur(i + 1, j), cur(i - 1, j), cur(i, j + 1), cur(i, j - 1)]
-                nxt[(i, j)] = (sum(a[0] for a in ns) / 4.0, sum(a[1] for a in ns) / 4.0)
+    if disk:
+        # Laplacian relax of every point inside the outline (outline fixed)
+        allp = ring_polys + polys
+        uv = {}
+        nb = {}
+        for q in allp:
+            for k in range(4):
+                v, w = q[k], q[(k + 1) % 4]
+                for x, y in ((v, w), (w, v)):
+                    nb.setdefault(x[0], set()).add(y[0])
+                    uv.setdefault(x[0], (x[1], x[2]))
+        movable = [vid for vid in uv if vid >= base + n_extra]
+        for _ in range(DISK_RELAX):
+            nxt = dict(uv)
+            for vid in movable:
+                ns = nb[vid]
+                nxt[vid] = (sum(uv[w][0] for w in ns) / len(ns), sum(uv[w][1] for w in ns) / len(ns))
             uv = nxt
-        remap = {}
-        for k, (vid, _, _) in inner.items():
-            U, V = uv[k]
-            extra_verts[vid - base] = to3(U, V)
-            remap[vid] = (vid, U, V)
-        polys = [[remap.get(c[0], c) for c in q] for q in polys]
-        for q in polys:
+        relaxed = [[(c[0],) + uv[c[0]] for c in q] for q in allp]
+        if all(_signed_area([(c[1], c[2]) for c in q]) * area > 0.0 for q in relaxed):
+            for vid in movable:
+                extra_verts[vid - base] = to3(*uv[vid])
+            ring_polys, polys = [], relaxed
+        for q in ring_polys + polys:
             if _signed_area([(c[1], c[2]) for c in q]) * area <= 0.0:
                 del extra_verts[n_extra:]
-                return _no(why, "a relaxed disk cell flips")
+                return _no(why, "a disk cell flips")
     return _orient_poly(face, area, ring_polys + polys)
 
 
