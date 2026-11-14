@@ -135,6 +135,228 @@ def pair_triangles(bm, shape_deg=60.0, face_deg=PAIR_FACE_DEG, cap=PAIR_BLOSSOM_
     return len(pairs)
 
 
+def _poly_worst(vs, shape_deg):
+    """Worst corner deviation from 90 degrees of the convex quad `vs` (BMVerts
+    in winding order), or None when it is folded, reflex or too skewed."""
+    P = [v.co for v in vs]
+    n = P[0].copy() * 0.0
+    for i in range(4):
+        n += P[i].cross(P[(i + 1) % 4])
+    if n.length < 1e-14:
+        return None
+    worst = 0.0
+    for i in range(4):
+        q0, q1, q2 = P[i - 1], P[i], P[(i + 1) % 4]
+        e0, e1 = q0 - q1, q2 - q1
+        if e0.length < 1e-12 or e1.length < 1e-12:
+            return None
+        if e1.cross(e0).dot(n) <= 0.0:
+            return None
+        worst = max(worst, abs(math.degrees(e0.angle(e1)) - 90.0))
+    return worst if worst <= shape_deg else None
+
+
+def _merge_cycles(c, q):
+    """Two faces' vertex cycles (same winding) sharing one edge -> the cycle
+    of their union, or None when they do not share exactly one edge."""
+    n = len(c)
+    for i in range(n):
+        u, v = c[i], c[(i + 1) % n]
+        m = len(q)
+        for j in range(m):
+            if q[j] is v and q[(j + 1) % m] is u:
+                cr = [c[(i + 1 + k) % n] for k in range(n)]        # v ... u
+                qr = [q[(j + 2 + k) % m] for k in range(m - 2)]    # after u, before v
+                out = cr + qr
+                return out if len(set(out)) == len(out) else None
+    return None
+
+
+MIGRATE_SLACK_DEG = 20.0
+
+
+def migrate_triangles(bm, shape_deg=60.0, max_path=12, only=None):
+    """Triangles the matching left stranded inside one CAD face are walked
+    towards each other through the quads between them: a triangle and the
+    next quad make a pentagon, re-split into a quad and a triangle one face
+    further on, until the two triangles meet and join into a quad. Every
+    quad made must pass the pairing's shape test; the faces are replaced only
+    when the whole walk does. Never crosses a seam (CAD edge). Returns the
+    number of triangle pairs removed."""
+    cad = bm.faces.layers.int.get("cad_face")
+    uvl = bm.loops.layers.uv.get("UVMap")
+    done = 0
+    for _round in range(4):
+        moved = False
+        tris = sorted((f for f in bm.faces if len(f.verts) == 3), key=lambda f: f.index)
+        for t0 in tris:
+            if not t0.is_valid or len(t0.verts) != 3:
+                continue
+            if only is not None and (cad is None or t0[cad] not in only):
+                continue
+            # breadth-first through quads to the nearest other triangle
+            prev = {t0: None}
+            front = [t0]
+            goal = None
+            for _d in range(max_path):
+                nxt = []
+                for f in front:
+                    for e in f.edges:
+                        if e.seam or len(e.link_faces) != 2:
+                            continue
+                        g = e.link_faces[0] if e.link_faces[1] is f else e.link_faces[1]
+                        if g in prev:
+                            continue
+                        if cad is not None and g[cad] != t0[cad]:
+                            continue
+                        if len(g.verts) == 3:
+                            prev[g] = f
+                            goal = g
+                            break
+                        if len(g.verts) == 4:
+                            prev[g] = f
+                            nxt.append(g)
+                    if goal:
+                        break
+                if goal or not nxt:
+                    break
+                front = nxt
+            if goal is None:
+                continue
+            path = [goal]
+            while prev[path[-1]] is not None:
+                path.append(prev[path[-1]])
+            path.reverse()                       # t0, quads..., goal
+            # simulate the walk
+            cur = list(t0.verts)
+            out = []
+            ok = True
+            for k in range(1, len(path) - 1):
+                pent = _merge_cycles(cur, list(path[k].verts))
+                if pent is None or len(pent) != 5:
+                    ok = False
+                    break
+                nf = set(path[k + 1].verts)
+                i = next((i for i in range(5) if pent[i] in nf and pent[(i + 1) % 5] in nf), None)
+                if i is None:
+                    ok = False
+                    break
+                P = lambda j: pent[(i + j) % 5]
+                opts = []
+                for tri, quad in (([P(0), P(1), P(2)], [P(2), P(3), P(4), P(0)]),
+                                  ([P(-1), P(0), P(1)], [P(1), P(2), P(3), P(-1)])):
+                    w = _poly_worst(quad, shape_deg)
+                    if w is not None:
+                        opts.append((w, tri, quad))
+                if not opts:
+                    ok = False
+                    break
+                opts.sort(key=lambda o: o[0])
+                _, cur, quad = opts[0]
+                out.append(quad)
+            if ok:
+                last = _merge_cycles(cur, list(goal.verts))
+                if last is None or len(last) != 4 or _poly_worst(last, shape_deg) is None:
+                    ok = False
+                else:
+                    out.append(last)
+            if not ok:
+                continue
+            # apply: replace the path's faces by the new quads
+            uv = {}
+            if uvl is not None:
+                for f in path:
+                    for lo in f.loops:
+                        uv[lo.vert] = lo[uvl].uv.copy()
+            c_val = t0[cad] if cad is not None else None
+            smooth = t0.smooth
+            old_edges = {e for f in path for e in f.edges}
+            for f in path:
+                bm.faces.remove(f)
+            for vs in out:
+                g = bm.faces.new(vs)
+                if cad is not None:
+                    g[cad] = c_val
+                g.smooth = smooth
+                if uvl is not None:
+                    for lo in g.loops:
+                        if lo.vert in uv:
+                            lo[uvl].uv = uv[lo.vert]
+            for e in old_edges:
+                if e.is_valid and not e.link_faces:
+                    bm.edges.remove(e)
+            done += 1
+            moved = True
+        if not moved:
+            break
+    return done
+
+
+def relax_planes(bm, planes, iters=10):
+    """Laplacian relax of the inner vertices of flat CAD faces (every linked
+    polygon on one plane face, no seam / open edge at the vertex): the
+    lattice-and-CDT fill leaves slivers where its axis-aligned rows meet a
+    slanted outline, which the pairing's shape test refuses. Averaging stays
+    on the plane, and the UV (affine in position there) is averaged with it.
+    Returns the number of vertices moved."""
+    cad = bm.faces.layers.int.get("cad_face")
+    if cad is None or not planes:
+        return 0
+    uvl = bm.loops.layers.uv.get("UVMap")
+    inner = []
+    for v in bm.verts:
+        fs = v.link_faces
+        if not fs:
+            continue
+        c = fs[0][cad]
+        if c not in planes or any(f[cad] != c for f in fs):
+            continue
+        if any(e.seam or len(e.link_faces) != 2 for e in v.link_edges):
+            continue
+        inner.append(v)
+    if not inner:
+        return 0
+    for _ in range(iters):
+        new = []
+        for v in inner:
+            nb = [e.other_vert(v) for e in v.link_edges]
+            co = nb[0].co.copy()
+            for o in nb[1:]:
+                co += o.co
+            new.append(co / len(nb))
+        for v, co in zip(inner, new):
+            v.co = co
+    if uvl is not None:
+        # UV of an inner vertex from its neighbours, solved by the same sweeps
+        def uv_of(v, f):
+            for lo in f.loops:
+                if lo.vert is v:
+                    return lo[uvl].uv
+            return None
+        for _ in range(iters * 3):
+            for v in inner:
+                f0 = v.link_faces[0]
+                acc = None
+                n = 0
+                for e in v.link_edges:
+                    o = e.other_vert(v)
+                    w = uv_of(o, f0) if o in f0.verts else None
+                    if w is None:
+                        for f in e.link_faces:
+                            w = uv_of(o, f)
+                            if w is not None:
+                                break
+                    if w is None:
+                        continue
+                    acc = w.copy() if acc is None else acc + w
+                    n += 1
+                if n:
+                    uv = acc / n
+                    for lo in v.link_loops:
+                        lo[uvl].uv = uv
+    return len(inner)
+
+
 def mesh_quality(bm, cad_pairs, rep):
     """0-4: numbers to answer "where is it bad" with.
 
@@ -330,6 +552,14 @@ def make_quad_bake_mesh(name, data, join_tris=True, sharp_angle_deg=30.0, join_s
         f.smooth = True
     if join_tris:
         rep["joined"] = pair_triangles(bm, shape_deg=join_shape_deg)
+        # stranded triangles walk to each other through the quads; on a flat
+        # face the walk may pass skewed quads (MIGRATE_SLACK_DEG past the
+        # shape limit) because the relax below evens them out again
+        planes = {f.get("i") for f in data.get("faces", []) if f.get("kind") == "plane"}
+        rep["migrated"] = migrate_triangles(bm, shape_deg=join_shape_deg)
+        rep["migrated"] += migrate_triangles(bm, shape_deg=join_shape_deg + MIGRATE_SLACK_DEG,
+                                             only=planes)
+        relax_planes(bm, planes)
     sizes = [len(f.verts) for f in bm.faces]
     rep["quads"] = sizes.count(4)
     rep["tris"] = sizes.count(3)
