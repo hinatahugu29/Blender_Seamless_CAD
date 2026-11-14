@@ -320,6 +320,8 @@ def _surface_projectors(data):
 
 SPLIT_MIN_ANGLE = math.radians(25.0)
 SPLIT_UNDO_ANGLE = math.radians(12.0)
+SPLIT_TURNS = True
+SPLIT_TURN_PATH = 12
 
 
 def split_pair_triangles(bm, planes, max_path=40, curved=None, mids_out=None):
@@ -372,6 +374,42 @@ def split_pair_triangles(bm, planes, max_path=40, curved=None, mids_out=None):
                         break
                     f, e = g, opp[0]
                     chain.append(e)
+            if best is None and SPLIT_TURNS:
+                # no straight strip: the shortest strip that may turn (a turn
+                # quad is cut into three quads round its centre)
+                prev = {t0: None}
+                front = [(t0, None)]
+                for _d in range(SPLIT_TURN_PATH):
+                    nxt = []
+                    for f, ein in front:
+                        for e in f.edges:
+                            if e is ein or e.seam or len(e.link_faces) != 2:
+                                continue
+                            g = e.link_faces[0] if e.link_faces[1] is f else e.link_faces[1]
+                            if g in prev or g[cad] != c0:
+                                continue
+                            if len(g.verts) == 3:
+                                if f is t0:
+                                    continue
+                                prev[g] = (f, e)
+                                best = (g, None)
+                                break
+                            if len(g.verts) == 4:
+                                prev[g] = (f, e)
+                                nxt.append((g, e))
+                        if best:
+                            break
+                    if best or not nxt:
+                        break
+                    front = nxt
+                if best:
+                    g = best[0]
+                    ch = []
+                    while prev[g] is not None:
+                        f, e = prev[g]
+                        ch.append(e)
+                        g = f
+                    best = (best[0], ch[::-1])
             if best is None:
                 continue
             goal, chain = best
@@ -385,6 +423,19 @@ def split_pair_triangles(bm, planes, max_path=40, curved=None, mids_out=None):
             # a skewed quad in the strip would leave a skewed half: keep the
             # triangles then
             if any(min(lo.calc_angle() for lo in q.loops) < SPLIT_MIN_ANGLE for q in strip):
+                continue
+            turn_far, turn_ctr = {}, {}
+            for k, q in enumerate(strip):
+                sh = set(chain[k].verts) & set(chain[k + 1].verts)
+                if sh:
+                    used = set(chain[k].verts) | set(chain[k + 1].verts)
+                    far = [v for v in q.verts if v not in used]
+                    if len(far) != 1:
+                        turn_far = None
+                        break
+                    turn_far[k] = far[0]
+                    turn_ctr[k] = q.calc_center_median()
+            if turn_far is None:
                 continue
             mids = []
             for e in chain:
@@ -400,14 +451,42 @@ def split_pair_triangles(bm, planes, max_path=40, curved=None, mids_out=None):
             new_edges = []
             for k, q in enumerate(strip):
                 try:
-                    res = bmesh.utils.face_split(q, mids[k], mids[k + 1])
+                    if k not in turn_far:
+                        res = bmesh.utils.face_split(q, mids[k], mids[k + 1])
+                        if not res or res[0] is None:
+                            ok = False
+                        else:
+                            new_edges.append(res[1].edge)
+                        continue
+                    # a turn: cut off (m_in, a, w) towards the far corner w,
+                    # put the centre c on that cut, then cut c to m_out
+                    w = turn_far[k]
+                    ctr = turn_ctr[k]
+                    res = bmesh.utils.face_split(q, mids[k], w)
+                    if not res or res[0] is None:
+                        ok = False
+                        continue
+                    cut = res[1].edge
+                    _ne, cv = bmesh.utils.edge_split(cut, mids[k], 0.5)
+                    cv.co = curved[c0](ctr) if c0 in curved else ctr
+                    mids.append(cv)
+                    if mids_out is not None:
+                        mids_out.append((cv, c0))
+                    if c0 in curved:
+                        new_curved.append((cv, c0))
+                    hexf = next((f2 for f2 in cv.link_faces if mids[k + 1] in f2.verts), None)
+                    if hexf is None:
+                        ok = False
+                        continue
+                    res2 = bmesh.utils.face_split(hexf, cv, mids[k + 1])
+                    if not res2 or res2[0] is None:
+                        ok = False
+                        continue
+                    new_edges += [e2 for e2 in cv.link_edges]
                 except (ValueError, RuntimeError):
-                    res = None
-                if not res or res[0] is None:
                     ok = False
-                else:
-                    new_edges.append(res[1].edge)
             if ok and c0 in curved:
+                proj = curved[c0]
                 # on a curved face settle the new points now (they never see
                 # relax_planes) and take the split back when a quad folds
                 for _ in range(10):
@@ -418,7 +497,7 @@ def split_pair_triangles(bm, planes, max_path=40, curved=None, mids_out=None):
                         co = fs[0].calc_center_median()
                         for f2 in fs[1:]:
                             co += f2.calc_center_median()
-                        v.co = curved[c0](co / len(fs))
+                        v.co = proj(co / len(fs))
                 around = {f2 for v in mids for f2 in v.link_faces}
                 if any(min(lo.calc_angle() for lo in f2.loops) < SPLIT_UNDO_ANGLE for f2 in around):
                     try:
@@ -793,6 +872,10 @@ def make_quad_bake_mesh(name, data, join_tris=True, sharp_angle_deg=30.0, join_s
         projs = _surface_projectors(data)
         split_mids = []
         rep["split_pairs"] = split_pair_triangles(bm, planes, curved=projs, mids_out=split_mids)
+        # the split moves triangles' neighbourhoods: a second walk may now
+        # bring stranded ones onto a straight strip
+        rep["migrated"] += migrate_triangles(bm, shape_deg=join_shape_deg + MIGRATE_SLACK_DEG, only=None)
+        rep["split_pairs"] += split_pair_triangles(bm, planes, curved=projs, mids_out=split_mids)
         relax_planes(bm, planes, iters=20)
         centroid_relax(split_mids, projs)
         rep["doublets"] = dissolve_doublets(bm)
