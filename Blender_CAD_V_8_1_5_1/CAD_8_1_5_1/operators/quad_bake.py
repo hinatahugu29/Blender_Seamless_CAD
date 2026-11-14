@@ -1373,6 +1373,49 @@ def _seg_dist2(px, py, ax, ay, bx, by):
     return ex * ex + ey * ey
 
 
+def _keep_lattice(cands, rings, segs, keep2):
+    """The candidate points inside the region (even-odd over `rings`) and at
+    least sqrt(keep2) from every segment, in their original order --
+    _inside and _seg_dist2 over all points at once."""
+    if not cands:
+        return []
+    try:
+        import numpy as np
+    except ImportError:
+        return [(X, Y) for X, Y in cands if _inside(X, Y, rings)
+                and not any(_seg_dist2(X, Y, a[0], a[1], b[0], b[1]) < keep2 for a, b in segs)]
+    P = np.asarray(cands, dtype=float)
+    px, py = P[:, 0:1], P[:, 1:2]
+    E = []
+    for R in rings:
+        n = len(R)
+        E += [(R[k][0], R[k][1], R[(k + 1) % n][0], R[(k + 1) % n][1]) for k in range(n)]
+    S_ = np.asarray(segs, dtype=float).reshape(-1, 4) if segs else np.zeros((0, 4))
+    E = np.asarray(E, dtype=float).reshape(-1, 4)
+    keep = np.zeros(len(P), dtype=bool)
+    step = max(1, 4000000 // max(1, len(E) + len(S_)))
+    for c0 in range(0, len(P), step):
+        x, y = px[c0:c0 + step], py[c0:c0 + step]
+        x0, y0, x1, y1 = E[:, 0], E[:, 1], E[:, 2], E[:, 3]
+        cross = (y0 > y) != (y1 > y)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            xi = x0 + (y - y0) * (x1 - x0) / (y1 - y0)
+        ins = (np.count_nonzero(cross & (x < xi), axis=1) % 2) == 1
+        if len(S_):
+            ax, ay, bx, by = S_[:, 0], S_[:, 1], S_[:, 2], S_[:, 3]
+            dx, dy = bx - ax, by - ay
+            L2 = dx * dx + dy * dy
+            with np.errstate(divide="ignore", invalid="ignore"):
+                t = np.where(L2 > 0.0, ((x - ax) * dx + (y - ay) * dy) / np.where(L2 > 0.0, L2, 1.0), 0.0)
+            t = np.clip(t, 0.0, 1.0)
+            ex, ey = ax + t * dx - x, ay + t * dy - y
+            far = ((ex * ex + ey * ey) >= keep2).all(axis=1)
+        else:
+            far = np.ones(len(x), dtype=bool)
+        keep[c0:c0 + step] = ins & far
+    return [cands[k] for k in np.nonzero(keep)[0]]
+
+
 def _inside(px, py, rings):
     """Even-odd point-in-region over several closed rings of (x, y)."""
     inside = False
@@ -1802,14 +1845,9 @@ def _fill_holed_plane(face, verts3d, extra_verts, n_cad, stats, max_steiner=2000
             cands = disk_pts
         else:
             cands = [(ox + ix * h, oy + iy * h) for ix in range(nx + 1) for iy in range(ny + 1)]
-        for X, Y in cands:
-            if True:
-                if not _inside(X, Y, region_xy):
-                    continue
-                if any(_seg_dist2(X, Y, s0[0], s0[1], s1[0], s1[1]) < keep2 for s0, s1 in segs):
-                    continue
-                x3 = to3(X, Y)
-                steiner.append([X / su, Y / sv, x3[0], x3[1], x3[2]])
+        for X, Y in _keep_lattice(cands, region_xy, segs, keep2):
+            x3 = to3(X, Y)
+            steiner.append([X / su, Y / sv, x3[0], x3[1], x3[2]])
     sub = dict(face)
     sub["loops"] = region_loops
     sub["steiner"] = steiner
