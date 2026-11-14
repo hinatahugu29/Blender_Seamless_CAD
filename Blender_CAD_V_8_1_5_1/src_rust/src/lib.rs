@@ -15,6 +15,7 @@ pub(crate) mod renderer;
 
 #[path = "csg.rs"]
 pub mod csg;
+pub mod matching;
 
 cpp!{{
     #include <Standard_DefineAlloc.hxx>

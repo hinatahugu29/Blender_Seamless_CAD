@@ -1048,6 +1048,16 @@ def quad_topology(stack_ptr, tol, uniform=False, spans=None):
     }
     return send_and_receive(req_dict)
 
+def max_weight_matching(n, edges):
+    """Maximum-weight matching in the kernel (src_rust/src/matching.rs).
+    `edges` = [(i, j, w), ...] with integer weights over vertices 0..n-1.
+    Returns mate[v] (-1 = unmatched) or None when the kernel cannot."""
+    flat = []
+    for i, j, w in edges:
+        flat += [int(i), int(j), int(w)]
+    req_dict = {"action": "max_weight_matching", "n": int(n), "edges": flat}
+    return send_and_receive(req_dict)
+
 def pick_face(stack_ptr, origin, direction, tolerance=0.1):
     return _pick_common(2, "pick_face", stack_ptr, origin, direction, tolerance)
 
@@ -1113,7 +1123,8 @@ def send_and_receive(req_dict):
                 return ptr
             elif req_dict.get('action') == 'delete_stack':
                 return True
-            elif req_dict.get('action') in ('import_step', 'import_svg', 'project_to_sketch_plane', 'quad_topology'):
+            elif req_dict.get('action') in ('import_step', 'import_svg', 'project_to_sketch_plane', 'quad_topology',
+                                            'max_weight_matching'):
                 len_bytes = recv_exact(4)
                 res_len = struct.unpack('<I', len_bytes)[0]
                 data = recv_exact(res_len)

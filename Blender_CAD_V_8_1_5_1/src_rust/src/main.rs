@@ -413,6 +413,23 @@ fn handle_client(mut stream: TcpStream, workers: StackWorkers) {
                 stream.write_all(vb).unwrap(); stream.write_all(tb).unwrap(); stream.write_all(tc).unwrap();
             } else { stream.write_all(&[0u8]).unwrap(); }
 
+        } else if action == "max_weight_matching" {
+            // Quad Bake triangle pairing: n, edges = flat [i, j, w] (integer
+            // weights) -> 1u8 + u32 len + JSON list mate[v] (-1 = unmatched)
+            let n = req["n"].as_u64().unwrap_or(0) as usize;
+            let flat: Vec<i64> = req["edges"].as_array()
+                .map(|a| a.iter().filter_map(|x| x.as_i64()).collect())
+                .unwrap_or_default();
+            let edges: Vec<(usize, usize, i64)> = flat.chunks(3)
+                .filter(|c| c.len() == 3 && c[0] >= 0 && c[1] >= 0)
+                .map(|c| (c[0] as usize, c[1] as usize, c[2]))
+                .collect();
+            let mate = seamless_core::matching::max_weight_matching(n, &edges);
+            let jb = serde_json::to_string(&mate).unwrap_or("[]".into()).into_bytes();
+            stream.write_all(&[1u8]).unwrap();
+            stream.write_all(&(jb.len() as u32).to_le_bytes()).unwrap();
+            stream.write_all(&jb).unwrap();
+
         } else if action == "quad_topology" {
             // Quad Bake P0: 1u8 + u32 len + JSON (built in occ_quad.cpp)
             let stack_ptr = req["stack_ptr"].as_i64().unwrap_or(0) as isize;

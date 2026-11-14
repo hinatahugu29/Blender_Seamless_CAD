@@ -65,6 +65,33 @@ def _quad_worst(a, b, p1, p2, face_deg, shape_deg):
     return worst if worst <= shape_deg else None
 
 
+NATIVE_MATCHING = True
+MATCH_SCALE = 1000000          # weights in [1, 2) -> integers for the kernel
+
+
+def _native_matching(nodes, keys, cand):
+    """The maximum-weight matching from the kernel (src_rust/src/matching.rs,
+    the same Edmonds blossom as vendor_blossom, in Rust): a set of pairs, or
+    None when the kernel is not reachable (the caller falls back to Python)."""
+    if not NATIVE_MATCHING or len(keys) < 64:
+        return None
+    try:
+        from .. import core_bridge
+        ids = sorted(nodes)
+        at = {x: k for k, x in enumerate(ids)}
+        mate = core_bridge.max_weight_matching(
+            len(ids), [(at[i], at[j], int(round(cand[(i, j)] * MATCH_SCALE))) for i, j in keys])
+        if not isinstance(mate, list) or len(mate) != len(ids):
+            return None
+        out = set()
+        for k, m in enumerate(mate):
+            if m is not None and m >= 0 and m > k:
+                out.add((ids[k], ids[m]))
+        return out
+    except Exception:
+        return None
+
+
 def pair_triangles(bm, shape_deg=60.0, face_deg=PAIR_FACE_DEG, cap=PAIR_BLOSSOM_CAP):
     """Join triangles into quads by maximum-weight matching (Edmonds' blossom,
     vendor_blossom). Node = triangle, edge = a shared NON-seam mesh edge whose
@@ -117,10 +144,12 @@ def pair_triangles(bm, shape_deg=60.0, face_deg=PAIR_FACE_DEG, cap=PAIR_BLOSSOM_
     for _r, keys in sorted(groups.items()):
         nodes = {x for k in keys for x in k}
         if len(nodes) <= cap:
-            g = vendor_blossom.Graph()
-            for i, j in keys:
-                g.add_edge(i, j, weight=cand[(i, j)])
-            got = vendor_blossom.max_weight_matching(g)
+            got = _native_matching(nodes, keys, cand)
+            if got is None:
+                g = vendor_blossom.Graph()
+                for i, j in keys:
+                    g.add_edge(i, j, weight=cand[(i, j)])
+                got = vendor_blossom.max_weight_matching(g)
             pairs += sorted(tuple(sorted(p)) for p in got)
         else:
             used = set()
