@@ -129,6 +129,18 @@ def _fill_ruled(face, base=0, extra_verts=None, why=None):
             return _no(why, "the two rims carry different span counts (%d points)" % m)
         na = m // 2 - 1
     nb = m - na - 2 * nr                            # loop = A, ruling, B, ruling
+    rows_ = face.get("rows")
+    if nr > 1 and na >= 1 and nb >= 1 and rows_ is not None and "counts" in rows_:
+        # cone rows sit on fixed v lines, so each rim must run along one v
+        # line: a rim with a notch cut into it (a slot through the wall's
+        # edge) would be bridged by the rows, covering the notch with faces
+        # that are not on the part
+        vs = [p[2] for p in loop]
+        h = (max(vs) - min(vs)) or 1.0
+        for start, cnt in ((rs, na), (rs + na + nr, nb)):
+            rv = [loop[(start + i) % m][2] for i in range(cnt + 1)]
+            if max(rv) - min(rv) > 1e-3 * h:
+                return _no(why, "a rim is notched (it leaves its v line)")
     if nr > 1:
         return _fill_ruled_rows(face, loop, rs, na, nb, nr, base, extra_verts, why)
     if na < 1 or nb < 1:
