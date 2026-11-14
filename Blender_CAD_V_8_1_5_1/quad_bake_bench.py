@@ -59,6 +59,8 @@ def measure(samples):
                     t0 = time.time()
                     try:
                         d = cb.get_core().quad_topology(int(ptr), tol, uni)
+                        if not d:
+                            continue                # no solid in this collection
                         me, rep = make_quad_bake_mesh("bench", d)
                     except Exception as e:
                         if "empty shape" not in repr(e):
