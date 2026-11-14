@@ -552,13 +552,15 @@ def make_quad_bake_mesh(name, data, join_tris=True, sharp_angle_deg=30.0, join_s
         f.smooth = True
     if join_tris:
         rep["joined"] = pair_triangles(bm, shape_deg=join_shape_deg)
-        # stranded triangles walk to each other through the quads; on a flat
-        # face the walk may pass skewed quads (MIGRATE_SLACK_DEG past the
-        # shape limit) because the relax below evens them out again
+        # stranded triangles walk to each other through the quads; the second
+        # pass may pass skewed quads (MIGRATE_SLACK_DEG past the shape limit) --
+        # the relax below evens them out on flat faces, and on curved faces
+        # (a notched cone, a holed cylinder) a slightly skewed quad still
+        # beats a pair of triangles
         planes = {f.get("i") for f in data.get("faces", []) if f.get("kind") == "plane"}
         rep["migrated"] = migrate_triangles(bm, shape_deg=join_shape_deg)
         rep["migrated"] += migrate_triangles(bm, shape_deg=join_shape_deg + MIGRATE_SLACK_DEG,
-                                             only=planes)
+                                             only=None)
         relax_planes(bm, planes)
     sizes = [len(f.verts) for f in bm.faces]
     rep["quads"] = sizes.count(4)
