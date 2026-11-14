@@ -766,7 +766,7 @@ def make_quad_bake_mesh(name, data, join_tris=True, sharp_angle_deg=30.0, join_s
         projs = _surface_projectors(data)
         split_mids = []
         rep["split_pairs"] = split_pair_triangles(bm, planes, curved=projs, mids_out=split_mids)
-        relax_planes(bm, planes)
+        relax_planes(bm, planes, iters=20)
         centroid_relax(split_mids, projs)
         rep["doublets"] = dissolve_doublets(bm)
     sizes = [len(f.verts) for f in bm.faces]
