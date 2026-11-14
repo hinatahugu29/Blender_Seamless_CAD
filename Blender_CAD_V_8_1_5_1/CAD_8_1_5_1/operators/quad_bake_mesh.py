@@ -428,6 +428,11 @@ def split_pair_triangles(bm, planes, max_path=40, curved=None, mids_out=None):
             for k, q in enumerate(strip):
                 sh = set(chain[k].verts) & set(chain[k + 1].verts)
                 if sh:
+                    # turning round a point of the outline would wedge a
+                    # sliver into that corner
+                    if any(e.seam or len(e.link_faces) != 2 for v in q.verts for e in v.link_edges):
+                        turn_far = None
+                        break
                     used = set(chain[k].verts) | set(chain[k + 1].verts)
                     far = [v for v in q.verts if v not in used]
                     if len(far) != 1:
@@ -485,8 +490,9 @@ def split_pair_triangles(bm, planes, max_path=40, curved=None, mids_out=None):
                     new_edges += [e2 for e2 in cv.link_edges]
                 except (ValueError, RuntimeError):
                     ok = False
-            if ok and c0 in curved:
-                proj = curved[c0]
+            if ok and (c0 in curved or turn_far):
+                # a turn can wedge a sliver into a corner of a flat face too
+                proj = curved.get(c0, lambda co: co)
                 # on a curved face settle the new points now (they never see
                 # relax_planes) and take the split back when a quad folds
                 for _ in range(10):
