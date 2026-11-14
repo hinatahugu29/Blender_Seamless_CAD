@@ -608,44 +608,68 @@ def relax_planes(bm, planes, iters=10):
         inner.append(v)
     if not inner:
         return 0
+    import numpy as np
+    # neighbours as index arrays: inner points are unknowns, the rest fixed
+    idx = {v: k for k, v in enumerate(inner)}
+    fixed = {}
+    nb_i, nb_j = [], []           # (inner row, column): column < len(inner) is inner, else fixed
+    nf = len(inner)
+    fixed_v = []
+    for k, v in enumerate(inner):
+        cv = v.link_faces[0][cad]
+        for e in v.link_edges:
+            o = e.other_vert(v)
+            if o in idx:
+                col = idx[o]
+            else:
+                # one column per (point, CAD face): a point on the edge
+                # between two plates has a UV in each
+                col = fixed.get((o, cv))
+                if col is None:
+                    col = nf + len(fixed_v)
+                    fixed[(o, cv)] = col
+                    fixed_v.append(o)
+            nb_i.append(k)
+            nb_j.append(col)
+    nb_i = np.array(nb_i)
+    nb_j = np.array(nb_j)
+    deg = np.bincount(nb_i, minlength=nf).astype(float)[:, None]
+    P = np.array([tuple(v.co) for v in inner] + [tuple(v.co) for v in fixed_v], dtype=float)
     for _ in range(iters):
-        new = []
-        for v in inner:
-            nb = [e.other_vert(v) for e in v.link_edges]
-            co = nb[0].co.copy()
-            for o in nb[1:]:
-                co += o.co
-            new.append(co / len(nb))
-        for v, co in zip(inner, new):
-            v.co = co
+        acc = np.zeros((nf, 3))
+        np.add.at(acc, nb_i, P[nb_j])
+        P[:nf] = acc / deg
+    for k, v in enumerate(inner):
+        v.co = P[k]
     if uvl is not None:
-        # UV of an inner vertex from its neighbours, solved by the same sweeps
-        def uv_of(v, f):
-            for lo in f.loops:
-                if lo.vert is v:
-                    return lo[uvl].uv
-            return None
+        # UV of an inner vertex from its neighbours (a fixed neighbour gives
+        # its UV in a face of the same CAD face), solved by the same sweeps
+        U = np.zeros((nf + len(fixed_v), 2))
+        for k, v in enumerate(inner):
+            U[k] = tuple(v.link_loops[0][uvl].uv) if v.link_loops else (0.0, 0.0)
+        ok = np.ones(nf + len(fixed_v), dtype=bool)
+        for (o, c), col in fixed.items():
+            uv = None
+            for lo in o.link_loops:
+                if lo.face[cad] == c:
+                    uv = tuple(lo[uvl].uv)
+                    break
+            if uv is None:
+                ok[col] = False
+            else:
+                U[col] = uv
+        keep = ok[nb_j]
+        ui, uj = nb_i[keep], nb_j[keep]
+        cnt = np.bincount(ui, minlength=nf).astype(float)[:, None]
+        has = cnt[:, 0] > 0
         for _ in range(iters * 3):
-            for v in inner:
-                f0 = v.link_faces[0]
-                acc = None
-                n = 0
-                for e in v.link_edges:
-                    o = e.other_vert(v)
-                    w = uv_of(o, f0) if o in f0.verts else None
-                    if w is None:
-                        for f in e.link_faces:
-                            w = uv_of(o, f)
-                            if w is not None:
-                                break
-                    if w is None:
-                        continue
-                    acc = w.copy() if acc is None else acc + w
-                    n += 1
-                if n:
-                    uv = acc / n
-                    for lo in v.link_loops:
-                        lo[uvl].uv = uv
+            acc = np.zeros((nf, 2))
+            np.add.at(acc, ui, U[uj])
+            U[:nf][has] = (acc[has] / cnt[has])
+        for k, v in enumerate(inner):
+            if has[k]:
+                for lo in v.link_loops:
+                    lo[uvl].uv = U[k]
     return len(inner)
 
 

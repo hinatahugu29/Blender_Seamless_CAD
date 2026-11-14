@@ -14,6 +14,7 @@ code 1) when, for any run:
   - the quad share drops by more than QUAD_DROP points,
   - the smallest angle drops by more than ANGLE_DROP degrees, or below MIN_ANGLE,
   - the volume moves by more than VOL_REL (relative),
+  - a flat face's UV stops being affine (misfit over max(2x baseline, 0.02)),
   - a non-manifold edge appears, or a face fails to fill.
 The kernel listens on port 8080. Close any running Blender that holds it first,
 or the numbers come from its kernel.
@@ -33,6 +34,30 @@ ANGLE_DROP = 5.0
 MIN_ANGLE = 10.0
 VOL_REL = 5e-3
 BASELINE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "quad_bake_baseline.json")
+
+
+def plane_uv_residual(bm, data):
+    """The worst misfit of an affine map position -> UV over each flat CAD
+    face, relative to the face's UV extent (0 = the UV is exactly affine)."""
+    import numpy as np
+    cad = bm.faces.layers.int.get("cad_face")
+    uvl = bm.loops.layers.uv.active
+    if cad is None or uvl is None:
+        return 0.0
+    planes = {f["i"] for f in data.get("faces", []) if f.get("kind") == "plane"}
+    rows = {}
+    for f in bm.faces:
+        if f[cad] in planes:
+            for lo in f.loops:
+                rows.setdefault(f[cad], []).append((tuple(lo.vert.co) + (1.0,), tuple(lo[uvl].uv)))
+    worst = 0.0
+    for r in rows.values():
+        if len(r) < 4:
+            continue
+        X = np.array([a for a, _ in r]); Y = np.array([b for _, b in r])
+        A = np.linalg.lstsq(X, Y, rcond=None)[0]
+        worst = max(worst, float(np.abs(X @ A - Y).max() / max(1e-9, float(np.ptp(Y)))))
+    return worst
 
 
 def measure(samples):
@@ -68,6 +93,7 @@ def measure(samples):
                         continue
                     bm = bmesh.new()
                     bm.from_mesh(me)
+                    uv_res = plane_uv_residual(bm, d)
                     sizes = [len(f.verts) for f in bm.faces]
                     mins, bad = [], 0
                     for f in bm.faces:
@@ -85,6 +111,7 @@ def measure(samples):
                         "failed": rep.get("failed", 0),
                         "bad": bad,
                         "min_angle": round(min(mins), 2) if mins else 90.0,
+                        "uv_res": round(uv_res, 5),
                         "t": round(time.time() - t0, 3),
                     }
                     bm.free()
@@ -110,6 +137,8 @@ def compare(base, cur):
             problems.append("%s: smallest angle %.1f -> %.1f" % (key, b["min_angle"], c["min_angle"]))
         if abs(c["vol"] - b["vol"]) > VOL_REL * max(abs(b["vol"]), 1e-9):
             problems.append("%s: volume %.5f -> %.5f" % (key, b["vol"], c["vol"]))
+        if "uv_res" in b and c.get("uv_res", 0.0) > max(2.0 * b["uv_res"], 0.02):
+            problems.append("%s: flat-face UV misfit %.4f -> %.4f" % (key, b["uv_res"], c["uv_res"]))
         if c["nonman"] > b["nonman"]:
             problems.append("%s: non-manifold edges %d -> %d" % (key, b["nonman"], c["nonman"]))
         if c["failed"] > b["failed"]:
