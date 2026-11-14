@@ -20,6 +20,17 @@
 
 #include "occ_common.hpp"
 #include "occ_core.hpp"
+#include <GeomConvert_SurfToAnaSurf.hxx>
+#include <BRepBuilderAPI_Copy.hxx>
+#include <BRepBuilderAPI_MakeFace.hxx>
+#include <BRepTools_ReShape.hxx>
+#include <BRepCheck_Analyzer.hxx>
+#include <ShapeFix_Face.hxx>
+#include <ShapeFix_Shape.hxx>
+#include <BRepLib.hxx>
+#include <GeomAPI_ProjectPointOnSurf.hxx>
+#include <GeomLProp_SLProps.hxx>
+#include <Geom_Surface.hxx>
 #include <BRepAdaptor_Curve.hxx>
 #include <BRepAdaptor_Surface.hxx>
 #include <BRepTools.hxx>
@@ -363,11 +374,97 @@ CoonsFace analyse_coons(const TopoDS_Face& ff, const TopTools_IndexedMapOfShape&
 
 }  // namespace
 
+// A boolean between equal cylinders (and some imports) hands back faces whose
+// surface is a B-spline although the shape is still a cylinder / plane / cone.
+// Every layout keyed on the surface type then declines and the face falls to
+// triangles. Rebuild such faces on the analytic surface they match (within a
+// tight tolerance), on a copy of the shape; keep the original when anything
+// fails or the result does not check out.
+static TopoDS_Shape canonical_faces(const TopoDS_Shape& in, int* n_conv) {
+    *n_conv = 0;
+    try {
+        bool any = false;
+        for (TopExp_Explorer ex(in, TopAbs_FACE); ex.More() && !any; ex.Next()) {
+            GeomAbs_SurfaceType t = BRepAdaptor_Surface(TopoDS::Face(ex.Current()), Standard_False).GetType();
+            if (t == GeomAbs_BSplineSurface || t == GeomAbs_BezierSurface) any = true;
+        }
+        if (!any) return in;
+        TopoDS_Shape sh = BRepBuilderAPI_Copy(in).Shape();
+        occ::handle<BRepTools_ReShape> rs = new BRepTools_ReShape();
+        int n = 0;
+        TopTools_IndexedMapOfShape faces;
+        TopExp::MapShapes(sh, TopAbs_FACE, faces);
+        for (int i = 1; i <= faces.Extent(); ++i) {
+            TopoDS_Face f = TopoDS::Face(faces.FindKey(i));
+            TopoDS_Face ff = TopoDS::Face(f.Oriented(TopAbs_FORWARD));
+            BRepAdaptor_Surface sa(ff, Standard_False);
+            if (sa.GetType() != GeomAbs_BSplineSurface && sa.GetType() != GeomAbs_BezierSurface) continue;
+            TopLoc_Location loc;
+            occ::handle<Geom_Surface> gs = BRep_Tool::Surface(ff, loc);
+            if (gs.IsNull()) continue;
+            GeomConvert_SurfToAnaSurf conv(gs);
+            occ::handle<Geom_Surface> ana = conv.ConvertToAnalytical(1e-6);
+            if (ana.IsNull()) continue;
+            GeomAdaptor_Surface ga(ana);
+            GeomAbs_SurfaceType at = ga.GetType();
+            if (at != GeomAbs_Plane && at != GeomAbs_Cylinder && at != GeomAbs_Cone) continue;
+            BRepBuilderAPI_MakeFace mk(ana, BRepTools::OuterWire(ff), true);
+            if (!mk.IsDone()) continue;
+            for (TopExp_Explorer wx(ff, TopAbs_WIRE); wx.More(); wx.Next()) {
+                TopoDS_Wire w = TopoDS::Wire(wx.Current());
+                if (w.IsSame(BRepTools::OuterWire(ff))) continue;
+                mk.Add(w);
+            }
+            TopoDS_Face nf = mk.Face();
+            nf.Location(loc);
+            ShapeFix_Face fix(nf);
+            fix.Perform();
+            nf = fix.Face();
+            // keep the material side: compare normals at a point of the old face
+            double u0, u1, v0, v1;
+            BRepTools::UVBounds(ff, u0, u1, v0, v1);
+            GeomLProp_SLProps po(gs, 0.5 * (u0 + u1), 0.5 * (v0 + v1), 1, 1e-9);
+            if (!po.IsNormalDefined()) continue;
+            gp_Pnt P = po.Value();
+            GeomAPI_ProjectPointOnSurf pj(P, ana);
+            if (pj.NbPoints() < 1) continue;
+            double pu, pv;
+            pj.LowerDistanceParameters(pu, pv);
+            GeomLProp_SLProps pn(ana, pu, pv, 1, 1e-9);
+            if (!pn.IsNormalDefined()) continue;
+            bool flip = po.Normal().Dot(pn.Normal()) < 0.0;
+            if (nf.Orientation() == TopAbs_REVERSED) flip = !flip;
+            TopoDS_Face put = TopoDS::Face(nf.Oriented(flip ? TopAbs_REVERSED : TopAbs_FORWARD));
+            if (f.Orientation() == TopAbs_REVERSED) put.Reverse();
+            rs->Replace(f, put);
+            ++n;
+        }
+        if (n == 0) return in;
+        TopoDS_Shape out = rs->Apply(sh);
+        if (!out.IsNull()) {
+            BRepLib::SameParameter(out, 1e-6, true);
+            ShapeFix_Shape sfs(out);
+            sfs.Perform();
+            out = sfs.Shape();
+        }
+        if (out.IsNull() || !BRepCheck_Analyzer(out).IsValid()) return in;
+        TopTools_IndexedMapOfShape f0, f1;
+        TopExp::MapShapes(in, TopAbs_FACE, f0);
+        TopExp::MapShapes(out, TopAbs_FACE, f1);
+        if (f0.Extent() != f1.Extent()) return in;
+        *n_conv = n;
+        return out;
+    } catch (...) {
+        return in;
+    }
+}
+
 std::string quad_topology_json(void* stack_ptr, double tol, bool uniform, const double* spans, int n_spans) {
     CADStack* stack = static_cast<CADStack*>(stack_ptr);
     if (!stack || stack->current_shape.IsNull()) return std::string();
     if (!(tol > 0.0)) tol = 0.01;
-    const TopoDS_Shape& shape = stack->current_shape;
+    int n_canon = 0;
+    const TopoDS_Shape shape = canonical_faces(stack->current_shape, &n_canon);
 
     TopTools_IndexedMapOfShape vm, em, fm;
     TopExp::MapShapes(shape, TopAbs_VERTEX, vm);
