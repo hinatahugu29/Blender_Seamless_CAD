@@ -1181,8 +1181,37 @@ def _fill_holed_plane(face, verts3d, extra_verts, n_cad, stats, max_steiner=2000
     # a cylinder, then coarsened until the lattice fits the point budget. When
     # the budget coarsens it, the rings below step up 2:1 to meet it (1-1).
     h_lat = 0.0
+    # a round plate with holes (cornerless outline, even point count): the
+    # interior takes the points of the round-face layout (rings along the
+    # outline round a relaxed inner square) instead of a square lattice, so
+    # the outline meets concentric rows rather than a staircase of triangles;
+    # the holes' rings step up towards the outline's step
+    disk_pts = None
+    if (plain and face["kind"] == "plane" and len(loops) > 1 and len(loops[0]) >= 8
+            and not _outline_corners(xy[0])):
+        tmp_extra = []
+        L0 = list(loops[0])
+        if len(L0) % 2:
+            # the layout needs an even count; its points are only hints for
+            # the triangulation, so a midpoint on the longest segment will do
+            # (it reuses a neighbour's vertex id and never reaches the mesh)
+            kk = max(range(len(L0)), key=lambda q: (xy[0][(q + 1) % len(L0)][0] - xy[0][q][0]) ** 2
+                     + (xy[0][(q + 1) % len(L0)][1] - xy[0][q][1]) ** 2)
+            a_, b_ = L0[kk], L0[(kk + 1) % len(L0)]
+            L0.insert(kk + 1, [a_[0], 0.5 * (a_[1] + b_[1]), 0.5 * (a_[2] + b_[2])])
+        dp = _fill_plane_grid(dict(face, loops=[L0]), verts3d, tmp_extra)
+        if dp:
+            nb = len(verts3d)
+            seen = {}
+            for q in dp:
+                for c in q:
+                    if c[0] >= nb:
+                        seen[c[0]] = (c[1], c[2])
+            disk_pts = list(seen.values())
     hs = [mean_step(xy[i]) for i in range(1, len(loops)) if len(xy[i]) >= 3]
-    if hs:
+    if disk_pts:
+        h_lat = mean_step(xy[0])
+    elif hs:
         h_lat = sum(hs) / len(hs)
     elif plain:
         h_lat = mean_step(xy[0])
@@ -1270,7 +1299,7 @@ def _fill_holed_plane(face, verts3d, extra_verts, n_cad, stats, max_steiner=2000
             cur, cv, cstep, used = new, nv, nstep, used + nstep
         return cur, cv
     # plain (uniform density): the OUTER outline gets an inward quad ring too
-    for hi in ([0] if plain else []) + list(range(1, len(loops))):
+    for hi in ([0] if plain and not disk_pts else []) + list(range(1, len(loops))):
         H = loops[hi]
         R = xy[hi]
         k = len(R)
@@ -1395,9 +1424,12 @@ def _fill_holed_plane(face, verts3d, extra_verts, n_cad, stats, max_steiner=2000
         ny = int((max(ys) - min(ys)) / h)
         ox = min(xs) + 0.5 * ((max(xs) - min(xs)) - nx * h)
         oy = min(ys) + 0.5 * ((max(ys) - min(ys)) - ny * h)
-        for ix in range(nx + 1):
-            for iy in range(ny + 1):
-                X, Y = ox + ix * h, oy + iy * h
+        if disk_pts:
+            cands = disk_pts
+        else:
+            cands = [(ox + ix * h, oy + iy * h) for ix in range(nx + 1) for iy in range(ny + 1)]
+        for X, Y in cands:
+            if True:
                 if not _inside(X, Y, region_xy):
                     continue
                 if any(_seg_dist2(X, Y, s0[0], s0[1], s1[0], s1[1]) < keep2 for s0, s1 in segs):
