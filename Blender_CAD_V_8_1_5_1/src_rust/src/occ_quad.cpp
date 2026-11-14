@@ -38,6 +38,7 @@
 #include <TopTools_IndexedMapOfShape.hxx>
 #include <TopoDS.hxx>
 #include <gp_Circ.hxx>
+#include <gp_Vec.hxx>
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -808,6 +809,59 @@ std::string quad_topology_json(void* stack_ptr, double tol, bool uniform, const 
                     for (int ei : lines) {
                         int want = std::max(1, std::min(64, (int)std::lround(elen[ei] / step)));
                         if (want > nspan[ei]) { nspan[ei] = want; moved = true; }
+                    }
+                    // a narrow strip of the plate (a tray rim between its outer
+                    // outline and the hole): two parallel straight edges facing
+                    // each other within a row and a half take the same count,
+                    // so the strip is a row of quads, not a zipper of triangles
+                    // (only across a hole: an edge of the outer wire against an
+                    // edge of a hole's wire, never two edges of one wire)
+                    std::vector<int> all_lines, wire_of;
+                    int wno = 0;
+                    for (TopExp_Explorer wx(ff, TopAbs_WIRE); wx.More(); wx.Next(), ++wno) {
+                        for (TopExp_Explorer ex(wx.Current(), TopAbs_EDGE); ex.More(); ex.Next()) {
+                            int ei = em.FindIndex(ex.Current());
+                            if (ei > 0 && !degen[ei] && is_line_e[ei]
+                                && std::find(all_lines.begin(), all_lines.end(), ei) == all_lines.end()) {
+                                all_lines.push_back(ei);
+                                wire_of.push_back(wno);
+                            }
+                        }
+                    }
+                    if (wno < 2) all_lines.clear();
+                    auto ends = [&](int ei, gp_Pnt& p0, gp_Pnt& p1) {
+                        BRepAdaptor_Curve c(TopoDS::Edge(em.FindKey(ei)));
+                        p0 = c.Value(c.FirstParameter()); p1 = c.Value(c.LastParameter());
+                    };
+                    for (size_t x = 0; x < all_lines.size(); ++x) {
+                        for (size_t y = x + 1; y < all_lines.size(); ++y) {
+                            if (wire_of[x] == wire_of[y]) continue;
+                            int ea = all_lines[x], eb = all_lines[y];
+                            if (locked[ea] && locked[eb]) continue;
+                            if (nspan[ea] == nspan[eb]) continue;
+                            gp_Pnt a0, a1, b0, b1;
+                            ends(ea, a0, a1); ends(eb, b0, b1);
+                            gp_Vec da(a0, a1), db(b0, b1);
+                            double la = da.Magnitude(), lb = db.Magnitude();
+                            if (la < 1e-9 || lb < 1e-9) continue;
+                            da /= la; db /= lb;
+                            if (std::fabs(da.Dot(db)) < 0.999) continue;
+                            // distance between the lines, and overlap along them
+                            gp_Vec w(a0, b0);
+                            double t0 = w.Dot(da), t1 = gp_Vec(a0, b1).Dot(da);
+                            double dist = (w - da * t0).Magnitude();
+                            if (dist > 1.5 * step) continue;
+                            double ov = std::min(la, std::max(t0, t1)) - std::max(0.0, std::min(t0, t1));
+                            if (ov < 0.8 * std::min(la, lb)) continue;
+                            int hi = std::max(nspan[ea], nspan[eb]);
+                            // only a near match is evened out: a far denser
+                            // partner would flood the plate (and its neighbours)
+                            if (2 * hi > 3 * std::min(nspan[ea], nspan[eb])) continue;
+                            for (int ei : {ea, eb}) {
+                                if (locked[ei]) continue;
+                                if (hi > nspan[ei] && hi <= 64) { nspan[ei] = hi; moved = true; }
+                            }
+                        }
                     }
                 } catch (...) {}
             }

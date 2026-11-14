@@ -1160,6 +1160,13 @@ def _fill_holed_plane(face, verts3d, extra_verts, n_cad, stats, max_steiner=2000
         ring = [(R[q][0] + d * dirs[q][0], R[q][1] + d * dirs[q][1]) for q in range(k)]
         ok = d >= 0.25 * step
         fail = "the gap to the next loop leaves %.4g, under a quarter of the step %.4g" % (d, step)
+        if ok and clear2 ** 0.5 < 1.5 * step and _outline_corners(R):
+            # a narrow strip along a cornered hole (a rim between the outline
+            # and the hole; a round hole keeps its ring): one row
+            # of the CDT spans it edge to edge and joins into a quad row; a
+            # ring would split it into a zipper of slivers
+            ok = False
+            fail = "the gap to the next loop (%.4g) is a single-row strip" % clear2 ** 0.5
         if ok:
             for q in range(k):
                 for r in range(q + 2, k):
