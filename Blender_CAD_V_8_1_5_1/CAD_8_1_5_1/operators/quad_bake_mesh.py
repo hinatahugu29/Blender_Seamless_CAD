@@ -655,6 +655,47 @@ def centroid_relax(verts, projs, iters=10):
                 v.co = co0
 
 
+def plane_uv_affine(bm, planes):
+    """A flat face's UV is affine in position: fit it on each flat CAD face's
+    points that sit on a seam / the outline (their UV is exact) and give every
+    inner point its exact UV. Run after anything that moves inner points."""
+    import numpy as np
+    cad = bm.faces.layers.int.get("cad_face")
+    uvl = bm.loops.layers.uv.get("UVMap")
+    if cad is None or uvl is None or not planes:
+        return
+    inner_of, fixed_uv = {}, {}
+    for v in bm.verts:
+        fs = v.link_faces
+        if not fs:
+            continue
+        c = fs[0][cad]
+        if c not in planes or any(f[cad] != c for f in fs):
+            continue
+        if any(e.seam or len(e.link_faces) != 2 for e in v.link_edges):
+            continue
+        inner_of.setdefault(c, []).append(v)
+    inner = {v for vs in inner_of.values() for v in vs}
+    for f in bm.faces:
+        c = f[cad]
+        if c not in inner_of:
+            continue
+        d_ = fixed_uv.setdefault(c, {})
+        for lo in f.loops:
+            if lo.vert not in inner and lo.vert not in d_:
+                d_[lo.vert] = (tuple(lo.vert.co) + (1.0,), tuple(lo[uvl].uv))
+    for c, vs in inner_of.items():
+        X = [a for a, _ in fixed_uv.get(c, {}).values()]
+        Y = [b for _, b in fixed_uv.get(c, {}).values()]
+        if len(X) < 4:
+            continue
+        A = np.linalg.lstsq(np.array(X), np.array(Y), rcond=None)[0]
+        for v in vs:
+            uv = np.array(tuple(v.co) + (1.0,)) @ A
+            for lo in v.link_loops:
+                lo[uvl].uv = uv
+
+
 def relax_planes(bm, planes, iters=10):
     """Laplacian relax of the inner vertices of flat CAD faces (every linked
     polygon on one plane face, no seam / open edge at the vertex): the
@@ -734,32 +775,7 @@ def relax_planes(bm, planes, iters=10):
             for k in ks:
                 inner[k].co = P0[k]
     if uvl is not None:
-        # a flat face's UV is affine in position: fit it on the face's fixed
-        # points and give every inner point its exact UV
-        by_face = {}
-        for v in inner:
-            by_face.setdefault(v.link_faces[0][cad], []).append(v)
-        fixed_uv = {}
-        for f in bm.faces:
-            c = f[cad]
-            if c not in by_face:
-                continue
-            d_ = fixed_uv.setdefault(c, {})
-            for lo in f.loops:
-                if lo.vert not in idx and lo.vert not in d_:
-                    d_[lo.vert] = (tuple(lo.vert.co) + (1.0,), tuple(lo[uvl].uv))
-        for c, vs in by_face.items():
-            # every fixed point of the CAD face (a strip's neighbourhood alone
-            # can be nearly collinear and leave the fit undetermined)
-            X = [a for a, _ in fixed_uv.get(c, {}).values()]
-            Y = [b for _, b in fixed_uv.get(c, {}).values()]
-            if len(X) < 4:
-                continue
-            A = np.linalg.lstsq(np.array(X), np.array(Y), rcond=None)[0]
-            for v in vs:
-                uv = np.array(tuple(v.co) + (1.0,)) @ A
-                for lo in v.link_loops:
-                    lo[uvl].uv = uv
+        plane_uv_affine(bm, planes)
     return len(inner)
 
 
@@ -1003,6 +1019,7 @@ def make_quad_bake_mesh(name, data, join_tris=True, sharp_angle_deg=30.0, join_s
         relax_planes(bm, planes, iters=20)
         centroid_relax(split_mids, projs)
         rep["doublets"] = dissolve_doublets(bm)
+        plane_uv_affine(bm, planes)          # the split points moved after the relax
     sizes = [len(f.verts) for f in bm.faces]
     rep["quads"] = sizes.count(4)
     rep["tris"] = sizes.count(3)
