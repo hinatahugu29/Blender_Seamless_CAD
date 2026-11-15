@@ -1044,6 +1044,7 @@ def polar_caps(bm, data):
         return 0
     spheres = {f.get("i") for f in data.get("faces", []) if f.get("kind") == "sphere"}
     caps = []
+    capped = set()
     for c in spheres:
         ffaces = [f for f in bm.faces if f[cad] == c]
         fverts = {v for f in ffaces for v in f.verts}
@@ -1061,8 +1062,9 @@ def polar_caps(bm, data):
         dens = sorted(dens)[len(dens) // 2] if dens else 1.0
 
         def own(v):
-            # a point of this sphere face only, on no outline but its own seam
-            if not v.is_valid or not v.link_faces or any(f[cad] != c for f in v.link_faces):
+            # a point of this sphere face only, on no outline but its own seam,
+            # and not in a cap made already
+            if not v.is_valid or v in capped or not v.link_faces or any(f[cad] != c for f in v.link_faces):
                 return False
             return all(all(f[cad] == c for f in e.link_faces) and len(e.link_faces) == 2 for e in v.link_edges)
         for pole in [v for v in fverts if v.is_valid]:
@@ -1105,7 +1107,14 @@ def polar_caps(bm, data):
                     ring, jj = cyc, j
                     break
             if ring is None:
-                uncut()
+                # no clean row (an odd fan rim, or a cut close by): lay the
+                # pole's neighbourhood, up to any outline, as a lattice
+                got = _lattice_cap(bm, cad, c, C, R, pole, rings, want, own, fverts)
+                if got:
+                    caps.append((got[0], got[1], dens))
+                    capped.update(v for g in got[0] for v in g.verts)
+                else:
+                    uncut()
                 continue
             ring_set = set(ring)
             inner = {v for r in rings[:jj] for v in r}
@@ -1165,9 +1174,135 @@ def polar_caps(bm, data):
                 if g.normal.dot(g.calc_center_median() - C) < 0.0:
                     g.normal_flip()
             caps.append((made, az, dens))
+            capped.update(v for g in made for v in g.verts)
+    # a cap is a UV island of its own: its rim is a seam, which the pairing,
+    # the walks and the strip split never cross
+    caps = [([g for g in made if g.is_valid], az_, d_) for made, az_, d_ in caps]
+    for made, _az, _d in caps:
+        ms = set(made)
+        for g in made:
+            for e in g.edges:
+                if any(h not in ms for h in e.link_faces):
+                    e.seam = True
     if uvl is not None and caps:
         _place_cap_islands(bm, uvl, caps)
     return len(caps)
+
+
+def _lattice_cap(bm, cad, c, C, R, pole, rings, want, own, fverts):
+    """A pole whose rows are cut by an outline nearby: the faces round the
+    pole up to `want` rows (stopping at the outline) are taken out and their
+    outline -- rows and the cut together -- is laid again with the flat
+    plate's lattice fill in the pole's azimuthal-equidistant plane (so the
+    lattice is square round the pole instead of a fan); the triangles it
+    leaves go through the usual pairing afterwards. UVs: the azimuthal plane,
+    as an island of its own like a ring cap. Returns (faces, azimuthal map) when the region was
+    replaced, for its own UV island, else None."""
+    from .quad_bake import _fill_holed_plane
+    uvl = bm.loops.layers.uv.get("UVMap")
+    inner = set()
+    for r in rings[:max(2, want)]:
+        inner.update(v for v in r if own(v))
+    if pole not in inner:
+        return False
+    region = {f for v in inner for f in v.link_faces}
+    if any(f[cad] != c for f in region):
+        return False
+    # the region's outline as one loop
+    bnd = {}
+    for f in region:
+        for e in f.edges:
+            if sum(1 for g in e.link_faces if g in region) == 1:
+                lo = next(l for l in f.loops if l.edge is e)
+                bnd[lo.vert] = lo.link_loop_next.vert
+    if len(bnd) < 8:
+        return False
+    start = next(iter(bnd))
+    loopv = [start]
+    while True:
+        w = bnd.get(loopv[-1])
+        if w is None:
+            return False
+        if w is start:
+            break
+        loopv.append(w)
+        if len(loopv) > len(bnd):
+            return False
+    if len(loopv) != len(bnd) or any(v in inner for v in loopv):
+        return False
+    axis = (pole.co - C).normalized()
+    ex = loopv[0].co - C
+    ex = ex - ex.dot(axis) * axis
+    if ex.length < 1e-12:
+        return False
+    ex.normalize()
+    ey = axis.cross(ex)
+
+    def az(co):
+        d = (co - C).normalized()
+        th = math.acos(max(-1.0, min(1.0, d.dot(axis))))
+        ph = math.atan2(d.dot(ey), d.dot(ex))
+        return R * th * math.cos(ph), R * th * math.sin(ph)
+
+    def from_az(x, y):
+        th = math.hypot(x, y) / R
+        ph = math.atan2(y, x)
+        d = math.cos(th) * axis + math.sin(th) * (math.cos(ph) * ex + math.sin(ph) * ey)
+        return C + R * d
+    # the fill walks its outline counter-clockwise for a front-facing face
+    pts = [az(v.co) for v in loopv]
+    area = sum(pts[n][0] * pts[(n + 1) % len(pts)][1] - pts[(n + 1) % len(pts)][0] * pts[n][1]
+               for n in range(len(pts)))
+    order = list(range(len(loopv)))
+    loop = [[n, pts[n][0], pts[n][1]] for n in order]
+    v3 = [(p_[1], p_[2], 0.0) for p_ in loop]
+    face = {"kind": "plane", "loops": [loop], "su": 1.0, "sv": 1.0, "rev": area < 0.0, "i": c,
+            "lattice": True, "steiner": []}
+    stats = {"hole_rings": 0, "hole_rings_skipped": 0, "cdt_new_verts": 0, "degenerate_dropped": 0,
+             "ears_flipped": 0, "graded_rings": 0, "notes": []}
+    extra = []
+    try:
+        polys = _fill_holed_plane(face, v3, extra, len(v3), stats, plain=True)
+    except Exception:
+        polys = None
+    if not polys:
+        return False
+    # keep the outer UV of the loop points (from the faces that stay)
+    uv_keep = {}
+    if uvl is not None:
+        for v in loopv:
+            for lo in v.link_loops:
+                if lo.face not in region:
+                    uv_keep.setdefault(v, tuple(lo[uvl].uv))
+    smooth = next(iter(region)).smooth
+    nb = len(loopv)
+    new_v = [bm.verts.new(from_az(co[0], co[1])) for co in extra]
+    for f in region:
+        bm.faces.remove(f)
+    for v in inner:
+        if v.is_valid and not v.link_faces:
+            bm.verts.remove(v)
+
+    def vert(vid):
+        return loopv[vid] if vid < nb else new_v[vid - nb]
+    made = []
+    for q in polys:
+        vs = [vert(x[0]) for x in q]
+        if len(set(vs)) != len(vs):
+            continue
+        try:
+            g = bm.faces.new(vs)
+        except ValueError:
+            continue
+        g[cad] = c
+        g.smooth = smooth
+        made.append(g)
+    for g in made:
+        g.normal_update()
+        if g.normal.dot(g.calc_center_median() - C) < 0.0:
+            g.normal_flip()
+    return made, az
+
 
 
 def _place_cap_islands(bm, uvl, caps):
@@ -1257,6 +1392,8 @@ def make_quad_bake_mesh(name, data, join_tris=True, sharp_angle_deg=30.0, join_s
     rep["sharp"] = n_sharp
     for f in bm.faces:
         f.smooth = True
+    # sphere poles first, so what a lattice cap leaves is paired like the rest
+    rep["polar_caps"] = polar_caps(bm, data)
     if join_tris:
         rep["joined"] = pair_triangles(bm, shape_deg=join_shape_deg)
         # stranded triangles walk to each other through the quads; the second
@@ -1282,7 +1419,6 @@ def make_quad_bake_mesh(name, data, join_tris=True, sharp_angle_deg=30.0, join_s
         centroid_relax(split_mids, projs)
         rep["doublets"] = dissolve_doublets(bm)
         plane_uv_affine(bm, planes)          # the split points moved after the relax
-    rep["polar_caps"] = polar_caps(bm, data)
     sizes = [len(f.verts) for f in bm.faces]
     rep["quads"] = sizes.count(4)
     rep["tris"] = sizes.count(3)
