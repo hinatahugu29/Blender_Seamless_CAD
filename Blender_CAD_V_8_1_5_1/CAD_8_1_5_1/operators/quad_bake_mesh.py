@@ -1041,9 +1041,10 @@ def polar_caps(bm, data):
     cad = bm.faces.layers.int.get("cad_face")
     uvl = bm.loops.layers.uv.get("UVMap")
     if cad is None or not POLAR_CAPS:
-        return 0
+        return []
     spheres = {f.get("i") for f in data.get("faces", []) if f.get("kind") == "sphere"}
     caps = []
+    cap_sphere = []
     capped = set()
     for c in spheres:
         ffaces = [f for f in bm.faces if f[cad] == c]
@@ -1112,6 +1113,7 @@ def polar_caps(bm, data):
                 got = _lattice_cap(bm, cad, c, C, R, pole, rings, want, own, fverts)
                 if got:
                     caps.append((got[0], got[1], dens))
+                    cap_sphere.append((C, R))
                     capped.update(v for g in got[0] for v in g.verts)
                 else:
                     uncut()
@@ -1174,19 +1176,24 @@ def polar_caps(bm, data):
                 if g.normal.dot(g.calc_center_median() - C) < 0.0:
                     g.normal_flip()
             caps.append((made, az, dens))
+            cap_sphere.append((C, R))
             capped.update(v for g in made for v in g.verts)
     # a cap is a UV island of its own: its rim is a seam, which the pairing,
     # the walks and the strip split never cross
-    caps = [([g for g in made if g.is_valid], az_, d_) for made, az_, d_ in caps]
+    keep = [n for n, (made, _a, _d) in enumerate(caps) if any(g.is_valid for g in made)]
+    caps = [([g for g in caps[n][0] if g.is_valid], caps[n][1], caps[n][2]) for n in keep]
+    cap_sphere = [cap_sphere[n] for n in keep]
     for made, _az, _d in caps:
         ms = set(made)
         for g in made:
             for e in g.edges:
                 if any(h not in ms for h in e.link_faces):
                     e.seam = True
-    if uvl is not None and caps:
-        _place_cap_islands(bm, uvl, caps)
-    return len(caps)
+    uvmaps = _place_cap_islands(bm, uvl, caps) if (uvl is not None and caps) else [None] * len(caps)
+    info = []
+    for (made, _az, _d), um, cr in zip(caps, uvmaps, cap_sphere):
+        info.append(({v for g in made for v in g.verts}, cr[0], cr[1], um))
+    return info
 
 
 def _lattice_cap(bm, cad, c, C, R, pole, rings, want, own, fverts):
@@ -1315,6 +1322,7 @@ def _place_cap_islands(bm, uvl, caps):
     y0 = min((y for _, y in rest), default=0.0)
     gap = 0.02
     cursor = x1 + gap
+    maps = []
     for made, az, dens in caps:
         P = {lo: az(lo.vert.co) for g in made for lo in g.loops}
         mx = min(p[0] for p in P.values())
@@ -1322,6 +1330,7 @@ def _place_cap_islands(bm, uvl, caps):
         Mx = max(p[0] for p in P.values())
         for lo, (x, y) in P.items():
             lo[uvl].uv = (cursor + (x - mx) * dens, y0 + (y - my) * dens)
+        maps.append((az, cursor, mx, y0, my, dens))
         cursor += (Mx - mx) * dens + gap
     allx = [lo[uvl].uv.x for f in bm.faces for lo in f.loops]
     ally = [lo[uvl].uv.y for f in bm.faces for lo in f.loops]
@@ -1331,6 +1340,54 @@ def _place_cap_islands(bm, uvl, caps):
     for f in bm.faces:
         for lo in f.loops:
             lo[uvl].uv = (0.01 + (lo[uvl].uv.x - lo_x) * sc, 0.01 + (lo[uvl].uv.y - lo_y) * sc)
+    out = []
+    for az, cx, mx, y0, my, dens in maps:
+        def uvmap(co, az=az, cx=cx, mx=mx, y0=y0, my=my, dens=dens):
+            x, y = az(co)
+            return (0.01 + (cx + (x - mx) * dens - lo_x) * sc, 0.01 + (y0 + (y - my) * dens - lo_y) * sc)
+        out.append(uvmap)
+    return out
+
+
+def relax_caps(bm, cap_info, iters=30):
+    """Laplacian relax of the points inside each sphere cap (the cap's rim
+    and anything on a seam stay), each sweep put back on the sphere; a cap
+    whose worst quad corner would drop under 10 degrees and below where it
+    was keeps its points. Then the cap's UVs follow its azimuthal map."""
+    uvl = bm.loops.layers.uv.get("UVMap")
+    lim = math.radians(10.0)
+    for verts, C, R, uvmap in cap_info:
+        inner = [v for v in verts if v.is_valid and v.link_faces
+                 and not any(e.seam or len(e.link_faces) != 2 for e in v.link_edges)]
+        if not inner:
+            continue
+        faces = {f for v in inner for f in v.link_faces}
+
+        def worst():
+            return min((min(lo.calc_angle() for lo in f.loops) for f in faces if len(f.verts) == 4),
+                       default=math.pi)
+        w0 = worst()
+        old = {v: v.co.copy() for v in inner}
+        for _ in range(iters):
+            new = []
+            for v in inner:
+                nb = [e.other_vert(v) for e in v.link_edges]
+                co = nb[0].co.copy()
+                for o in nb[1:]:
+                    co += o.co
+                d = co / len(nb) - C
+                new.append(C + d * (R / max(d.length, 1e-12)))
+            for v, co in zip(inner, new):
+                v.co = co
+        w1 = worst()
+        if w1 < lim and w1 < w0:
+            for v, co in old.items():
+                v.co = co
+        if uvl is not None and uvmap is not None:
+            for f in faces:
+                for lo in f.loops:
+                    if lo.vert in old:
+                        lo[uvl].uv = uvmap(lo.vert.co)
 
 
 def make_quad_bake_mesh(name, data, join_tris=True, sharp_angle_deg=30.0, join_shape_deg=60.0,
@@ -1393,7 +1450,8 @@ def make_quad_bake_mesh(name, data, join_tris=True, sharp_angle_deg=30.0, join_s
     for f in bm.faces:
         f.smooth = True
     # sphere poles first, so what a lattice cap leaves is paired like the rest
-    rep["polar_caps"] = polar_caps(bm, data)
+    cap_info = polar_caps(bm, data)
+    rep["polar_caps"] = len(cap_info)
     if join_tris:
         rep["joined"] = pair_triangles(bm, shape_deg=join_shape_deg)
         # stranded triangles walk to each other through the quads; the second
@@ -1419,6 +1477,7 @@ def make_quad_bake_mesh(name, data, join_tris=True, sharp_angle_deg=30.0, join_s
         centroid_relax(split_mids, projs)
         rep["doublets"] = dissolve_doublets(bm)
         plane_uv_affine(bm, planes)          # the split points moved after the relax
+    relax_caps(bm, cap_info)
     sizes = [len(f.verts) for f in bm.faces]
     rep["quads"] = sizes.count(4)
     rep["tris"] = sizes.count(3)
