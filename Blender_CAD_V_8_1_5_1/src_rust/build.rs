@@ -139,6 +139,12 @@ fn main() {
         let origin = if target_os == "macos" { "@loader_path" } else { "$ORIGIN" };
         println!("cargo:rustc-link-arg=-Wl,-rpath,{}", origin);
         println!("cargo:rustc-link-arg=-Wl,-rpath,{}/lib", origin);
+        // bundle_kernel.sh rewrites every OCCT install name to @loader_path/...;
+        // without spare header room install_name_tool fails ("larger updated
+        // load commands do not fit"), as it did on the macos-15 runner.
+        if target_os == "macos" {
+            println!("cargo:rustc-link-arg=-Wl,-headerpad_max_install_names");
+        }
     }
 
     // 必要な OCCT ライブラリのリンク
