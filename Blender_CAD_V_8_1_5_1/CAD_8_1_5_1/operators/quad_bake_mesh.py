@@ -376,8 +376,26 @@ def _surface_projectors(data):
 
 SPLIT_MIN_ANGLE = math.radians(25.0)
 SPLIT_UNDO_ANGLE = math.radians(12.0)
+SPLIT_RIM_TURN_ANGLE = math.radians(30.0)
 SPLIT_TURNS = True
 SPLIT_TURN_PATH = 12
+
+
+def _sharp_outline_vert(v, c0, cad, max_bend_deg=30.0):
+    """True when v sits on the outline of CAD face c0 and the outline bends
+    there by more than max_bend_deg (a corner), or the outline around v is
+    not a plain two-edge run."""
+    bnd = [e for e in v.link_edges if e.seam or len(e.link_faces) != 2]
+    if not bnd:
+        return False
+    own = [e for e in bnd if any(f[cad] == c0 for f in e.link_faces)]
+    if len(own) != 2:
+        return True
+    a = own[0].other_vert(v).co - v.co
+    b = own[1].other_vert(v).co - v.co
+    if a.length < 1e-12 or b.length < 1e-12:
+        return True
+    return 180.0 - math.degrees(a.angle(b)) > max_bend_deg
 
 
 def split_pair_triangles(bm, planes, max_path=40, curved=None, mids_out=None, records_out=None):
@@ -481,14 +499,19 @@ def split_pair_triangles(bm, planes, max_path=40, curved=None, mids_out=None, re
             if any(min(lo.calc_angle() for lo in q.loops) < SPLIT_MIN_ANGLE for q in strip):
                 continue
             turn_far, turn_ctr = {}, {}
+            touch_rim = False
             for k, q in enumerate(strip):
                 sh = set(chain[k].verts) & set(chain[k + 1].verts)
                 if sh:
                     # turning round a point of the outline would wedge a
                     # sliver into that corner
-                    if any(e.seam or len(e.link_faces) != 2 for v in q.verts for e in v.link_edges):
+                    # a turn may touch the outline where it runs smoothly (the
+                    # rim of a round hole), never at a sharp corner of it
+                    if any(_sharp_outline_vert(v, c0, cad) for v in q.verts):
                         turn_far = None
                         break
+                    if any(e.seam or len(e.link_faces) != 2 for v in q.verts for e in v.link_edges):
+                        touch_rim = True
                     used = set(chain[k].verts) | set(chain[k + 1].verts)
                     far = [v for v in q.verts if v not in used]
                     if len(far) != 1:
@@ -561,7 +584,10 @@ def split_pair_triangles(bm, planes, max_path=40, curved=None, mids_out=None, re
                             co += f2.calc_center_median()
                         v.co = proj(co / len(fs))
                 around = {f2 for v in mids for f2 in v.link_faces}
-                if any(min(lo.calc_angle() for lo in f2.loops) < SPLIT_UNDO_ANGLE for f2 in around):
+                # a turn along a hole's rim must leave decent quads, not just
+                # unfolded ones
+                lim_ = SPLIT_RIM_TURN_ANGLE if touch_rim else SPLIT_UNDO_ANGLE
+                if any(min(lo.calc_angle() for lo in f2.loops) < lim_ for f2 in around):
                     try:
                         bmesh.ops.dissolve_edges(bm, edges=[e for e in new_edges if e.is_valid])
                         bmesh.ops.dissolve_verts(bm, verts=[v for v in mids if v.is_valid])
