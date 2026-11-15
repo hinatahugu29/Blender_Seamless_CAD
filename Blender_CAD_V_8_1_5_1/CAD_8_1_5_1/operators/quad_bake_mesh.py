@@ -1113,7 +1113,7 @@ def polar_caps(bm, data):
                 got = _lattice_cap(bm, cad, c, C, R, pole, rings, want, own, fverts)
                 if got:
                     caps.append((got[0], got[1], dens))
-                    cap_sphere.append((C, R))
+                    cap_sphere.append((C, R, axis))
                     capped.update(v for g in got[0] for v in g.verts)
                 else:
                     uncut()
@@ -1176,7 +1176,7 @@ def polar_caps(bm, data):
                 if g.normal.dot(g.calc_center_median() - C) < 0.0:
                     g.normal_flip()
             caps.append((made, az, dens))
-            cap_sphere.append((C, R))
+            cap_sphere.append((C, R, axis))
             capped.update(v for g in made for v in g.verts)
     # a cap is a UV island of its own: its rim is a seam, which the pairing,
     # the walks and the strip split never cross
@@ -1192,7 +1192,7 @@ def polar_caps(bm, data):
     uvmaps = _place_cap_islands(bm, uvl, caps) if (uvl is not None and caps) else [None] * len(caps)
     info = []
     for (made, _az, _d), um, cr in zip(caps, uvmaps, cap_sphere):
-        info.append(({v for g in made for v in g.verts}, cr[0], cr[1], um))
+        info.append(({v for g in made for v in g.verts}, cr[0], cr[1], um, cr[2]))
     return info
 
 
@@ -1349,18 +1349,57 @@ def _place_cap_islands(bm, uvl, caps):
     return out
 
 
+CAP_RIM_ROWS = 2
+
+
 def relax_caps(bm, cap_info, iters=30):
-    """Laplacian relax of the points inside each sphere cap (the cap's rim
-    and anything on a seam stay), each sweep put back on the sphere; a cap
-    whose worst quad corner would drop under 10 degrees and below where it
-    was keeps its points. Then the cap's UVs follow its azimuthal map."""
+    """Laplacian relax round each sphere cap, each sweep put back on the
+    sphere: the points inside the cap, its rim (a UV seam only, so it may
+    slide) and CAP_RIM_ROWS rows outside it, so the rows bend into the cap's
+    grid instead of breaking at the rim. Points on a real outline stay. A
+    region whose worst quad corner would drop under 10 degrees and below
+    where it was keeps its points. UVs: inside the cap from its azimuthal
+    map; outside, each moved point's UV shifts by its longitude / latitude
+    step times the sphere island's UV rate (fitted on the island), so the
+    island's own seam never matters."""
+    import numpy as np
     uvl = bm.loops.layers.uv.get("UVMap")
+    cad = bm.faces.layers.int.get("cad_face")
     lim = math.radians(10.0)
-    for verts, C, R, uvmap in cap_info:
-        inner = [v for v in verts if v.is_valid and v.link_faces
-                 and not any(e.seam or len(e.link_faces) != 2 for e in v.link_edges)]
-        if not inner:
+    for verts, C, R, uvmap, pole_axis in cap_info:
+        cap_faces = {f for v in verts if v.is_valid for f in v.link_faces
+                     if all(w in verts for w in f.verts)}
+        if not cap_faces:
             continue
+        c0 = next(iter(cap_faces))[cad] if cad is not None else None
+        rim_edges = {e for f in cap_faces for e in f.edges
+                     if any(g not in cap_faces for g in e.link_faces)}
+
+        def movable(v):
+            if not v.is_valid or not v.link_faces:
+                return False
+            if cad is not None and any(f[cad] != c0 for f in v.link_faces):
+                return False
+            for e in v.link_edges:
+                if len(e.link_faces) != 2:
+                    return False
+                if e.seam and e not in rim_edges:
+                    return False
+            return True
+        region = {v for v in verts if movable(v)}
+        front = set(region)
+        for _ in range(CAP_RIM_ROWS):
+            nxt = set()
+            for v in front:
+                for e in v.link_edges:
+                    w = e.other_vert(v)
+                    if w not in region and movable(w):
+                        nxt.add(w)
+            region |= nxt
+            front = nxt
+        if not region:
+            continue
+        inner = list(region)
         faces = {f for v in inner for f in v.link_faces}
 
         def worst():
@@ -1383,11 +1422,57 @@ def relax_caps(bm, cap_info, iters=30):
         if w1 < lim and w1 < w0:
             for v, co in old.items():
                 v.co = co
-        if uvl is not None and uvmap is not None:
-            for f in faces:
-                for lo in f.loops:
-                    if lo.vert in old:
-                        lo[uvl].uv = uvmap(lo.vert.co)
+            continue
+        if uvl is None:
+            continue
+        # the sphere island's UV rate per longitude / latitude, from the
+        # outside faces' own edges (old positions)
+        # the sphere's own latitude / longitude run round the pole
+        axis = pole_axis.normalized()
+        ex = axis.orthogonal().normalized()
+        ey = axis.cross(ex)
+
+        def ll(co):
+            d = (co - C).normalized()
+            return math.atan2(d.dot(ey), d.dot(ex)), math.asin(max(-1.0, min(1.0, d.dot(axis))))
+        A, B = [], []
+        outside = [f for f in faces if f not in cap_faces]
+        sample = {f for v in inner for f in v.link_faces if f not in cap_faces}
+        ring2 = {g for f in sample for v in f.verts for g in v.link_faces if g not in cap_faces}
+        for f in ring2:
+            for lo in f.loops:
+                a, b = lo.vert, lo.link_loop_next.vert
+                pa = old.get(a, a.co); pb = old.get(b, b.co)
+                la, ta = ll(pa); lb, tb = ll(pb)
+                dl = lb - la
+                if dl > math.pi:
+                    dl -= 2.0 * math.pi
+                if dl < -math.pi:
+                    dl += 2.0 * math.pi
+                du = lo.link_loop_next[uvl].uv - lo[uvl].uv
+                if du.length > 0.2:          # across the island's seam
+                    continue
+                A.append((dl, tb - ta)); B.append((du.x, du.y))
+        if len(A) < 6:
+            continue
+        J = np.linalg.lstsq(np.array(A), np.array(B), rcond=None)[0]
+        for f in faces:
+            for lo in f.loops:
+                v = lo.vert
+                if v not in old:
+                    continue
+                if f in cap_faces:
+                    if uvmap is not None:
+                        lo[uvl].uv = uvmap(v.co)
+                    continue
+                la, ta = ll(old[v]); lb, tb = ll(v.co)
+                dl = lb - la
+                if dl > math.pi:
+                    dl -= 2.0 * math.pi
+                if dl < -math.pi:
+                    dl += 2.0 * math.pi
+                dv = np.array((dl, tb - ta)) @ J
+                lo[uvl].uv = (lo[uvl].uv.x + dv[0], lo[uvl].uv.y + dv[1])
 
 
 def make_quad_bake_mesh(name, data, join_tris=True, sharp_angle_deg=30.0, join_shape_deg=60.0,
