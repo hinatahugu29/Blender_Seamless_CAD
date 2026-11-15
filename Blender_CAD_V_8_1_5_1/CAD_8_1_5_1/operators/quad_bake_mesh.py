@@ -17,6 +17,7 @@ import math
 
 import bmesh
 import bpy
+from mathutils import Vector
 
 from . import vendor_blossom
 from .quad_bake import build_quad_mesh_uv, cad_edge_creases, cad_edge_pairs
@@ -962,6 +963,241 @@ def keep_unchanged_faces(mesh, prev, old_sigs, new_sigs, changed, eps=1e-6):
     return sorted(kept)
 
 
+POLAR_CAPS = True
+POLAR_CAP_MIN_FAN = 8
+
+
+def _fit_sphere(points):
+    """Centre and radius of the sphere through the points (least squares), or
+    None when they do not lie on one."""
+    import numpy as np
+    P = np.array([tuple(p) for p in points], dtype=float)
+    if len(P) < 8:
+        return None
+    A = np.hstack([2.0 * P, np.ones((len(P), 1))])
+    sol = np.linalg.lstsq(A, (P * P).sum(axis=1), rcond=None)[0]
+    c = sol[:3]
+    r2 = sol[3] + c.dot(c)
+    if not r2 > 0.0:
+        return None
+    r = float(r2) ** 0.5
+    if np.abs(np.linalg.norm(P - c, axis=1) - r).max() > 2e-3 * r:
+        return None
+    return Vector(tuple(c)), r
+
+
+def _rings_from(pole, inside):
+    """Vertex rings round a pole by edge steps: ring 0 = the pole, ring i =
+    the points first reached in i steps (latitude rows on a lat / long
+    grid), walking only through points `inside` accepts."""
+    rings = [[pole]]
+    seen = {pole}
+    while True:
+        nxt = []
+        for v in rings[-1]:
+            for e in v.link_edges:
+                w = e.other_vert(v)
+                if w not in seen and inside(w):
+                    seen.add(w)
+                    nxt.append(w)
+        if not nxt:
+            return rings
+        rings.append(nxt)
+
+
+def _ring_cycle(ring):
+    """The points of a ring in order along its own edges, or None when they
+    do not form one simple loop."""
+    rs = set(ring)
+    adj = {v: [e.other_vert(v) for e in v.link_edges if e.other_vert(v) in rs] for v in ring}
+    if any(len(a) != 2 for a in adj.values()):
+        return None
+    out = [ring[0]]
+    prev = None
+    while True:
+        a, b = adj[out[-1]]
+        w = b if a is prev else a
+        if w is out[0]:
+            break
+        prev = out[-1]
+        out.append(w)
+        if len(out) > len(ring):
+            return None
+    return out if len(out) == len(ring) else None
+
+
+def polar_caps(bm, data):
+    """A sphere laid in latitude / longitude rows ends in a fan of thin
+    triangles at each pole, which pinches under subdivision. Round each pole
+    (a point held by >= POLAR_CAP_MIN_FAN faces of one sphere face) the rows
+    down to about k / (2 pi) steps (k points per row: where a cap's cells
+    come out square) are taken out and the row there is filled with the
+    round-plate layout (rings along the rim round a relaxed inner square),
+    laid in the pole's azimuthal-equidistant plane and put back on the
+    sphere: all quads, four valence-3 corners instead of one valence-k pole
+    -- a cube-sphere cap. The cap gets its own UV island (the same plane at
+    the sphere's texel density) beside the others. Returns the caps made."""
+    from .quad_bake import _fill_plane_grid
+    cad = bm.faces.layers.int.get("cad_face")
+    uvl = bm.loops.layers.uv.get("UVMap")
+    if cad is None or not POLAR_CAPS:
+        return 0
+    spheres = {f.get("i") for f in data.get("faces", []) if f.get("kind") == "sphere"}
+    caps = []
+    for c in spheres:
+        ffaces = [f for f in bm.faces if f[cad] == c]
+        fverts = {v for f in ffaces for v in f.verts}
+        fit = _fit_sphere([v.co for v in fverts])
+        if fit is None:
+            continue
+        C, R = fit
+        dens = []
+        if uvl is not None:
+            for f in ffaces[:400]:
+                for lo in f.loops:
+                    l3 = (lo.vert.co - lo.link_loop_next.vert.co).length
+                    if l3 > 1e-12:
+                        dens.append((lo[uvl].uv - lo.link_loop_next[uvl].uv).length / l3)
+        dens = sorted(dens)[len(dens) // 2] if dens else 1.0
+
+        def own(v):
+            # a point of this sphere face only, on no outline but its own seam
+            if not v.is_valid or not v.link_faces or any(f[cad] != c for f in v.link_faces):
+                return False
+            return all(all(f[cad] == c for f in e.link_faces) and len(e.link_faces) == 2 for e in v.link_edges)
+        for pole in [v for v in fverts if v.is_valid]:
+            if not pole.is_valid or len(pole.link_faces) < POLAR_CAP_MIN_FAN or not own(pole):
+                continue
+            axis = (pole.co - C).normalized()
+            # the pairing may have joined fan triangles into kites at the
+            # pole; cut them back along the pole's diagonal so ring 1 is the
+            # whole fan rim
+            cut = []
+            for f in [f for f in pole.link_faces if len(f.verts) == 4]:
+                lo = next(l for l in f.loops if l.vert is pole)
+                far = lo.link_loop_next.link_loop_next.vert
+                try:
+                    res = bmesh.utils.face_split(f, pole, far)
+                    if res and res[1] is not None:
+                        cut.append(res[1].edge)
+                except (ValueError, RuntimeError):
+                    pass
+
+            def uncut():
+                # no cap here after all: the kites come back
+                for e in cut:
+                    if e.is_valid and len(e.link_faces) == 2:
+                        try:
+                            bmesh.utils.face_join(list(e.link_faces))
+                        except (ValueError, RuntimeError):
+                            pass
+            rings = _rings_from(pole, own)
+            if len(rings) < 2:
+                uncut()
+                continue
+            k = len(rings[1])
+            want = max(1, int(round(k / (2.0 * math.pi))))
+            ring = None
+            jj = None
+            for j in range(min(want, len(rings) - 1), 0, -1):
+                cyc = _ring_cycle(rings[j])
+                if cyc is not None and len(cyc) % 2 == 0 and len(cyc) >= 8:
+                    ring, jj = cyc, j
+                    break
+            if ring is None:
+                uncut()
+                continue
+            ring_set = set(ring)
+            inner = {v for r in rings[:jj] for v in r}
+            region = {f for v in inner for f in v.link_faces}
+            if any(f[cad] != c or any(w not in inner and w not in ring_set for w in f.verts) for f in region):
+                uncut()
+                continue
+            ex = ring[0].co - C
+            ex = ex - ex.dot(axis) * axis
+            if ex.length < 1e-12:
+                uncut()
+                continue
+            ex.normalize()
+            ey = axis.cross(ex)
+
+            def az(co, C=C, R=R, axis=axis, ex=ex, ey=ey):
+                d = (co - C).normalized()
+                th = math.acos(max(-1.0, min(1.0, d.dot(axis))))
+                ph = math.atan2(d.dot(ey), d.dot(ex))
+                return R * th * math.cos(ph), R * th * math.sin(ph)
+
+            def from_az(x, y, C=C, R=R, axis=axis, ex=ex, ey=ey):
+                th = math.hypot(x, y) / R
+                ph = math.atan2(y, x)
+                d = math.cos(th) * axis + math.sin(th) * (math.cos(ph) * ex + math.sin(ph) * ey)
+                return C + R * d
+            loop = [[n, *az(v.co)] for n, v in enumerate(ring)]
+            v3 = [(p_[1], p_[2], 0.0) for p_ in loop]
+            extra = []
+            face = {"kind": "plane", "loops": [loop], "su": 1.0, "sv": 1.0, "rev": False, "i": c}
+            polys = _fill_plane_grid(face, v3, extra)
+            if not polys:
+                uncut()
+                continue
+            smooth = next(iter(region)).smooth
+            nb = len(ring)
+            new_v = [bm.verts.new(from_az(co[0], co[1])) for co in extra]
+            for f in region:
+                bm.faces.remove(f)
+            for v in inner:
+                if v.is_valid:
+                    bm.verts.remove(v)
+
+            def vert(vid):
+                return ring[vid] if vid < nb else new_v[vid - nb]
+            made = []
+            for q in polys:
+                try:
+                    g = bm.faces.new([vert(x[0]) for x in q])
+                except ValueError:
+                    continue
+                g[cad] = c
+                g.smooth = smooth
+                made.append(g)
+            for g in made:
+                g.normal_update()
+                if g.normal.dot(g.calc_center_median() - C) < 0.0:
+                    g.normal_flip()
+            caps.append((made, az, dens))
+    if uvl is not None and caps:
+        _place_cap_islands(bm, uvl, caps)
+    return len(caps)
+
+
+def _place_cap_islands(bm, uvl, caps):
+    """Each cap's UVs: its azimuthal plane at the sphere's texel density, as
+    an island of its own in a row to the right of the existing islands; then
+    all UVs are scaled together back into the unit square."""
+    cap_faces = {g for made, _a, _d in caps for g in made}
+    rest = [(lo[uvl].uv.x, lo[uvl].uv.y) for f in bm.faces if f not in cap_faces for lo in f.loops]
+    x1 = max((x for x, _ in rest), default=0.0)
+    y0 = min((y for _, y in rest), default=0.0)
+    gap = 0.02
+    cursor = x1 + gap
+    for made, az, dens in caps:
+        P = {lo: az(lo.vert.co) for g in made for lo in g.loops}
+        mx = min(p[0] for p in P.values())
+        my = min(p[1] for p in P.values())
+        Mx = max(p[0] for p in P.values())
+        for lo, (x, y) in P.items():
+            lo[uvl].uv = (cursor + (x - mx) * dens, y0 + (y - my) * dens)
+        cursor += (Mx - mx) * dens + gap
+    allx = [lo[uvl].uv.x for f in bm.faces for lo in f.loops]
+    ally = [lo[uvl].uv.y for f in bm.faces for lo in f.loops]
+    lo_x, lo_y = min(allx), min(ally)
+    span = max(max(allx) - lo_x, max(ally) - lo_y, 1e-12)
+    sc = 0.98 / span
+    for f in bm.faces:
+        for lo in f.loops:
+            lo[uvl].uv = (0.01 + (lo[uvl].uv.x - lo_x) * sc, 0.01 + (lo[uvl].uv.y - lo_y) * sc)
+
+
 def make_quad_bake_mesh(name, data, join_tris=True, sharp_angle_deg=30.0, join_shape_deg=60.0,
                         sharp_mode='CAD', crease=False):
     """Build and return (mesh, report) from a quad_topology dict, or
@@ -1046,6 +1282,7 @@ def make_quad_bake_mesh(name, data, join_tris=True, sharp_angle_deg=30.0, join_s
         centroid_relax(split_mids, projs)
         rep["doublets"] = dissolve_doublets(bm)
         plane_uv_affine(bm, planes)          # the split points moved after the relax
+    rep["polar_caps"] = polar_caps(bm, data)
     sizes = [len(f.verts) for f in bm.faces]
     rep["quads"] = sizes.count(4)
     rep["tris"] = sizes.count(3)

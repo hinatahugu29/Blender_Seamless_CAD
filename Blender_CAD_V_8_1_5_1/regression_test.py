@@ -3236,6 +3236,36 @@ def t_quad_bake_radius_classes_share_one_ring():
     assert all(2 * h == ring for h in halves), f"notch arcs {halves} are not half of the ring {ring}"
 
 
+def t_quad_bake_sphere_polar_caps():
+    """Quad Bake: 球の極の三角形の扇は、キューブスフィア状の四角形の格子に
+    作り替えられる(極の点に集まる三角形が消え、UV は単位正方形に収まる)。"""
+    from CAD_8_1_5_1 import core_bridge
+    from CAD_8_1_5_1.operators.quad_bake_mesh import make_quad_bake_mesh
+    col, props = _fresh_part()
+    bpy.ops.seamless.add_primitive(type='SPHERE')
+    core_bridge.update_cad_preview_forced(bpy.context)
+    d = core_bridge.get_core().quad_topology(int(col.seamless_cad_stack_ptr), 0.0025, True)
+    me, rep = make_quad_bake_mesh("QB_caps", d)
+    try:
+        assert rep.get("polar_caps") == 2, f"expected two polar caps: {rep.get('polar_caps')}"
+        sizes = [len(p.vertices) for p in me.polygons]
+        assert sizes.count(3) == 0 and max(sizes) == 4, f"sphere is not all quads: {sizes.count(3)} triangles"
+        assert max(len(v) for v in _vert_valences(me)) <= 6, "a pole of high valence is left"
+        uv = me.uv_layers.active.data
+        assert all(0.0 <= l.uv.x <= 1.0 and 0.0 <= l.uv.y <= 1.0 for l in uv), "UV outside the unit square"
+    finally:
+        bpy.data.meshes.remove(me)
+
+
+def _vert_valences(me):
+    links = [[] for _ in me.vertices]
+    for e in me.edges:
+        a, b = e.vertices
+        links[a].append(b)
+        links[b].append(a)
+    return links
+
+
 def t_quad_bake_coons_faces_are_grids():
     """Quad Bake P2: 4辺の曲面(球・トーラス・全辺フィレットの角)は Coons の格子。
     トーラスは全部 quad、球は極だけ三角形。体積誤差は 表面積 x tol 以内。"""
@@ -4198,6 +4228,7 @@ def main():
     check("quad bake is deterministic", t_quad_bake_is_deterministic)
     check("quad bake: ruled walls are quads", t_quad_bake_ruled_walls_are_quads)
     check("quad bake: coons faces are grids", t_quad_bake_coons_faces_are_grids)
+    check("quad bake: sphere polar caps", t_quad_bake_sphere_polar_caps)
     check("quad bake: radius classes share one ring", t_quad_bake_radius_classes_share_one_ring)
     check("quad bake: uniform cylinder rows", t_quad_bake_uniform_cylinder_rows)
     check("quad bake: uniform dense plane is a lattice", t_quad_bake_uniform_dense_plane_is_lattice)
