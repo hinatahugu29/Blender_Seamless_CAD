@@ -563,7 +563,7 @@ def _is_port_open(timeout=1.0):
 # ままだった。8.1.5.16 でカーネルに kernel_info を足したので、ここが動く。
 # Python だけ直した版のたびに3プラットフォームのカーネルを作り直さずに済む。
 # カーネルを変えたら、ここと src_rust/src/main.rs の KERNEL_BUILD を両方上げる。
-_EXPECTED_KERNEL_BUILD = "8.1.5.21"
+_EXPECTED_KERNEL_BUILD = "8.1.5.23"
 
 
 def query_kernel_info(timeout=_SERVER_PROBE_TIMEOUT):
