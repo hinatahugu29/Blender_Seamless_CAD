@@ -111,7 +111,15 @@ Darwin)
   # 「OS 付属でない絶対パスは全部同梱対象」という規則にして、出所を問わない。
   resolve() {
     case "$1" in
-      @rpath/*)             echo "$prefix/lib/${1#@rpath/}" ;;
+      # Homebrew libraries on newer runner images (macos-15) also point at
+      # their siblings via @rpath (freetype -> @rpath/libbrotlicommon), so
+      # @rpath is looked up in the Homebrew prefixes after OCCT's own lib.
+      @rpath/*)
+        n="${1#@rpath/}"
+        for d in "$prefix/lib" /opt/homebrew/lib /usr/local/lib; do
+          [ -f "$d/$n" ] && { echo "$d/$n"; return; }
+        done
+        echo "" ;;
       /usr/lib/*|/System/*) echo "" ;;   # OS 付属。同梱しない
       /*)                   echo "$1" ;; # prefix でも Homebrew でも同梱する
       *)                    echo "" ;;   # @loader_path 済み / @executable_path
