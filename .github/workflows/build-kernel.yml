@@ -34,6 +34,9 @@ env:
   # プラットフォーム間で版がずれると、Windows でしか出ない(あるいは
   # Windows でだけ出ない)不具合の切り分けが不可能になる。
   OCCT_CACHE_EPOCH: '2'
+  # macos-14 runners were retired (2026-11). Building on macos-15 must not
+  # raise the minimum macOS above what 8.1.5.22 shipped with.
+  MACOSX_DEPLOYMENT_TARGET: '14.0'
   ADDON_ROOT: Blender_CAD_V_8_1_5_1
   CAD_DIR: Blender_CAD_V_8_1_5_1/CAD_8_1_5_1
 
@@ -53,7 +56,7 @@ jobs:
             runner: ubuntu-22.04
             platform: linux
           - label: macos-arm64
-            runner: macos-14
+            runner: macos-15
             platform: macos
           # Intel Mac は当面対象外。macos-13 ランナーは順番が回ってこず
           # (30分以上待って着手すらしない)、修正のたびに同じ待ちが発生して
